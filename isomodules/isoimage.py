@@ -520,7 +520,7 @@ def update_disease_acronym_dictionary(mut, dis_acro_dict):
     """Add disease info to dict. for disease legend upon final write-out.
     In the process, 'dis_acro_dict' gets updated in-place.
     """
-    dis_acro = get_disease_acronym(mut.dis) # print out acronym of disease
+    dis_acro = get_disease_acronym(mut.dis) # print(out acronym of disease)
     dis_acro_dict[dis_acro] = mut.dis # add acronym key for legend
 
 def is_orfs_to_plot_a_list_or_set(orfs_to_plot):
@@ -685,7 +685,7 @@ def print_iso_char_image(orf1, orf2, scale=30):
                     second += '-'
         return first, second
 
-    # print out an intron-squeezed isoform representation
+    # print(out an intron-squeezed isoform representation)
     # start with lowest coord, ascend and set category
     i = 0 # current coordinate
     i_orf1 = 0 # current index of exon obj for orf1

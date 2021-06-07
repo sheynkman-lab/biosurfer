@@ -37,15 +37,15 @@ for i in range(100):
             frmr2 = isofeature.FrameResidue(frm_ord)
             map = isomap.Res_Featr_Mapping(res2, frmr2, grp=grp)
 
-    print grp.repr_orf.name
-    print grp.repr_orf.current_grp
-    print ''.join([res.aa for res in grp.repr_orf.res_chain])
-    print ''.join([str(res.map.featr.ord) if res.map else '-' for res in grp.repr_orf.res_chain])
-    print grp.other_orf.name
-    print grp.other_orf.current_grp
-    print ''.join([res.aa for res in grp.other_orf.res_chain])
-    print ''.join([str(res.map.featr.ord) if res.map else '-' for res in grp.other_orf.res_chain])
-    print '\n\n'
+    print(grp.repr_orf.name)
+    print(grp.repr_orf.current_grp)
+    print(''.join([res.aa for res in grp.repr_orf.res_chain]))
+    print(''.join([str(res.map.featr.ord) if res.map else '-' for res in grp.repr_orf.res_chain]))
+    print(grp.other_orf.name)
+    print(grp.other_orf.current_grp)
+    print(''.join([res.aa for res in grp.other_orf.res_chain]))
+    print(''.join([str(res.map.featr.ord) if res.map else '-' for res in grp.other_orf.res_chain]))
+    print('\n\n')
     grp.exit()
 
 

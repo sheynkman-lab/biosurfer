@@ -219,7 +219,7 @@ class AlignmentResidue(Alignment):
 ###############################################################################
 # Functions for finding aa splice alignments
 def print_splice_aligned_aa_chains(pair, display='aa_default', show_rfrm=False, abacus=False):
-    """Given two orf_obj, print out genome-coord-based nt/aa alignment (i.e.
+    """Given two orf_obj, print(out genome-coord-based nt/aa alignment (i.e.)
     AA splice alignment).
         Input:
             pair - list of two orf_obj
@@ -521,7 +521,7 @@ def get_nt_chain_string(all_coords, orf_coords):
                 else:
                     char = pos_obj.nt
             else:
-                print 'NoneType pos_obj in ' + pos_obj.orf.name
+                print('NoneType pos_obj in ' + pos_obj.orf.name)
         if not char:
             char = '-'
         ostr += char

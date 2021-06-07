@@ -529,7 +529,7 @@ def get_alnb_mapped_to_alnr_chain(alnr_chain):
         mapped_alnb.add(alnr.alnb)
     if len(mapped_alnb) > 1:
         pass
-        # print 'error - aln subblock maps to 2+ aln block ' + str(alnr.alnf)
+        # print('error - aln subblock maps to 2+ aln block ' + str(alnr.alnf))
     if len(mapped_alnb) == 0:
         print('no mapped alnb from alnr of an alnsb ' + str(alnr.alnf))
     return list(mapped_alnb)[0]

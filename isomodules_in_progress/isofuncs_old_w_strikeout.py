@@ -63,7 +63,7 @@ def create_var_objs(path_exac):
         Output:
             set of var_obj created from exac data
     """
-    print 'exac with liftover running...'
+    print('exac with liftover running...')
     # only do this once
     # subprocess.call('mac2unix {}'.format(path_exac), shell=True)
     # exac is based on hg19, so need to convert to hg38

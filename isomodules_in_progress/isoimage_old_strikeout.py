@@ -265,7 +265,7 @@ def verify_all_orfs_of_same_strand(gen_objs):
     # ensure all strands of same direction, otherwise throw error
     repr_gen_obj = list(gen_objs)[0]
     if not all_genes_with_same_strand(gen_objs):
-        print 'iso-image renderer given two orfs of different strand, did not render: ' + repr_gen_obj.name
+        print('iso-image renderer given two orfs of different strand, did not render: ' + repr_gen_obj.name)
         # raise UserWarning('gen_obj set input to render isoimage of different strand' + repr_gen_obj.name)
 
 
@@ -397,7 +397,7 @@ def update_disease_acronym_dictionary(mut, dis_acro_dict):
     """Add disease info to dict. for disease legend upon final write-out.
     In the process, 'dis_acro_dict' gets updated in-place.
     """
-    dis_acro = get_disease_acronym(mut.dis) # print out acronym of disease
+    dis_acro = get_disease_acronym(mut.dis) # print(out acronym of disease)
     dis_acro_dict[dis_acro] = mut.dis # add acronym key for legend
 
 def is_orfs_to_plot_a_list_or_set(orfs_to_plot):
@@ -580,7 +580,7 @@ def render_iso_image(orfs_to_plot, mode='all', dname='x_isoimages',
     header_line = line # save y-axis position of header, to go back and write partners
     line -= spacing/2.0
 
-    # if isoform_matrix object passed in, print partner labels
+    # if isoform_matrix object passed in, print(partner labels)
     # partner labels sorted by orfid, but genename is rendered
     # keep track of the 'anchor gene' (the gene on DB side that is the base
     # for the isoform matrix)
@@ -745,7 +745,7 @@ def print_iso_char_image(orf1, orf2, scale=30):
                     second += '-'
         return first, second
 
-    # print out an intron-squeezed isoform representation
+    # print(out an intron-squeezed isoform representation)
     # start with lowest coord, ascend and set category
     i = 0 # current coordinate
     i_orf1 = 0 # current index of exon obj for orf1
@@ -781,5 +781,5 @@ def print_iso_char_image(orf1, orf2, scale=30):
         size = downsample_block(len(block), scale)
         shrunk_blocks.append(cat*size)
     first, second = convert_blocks_to_iso_chains(blocks, scale)
-    print first
-    print second
+    print(first)
+    print(second)
