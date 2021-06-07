@@ -25,11 +25,13 @@ data_dir = "/home/redox/sheynkman-lab/gencode"
 
 # filepaths
 path_chr22_gtf = os.path.join(data_dir, "chr22.gtf")
+path_chr22_fa = os.path.join(data_dir, "chr22.fa")
 path_transcripts_fa = os.path.join(data_dir, "gencode.v38.pc_transcripts.fa")
 path_hg38_fa = os.path.join(data_dir, 'GRCh38.primary_assembly.genome.fa')
 
 # load data
 orf_seqs = isofunc.gc_fasta_to_orf_seq_dict(path_transcripts_fa)
+chr22_dict = isofunc.load_hg38(path_chr22_fa)
 # hg38_dict = isofunc.load_hg38(path_hg38_fa)
 # domains = isofunc.load_domain_mappings(path_pfam_gc, path_pfam_names)
 # aln_data = isofunc.load_clustal_alignments(path_gc_aln)
@@ -71,6 +73,8 @@ gd = d_gc_w_seqs_w_juncs_w_doms  # gen_obj dict
 genes = ['MAPK1', 'MAPK12']
 d_gc = isocreate.init_gen_obj_gc(path_chr22_gtf, gene_list=genes)
 d_gc_w_seqs = isocreate.create_and_link_seq_related_obj(d_gc, orf_seqs)
+d_gc_w_seqs_w_juncs = isocreate.create_and_link_junct_and_ss_objs(d_gc_w_seqs, chr22_dict)
+gd = d_gc_w_seqs_w_juncs
 
 # %%
 

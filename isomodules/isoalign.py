@@ -20,6 +20,10 @@ class Alignment():
     @property
     def grp(self):
         return self.alnf.grp
+    
+    # @grp.setter
+    # def grp(self, grp):
+    #     self.alnf.grp = grp
 
     def __repr__(self):
         # previously, had the isoalign obj. name
