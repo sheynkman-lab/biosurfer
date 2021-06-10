@@ -17,9 +17,9 @@ class Alignment():
         self.other_obj = other_obj
         self.update_ref_to_this_aln_in_objs()
 
-    @property
-    def grp(self):
-        return self.alnf.grp
+    # @property
+    # def grp(self):
+    #     return self.alnf.grp
     
     # @grp.setter
     # def grp(self, grp):
@@ -157,6 +157,7 @@ class AlignmentProteinBlock(Alignment):
     def __init__(self, cat, alnf, alnbs):
         self.cat = cat  # aln type, see notes above
         self.alnf = alnf  # ref. to the full align (length of orf)
+        self.grp = self.alnf.grp
         # self.first -> property
         # self.last -> property
         self.blocks = alnbs
@@ -284,6 +285,7 @@ class AlignmentSubblock(Alignment):
         # self.other_cds -> property
         # self.cds2 -> property, syn. of other_cds
         self.alnf = alnf
+        self.grp = self.alnf.grp
         self.alnpb = None  # updated upon isoalign creation
         self.alnb = None  # update with mother alignment block
         # self.first -> property
@@ -373,6 +375,7 @@ class AlignmentResidue(Alignment):
         # self.other_res -> property
         # self.res2 -> property, syn of other_res
         self.alnf = alnf
+        self.grp = self.alnf.grp
         self.alnpb = None  # updated during isoalign creation
         self.alnb = None  # see above
         self.alnsb = None  # see above
