@@ -63,7 +63,8 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
         orf_name = retrieve_orf_name(orf)
         orfid = retrieve_orfid_if_exists(orf)
         label = orf_name
-        ax.text(sp[0], line, isoform_display_name(label), va='center') # write-out orfname
+        # label = isoform_display_name(orf_name)
+        ax.text(sp[0], line, label, va='center') # write-out orfname
         intron_start, intron_end, intron_line = get_intron_plot_coordinates(orf, comp, line, height)
         ax.add_line(mlines.Line2D([intron_start, intron_end], [intron_line, intron_line], lw=1.5, color='k', ls='--', dashes=(1,1.2), zorder=1))
         max_x = update_figure_range(max_x, intron_end)
