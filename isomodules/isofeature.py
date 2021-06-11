@@ -113,7 +113,7 @@ class FeatureBlock(Feature):
 
     def link_up_parent_child_references(self):
         """Set upper (frmf) and lower (frmr) references."""
-        # TODO - check if correct code, b/c transferred from isocreatefeat.py
+        # TODO: - check if correct code, b/c transferred from isocreatefeat.py
         self.frmf.blocks.append(self)
         for frmr in self.chain:
             frmr.featb = self
@@ -165,7 +165,7 @@ class FeatureSubblock(Feature):
         return '{} {}-{}'.format(self.cds, self.first.res.idx, self.last.res.idx)
 
     def link_up_parent_child_references(self):
-        # TODO - check that function works, moved from isocreatefeat.py to here
+        # TODO: - check that function works, moved from isocreatefeat.py to here
         # on 200503
         """Update upwer/lower references."""
         self.featf.subblocks.append(self)
@@ -299,7 +299,7 @@ class FrameFull(FeatureFull):
         frm_str = ''.join([frmr.cat for frmr in self.chain]) # frame (1,2,3)
         stat_str = ''.join([frmr.status for frmr in self.chain]) # inferred stat.
         return aa_str + '\n' + frm_str + '\n'  + stat_str
-        # TODO - code a string representation of a frame object
+        # TODO: - code a string representation of a frame object
         # options - frame for every AA in orf_obj
         #           coordinate range for frame block
 
@@ -333,7 +333,7 @@ class FrameResidue(FeatureResidue):
         if status == '1': return 'f'
         raise Warning('invalid frame reasidue status, needs to be 0 or 1')
 
-# TODO - write code for other feature types, such as ISRs
+# TODO: - write code for other feature types, such as ISRs
 
 #
 # # ******************
@@ -446,7 +446,7 @@ class FrameResidue(FeatureResidue):
 #                 st_idx = en_idx + 1
 #             return isr_ranges
 #
-#         #TODO - combine common elements of ORF.set_domain_exon_mappings and ORF_Group.set_isr_exon_mappings
+#         #TODO: - combine common elements of ORF.set_domain_exon_mappings and ORF_Group.set_isr_exon_mappings
 #         def set_isr_exon_mappings(orf):
 #             """For each isr, encode isr-exon mappings through a Mapping object.
 #             Note: code similar to set_domain_exon_mappings under ORF class."""

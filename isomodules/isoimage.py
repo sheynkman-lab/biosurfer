@@ -93,7 +93,7 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
                 ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=4, joinstyle='round', alpha=alpha_val))
             max_x = update_figure_range(max_x, (x+blength))
             # render features (domains or isrs)
-            # TODO - debug, now that I redesigned features, exon doesn't have 'maps'
+            # TODO: - debug, now that I redesigned features, exon doesn't have 'maps'
             # for m in exon.maps:
             #     fx, flen = get_feature_ranges(m, comp)
             #     if m.feat.cat == 'isr': # isrs as hatch marks
@@ -109,7 +109,8 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
     max_y = line - spacing
     max_x = max_x + abs(sp[0]) # adjust for sp[0] plotted
 
-    # TODO - return dict mapping ORF name to list of rectangles (exons)
+    # TODO: - return dict mapping ORF name to list of rectangles (exons)
+    
 
 
 def render_pair_align_image(align_group):
@@ -117,7 +118,7 @@ def render_pair_align_image(align_group):
     """
 
     render_iso_image([align_group.anchor_orf, align_group.other_orf])
-    # TODO - use render_iso_image dict to edit each rectangle
+    # TODO: - use render_iso_image dict to edit each rectangle
 
 def grab_gen_objs_from_orfs(orfs):
     return set([orf.gene for orf in orfs])
@@ -189,11 +190,11 @@ def get_lowest_coord_of_genes(gen_objs):
     Input:
     gen_objs - set of gen_objs"""
     repr_gen_obj = next(iter(gen_objs))
-    #TODO - deal with cases where overlapping gene on diff. strands (rare though)
+    #TODO: - deal with cases where overlapping gene on diff. strands (rare though)
     if repr_gen_obj.strand == '+':
         # don't trust the gen_obj start b/c sometimes combine gc and pb gene and they have different starts
         lowest_start = 100000000000000
-        #TODO - ensure it is ok that we only look at exon coords (not cds) coords to derive lowest coord
+        #TODO: - ensure it is ok that we only look at exon coords (not cds) coords to derive lowest coord
         exons = gather_exons_and_cds_of_genes(gen_objs)
         for exon in exons:
             if exon.start < lowest_start:
@@ -228,7 +229,7 @@ def adjust_exon_coords_to_make_ascending(gen_objs):
     If negative strand, convert exon absolute start/end coords to inverted coords.
     e.g. 2-5, 10-13, 20-25 will become 1-6, 13-16, 21-24
     Adjusted values saved to start_adj and end_adj"""
-    #TODO - should I add method to in this func to check all genes are same strand?, as of now it is in another place
+    #TODO: - should I add method to in this func to check all genes are same strand?, as of now it is in another place
     exons = gather_exons_and_cds_of_genes(gen_objs)
     g = list(gen_objs)[0] # repr gen_obj in set
     if g.strand == '-':
@@ -386,7 +387,7 @@ def get_orf_color(orf):
     return col
 
 
-#TODO - make alpha values more extreme
+#TODO: - make alpha values more extreme
 def get_abs_frm_specific_alpha_values_if_option_set(exon, render_abs_frm):
     # if abs_frm option on, set alpha values at three shades based on abs. frm
     if render_abs_frm:
@@ -504,7 +505,7 @@ def verify_orf_has_rel_start_end(orf):
         raise UserWarning('orf.rel_start/end = None:', orf.name, orf.get_exon_ranges()) # found issue when both pos and neg strand orf part of gene
 
 
-#TODO - check for accuracy of the function
+#TODO: - check for accuracy of the function
 def get_mutation_coords(pos, comp, mut_adjust, line, plotted):
     """Determine mutation coordinates.  Return coord. for plotting of lollipops.
     """

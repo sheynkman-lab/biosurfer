@@ -36,7 +36,7 @@ class Biomolecule():
         self.frms = set()
         self.isrs = set()
 
-    #TODO - determine what the setter is for - had errored out when
+    #TODO: - determine what the setter is for - had errored out when
     # calling ORF.chrom and ORF.strand when it was from Gencode Gene
     @property
     def chrom(self):
@@ -850,7 +850,7 @@ class Junction(Biomolecule):
     @property
     def is_canon(self):
         """Determine if splicesites are canonical (e.g. GTAG or GCAG)."""
-        # TODO - possible bug - if dinuc. canon. but whole site not canon.
+        # TODO: - possible bug - if dinuc. canon. but whole site not canon.
         if self.up_ss.is_canon and self.dn_ss.is_canon:
             return True
         return False

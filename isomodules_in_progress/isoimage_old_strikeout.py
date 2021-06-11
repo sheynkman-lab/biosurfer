@@ -58,11 +58,11 @@ def get_lowest_coord_of_genes(gen_objs):
     Input:
     gen_objs - set of gen_objs"""
     repr_gen_obj = next(iter(gen_objs))
-    #TODO - deal with cases where overlapping gene on diff. strands (rare though)
+    #TODO: - deal with cases where overlapping gene on diff. strands (rare though)
     if repr_gen_obj.strand == '+':
         # don't trust the gen_obj start b/c sometimes combine gc and pb gene and they have different starts
         lowest_start = 100000000000000
-        #TODO - ensure it is ok that we only look at exon coords (not cds) coords to derive lowest coord
+        #TODO: - ensure it is ok that we only look at exon coords (not cds) coords to derive lowest coord
         exons = gather_exons_and_cds_of_genes(gen_objs)
         for exon in exons:
             if exon.start < lowest_start:
@@ -109,7 +109,7 @@ def adjust_exon_coords_to_make_ascending(gen_objs):
     If negative strand, convert exon absolute start/end coords to inverted coords.
     e.g. 2-5, 10-13, 20-25 will become 1-6, 13-16, 21-24
     Adjusted values saved to start_adj and end_adj"""
-    #TODO - should I add method to in this func to check all genes are same strand?, as of now it is in another place
+    #TODO: - should I add method to in this func to check all genes are same strand?, as of now it is in another place
     exons = gather_exons_and_cds_of_genes(gen_objs)
     g = list(gen_objs)[0] # repr gen_obj in set
     if g.strand == '-':
@@ -334,7 +334,7 @@ def get_orf_color(orf):
     return col
 
 
-#TODO - make alpha values more extreme
+#TODO: - make alpha values more extreme
 def get_abs_frm_specific_alpha_values_if_option_set(exon, render_abs_frm):
     # if abs_frm option on, set alpha values at three shades based on abs. frm
     if render_abs_frm:
@@ -370,7 +370,7 @@ def get_feature_ranges(m, comp):
     return fx, flen
 
 
-#TODO - check for accuracy of the function
+#TODO: - check for accuracy of the function
 def get_mutation_coords(pos, comp, mut_adjust, line, plotted):
     """Determine mutation coordinates.  Return coord. for plotting of lollipops.
     """
@@ -560,7 +560,7 @@ def render_iso_image(orfs_to_plot, mode='all', dname='x_isoimages',
     gen_objs = grab_gen_objs_from_orfs(orfs_to_plot) # all gen_objs into a set
     verify_all_orfs_of_same_strand(gen_objs)
     compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_objs, orfs_to_plot, intron_spacing)
-    #TODO - fix bug to report the subtle splice for the smallest delta
+    #TODO: - fix bug to report the subtle splice for the smallest delta
     find_and_set_subtle_splicing_status(orfs_to_plot, subtle_threshold) # determine if subtle splicing exists
 
     # determine right extremes of orfs, to determine position to start plotting colonies
@@ -660,7 +660,7 @@ def render_iso_image(orfs_to_plot, mode='all', dname='x_isoimages',
             # render mutations
             if has_muts:
                 for pos in exon.chain:
-                    # if pos.muts: #TODO - check if this can be deleted
+                    # if pos.muts: #TODO: - check if this can be deleted
                     for mut in pos.muts:
                         mstart, mline, mut_space = get_mutation_coords(pos, mut_adjust, line, plotted)
                         col = get_mut_color(mut)

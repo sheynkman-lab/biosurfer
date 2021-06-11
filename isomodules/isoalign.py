@@ -180,7 +180,7 @@ class AlignmentProteinBlock(Alignment):
 
     @property
     def subblocks(self):
-        # TODO - check
+        # TODO: - check
         alnsbs = []
         for alnb in self.blocks:
             for alnsb in alnb.subblocks:
@@ -213,12 +213,12 @@ class AlignmentProteinBlock(Alignment):
         return ''.join([res.aa for res in self.res_chain2])
 
     def __repr__(self):
-        # TODO
+        # TODO:
         return '<AlignmentProteinBlock>'
 
     def update_references_to_parent_and_child_objects(self):
         # set lower rand upper references
-        # TODO - check if works, transferred from isocreatealign
+        # TODO: - check if works, transferred from isocreatealign
         self.alnf.protblocks.append(self)
         for alnb in self.blocks:
             alnb.alnpb = self
@@ -267,7 +267,7 @@ class AlignmentBlock(Alignment):
 
     def update_references_to_parent_and_child_objects(self):
         # set lower and upper references
-        # TODO - check if works, transferred from isocreatealign
+        # TODO: - check if works, transferred from isocreatealign
         self.alnf.blocks.append(self)
         for alnr in self.chain:
             alnr.alnb = self
@@ -338,7 +338,7 @@ class AlignmentSubblock(Alignment):
 
     def update_references_to_parent_and_child_objects(self):
         """Grab the alnb associated with this alnsb and link up refs."""
-        # TODO - check for correctness
+        # TODO: - check for correctness
         alnb = self.get_alnb_mapped_to_alnr_chain(self.chain)
         self.alnb = alnb
         alnb.subblocks.append(self)
@@ -382,7 +382,7 @@ class AlignmentResidue(Alignment):
 
     @property
     def idx(self):
-        # TODO - test
+        # TODO: - test
         return self.alnf.chain.index(self) + 1
 
     @property
