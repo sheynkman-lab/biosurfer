@@ -61,12 +61,11 @@ hmg20b_repr = hmg20b.repr_orf
 hmg20b_other = hmg20b['HMG20B-201']
 aln_grp = isocreatealign.create_and_map_splice_based_align_obj([[hmg20b_repr, hmg20b_other]])[0]
 
-print(aln_grp.alnf.full)
+print(aln_grp.alnf.full)  # why doesn't the frameshift for exon 3 show up?...
 display(aln_grp.alnf.blocks)
-display(aln_grp.alnf.protblocks)
+# display(aln_grp.alnf.protblocks)
 
 # %%
 reload(isoimage)
-isoimage.render_iso_image([hmg20b[f'HMG20B-{o}'] for o in ['202', '201']])
-
+isoimage.render_pair_align_image(aln_grp)
 # %%

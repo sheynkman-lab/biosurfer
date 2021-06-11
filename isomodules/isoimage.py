@@ -59,7 +59,8 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
     line -= spacing/2.0
 
     # workhorse loop to plot orfs and features
-    for orf in sort_orfs_by_plot_order(orfs_to_plot):
+    # for orf in sort_orfs_by_plot_order(orfs_to_plot):
+    for orf in orfs_to_plot:
         orf_name = retrieve_orf_name(orf)
         orfid = retrieve_orfid_if_exists(orf)
         label = orf_name
@@ -108,6 +109,15 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
     max_y = line - spacing
     max_x = max_x + abs(sp[0]) # adjust for sp[0] plotted
 
+    # TODO - return dict mapping ORF name to list of rectangles (exons)
+
+
+def render_pair_align_image(align_group):
+    """Render iso-image for a pairwise alignment of ORFs.
+    """
+
+    render_iso_image([align_group.anchor_orf, align_group.other_orf])
+    # TODO - use render_iso_image dict to edit each rectangle
 
 def grab_gen_objs_from_orfs(orfs):
     return set([orf.gene for orf in orfs])

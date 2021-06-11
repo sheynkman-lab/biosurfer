@@ -131,6 +131,7 @@ def set_coords(pair, elected_abacus_option):
     """
     for orf in pair:
         for res in orf.res_chain:
+            # TODO - can we move 'coord_v2' attr into the Position class?
             res.p1.coord_v2 = res.p1.coord
             res.p2.coord_v2 = res.p2.coord
             res.p3.coord_v2 = res.p3.coord
