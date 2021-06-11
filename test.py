@@ -1,4 +1,5 @@
 # %%
+from IPython.display import display
 import os
 from imp import reload
 from isomodules import isocreate
@@ -52,13 +53,20 @@ gd = isocreate.create_and_link_junct_and_ss_objs(gd, chr_dict)
 # 	print(gene.orfs)
 
 # %%
-hmg20b = gd['HMG20B']
-hmg20b_aln = isocreatealign.create_and_map_splice_based_align_obj(hmg20b.orf_pairs)
+reload(isocreatealign)
+reload(isoalign)
 
-for alng in hmg20b_aln:
-	print(alng.alnf.full)
-	break
+hmg20b = gd['HMG20B']
+hmg20b_repr = hmg20b.repr_orf
+hmg20b_other = hmg20b['HMG20B-201']
+aln_grp = isocreatealign.create_and_map_splice_based_align_obj([[hmg20b_repr, hmg20b_other]])[0]
+
+print(aln_grp.alnf.full)
+display(aln_grp.alnf.blocks)
+display(aln_grp.alnf.protblocks)
 
 # %%
 reload(isoimage)
-isoimage.render_iso_image(list(gd[genes[0]].orfs))
+isoimage.render_iso_image([hmg20b[f'HMG20B-{o}'] for o in ['202', '201']])
+
+# %%

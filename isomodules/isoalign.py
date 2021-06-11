@@ -111,7 +111,7 @@ class AlignmentFull(Alignment):
         aa1 = ''.join([alnr.res1.aa for alnr in self.chain])
         aa2 = ''.join([alnr.res2.aa for alnr in self.chain])
         frm2 = ''.join([alnr.res2.rfrm for alnr in self.chain])
-        frm2 = frm2.replace('1', ' ').replace('-', ' ').replace('*', ' ')
+        # frm2 = frm2.replace('1', ' ').replace('-', ' ').replace('*', ' ')
         aln_chain = ''.join([alnr.alnpb.cat for alnr in self.chain])
         ostr = ('{gene} {strand}\n{orf1:16s} AA:{aa1}\n{orf2:16s} AA:{aa2}\n'
                 '                 FM:{frm2}\n'
@@ -212,10 +212,9 @@ class AlignmentProteinBlock(Alignment):
     def aa2(self):
         return ''.join([res.aa for res in self.res_chain2])
 
-    @property
     def __repr__(self):
         # TODO
-        pass
+        return '<AlignmentProteinBlock>'
 
     def update_references_to_parent_and_child_objects(self):
         # set lower rand upper references
