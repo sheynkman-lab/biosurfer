@@ -58,6 +58,9 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
     header_line = line # save y-axis position of header, to go back and write partners
     line -= spacing/2.0
 
+    # initialize dict mapping each orf to list of plotted rectangles
+    rect_dict = {orf.name: [] for orf in orfs_to_plot}
+
     # workhorse loop to plot orfs and features
     # for orf in sort_orfs_by_plot_order(orfs_to_plot):
     for orf in orfs_to_plot:
@@ -90,7 +93,9 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
             if exon.cds:
                 x, y, blength, bheight = get_exon_plot_coordinates(exon.cds, comp, height, line, cds=True)
                 ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc='w', zorder=3, joinstyle='round')) # base layer so 'alpha' diff for 3 diff frm isn't show-through
-                ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=4, joinstyle='round', alpha=alpha_val))
+                exon_rect = mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=4, joinstyle='round', alpha=alpha_val)
+                ax.add_patch(exon_rect)
+                rect_dict[orf.name].append(exon_rect)
             max_x = update_figure_range(max_x, (x+blength))
             # render features (domains or isrs)
             # TODO: - debug, now that I redesigned features, exon doesn't have 'maps'
@@ -109,16 +114,18 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
     max_y = line - spacing
     max_x = max_x + abs(sp[0]) # adjust for sp[0] plotted
 
-    # TODO: - return dict mapping ORF name to list of rectangles (exons)
-    
+    return rect_dict
 
 
 def render_pair_align_image(align_group):
     """Render iso-image for a pairwise alignment of ORFs.
     """
 
-    render_iso_image([align_group.anchor_orf, align_group.other_orf])
-    # TODO: - use render_iso_image dict to edit each rectangle
+    rect_dict = render_iso_image([align_group.anchor_orf, align_group.other_orf])
+    rects = rect_dict[align_group.other_orf.name]
+    for exon, rect in zip(align_group.other_orf.exons, rects):
+        # TODO: - modify rect based on whether exon is frameshifted
+        rect.set_hatch("xx")
 
 def grab_gen_objs_from_orfs(orfs):
     return set([orf.gene for orf in orfs])
