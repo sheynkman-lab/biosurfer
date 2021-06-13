@@ -4,10 +4,91 @@
 import os
 import math
 import operator
+from abc import ABC, abstractclassmethod, abstractmethod
+from dataclasses import dataclass
+from typing import Literal
 # writing isoimage to write-out to matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
+
+class IsoformPlot:
+    """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
+    def __init__(self, orfs_to_plot, **kwargs):
+        self.orfs = list(orfs_to_plot)  # list of orf objects to be drawn
+        self.tracks = {orf.name: [] for orf in self.orfs}  # dict mapping each orf to list of FeatureArtists
+        self.ax = None
+        self.opts = IsoformPlotOptions(**kwargs)
+    
+    def draw(self):
+        """Plot all orfs."""
+        # process orfs to get ready for plotting
+        gen_obj = grab_gen_objs_from_orfs(self.orfs) # all gen_objs into a set
+        verify_only_one_gen_obj_represented(gen_obj)
+        verify_all_orfs_of_same_strand(self.orfs)
+        compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj, self.orfs, self.opts.intron_spacing)
+        find_and_set_subtle_splicing_status(self.orfs, self.opts.subtle_threshold)
+        
+        repr_orf = get_repr_orf(self.orfs)
+
+        # initialize matplotlib fig and axes objects and parameters
+        max_x, min_y = 0, 0 # track abs figsize (to correctly proportion plot)
+        if self.ax is None:
+            self.ax = plt.gca()
+        if not self.ax.yaxis_inverted():
+            self.ax.invert_yaxis()
+
+        for i, orf in enumerate(self.orfs):
+            self.draw_orf(orf, i)
+    
+    def draw_orf(self, orf, track):
+        """Plot a single orf in the given track."""
+
+        # plot orf name
+        orfid = retrieve_orfid_if_exists(orf)
+        label = retrieve_orf_name(orf)
+        self.ax.text(self.opts.label_x, track+0.5, label, va='center')
+
+
+PLOTMODE = Literal['all', 'cds']
+@dataclass
+class IsoformPlotOptions:
+    """Bundles various options for adjusting plots made by IsoformPlot."""
+    compress: float = 300.0
+    height: float = 0.1
+    intron_spacing: int = 30
+    label_x: float = -1.5
+    mode: PLOTMODE = 'all'
+    show_abs_frame: bool = False
+    spacing: float = 0.5
+    subtle_threshold: int = 20
+
+
+class FeatureArtist(ABC):
+    """Abstract class for drawing features within a specific isoform track."""
+    def __init__(self, opts: IsoformPlotOptions, y: float):
+        self.opts = opts
+        self.y = y
+    
+    def get_plot_coords():
+        pass
+
+    @abstractmethod
+    def draw(self):
+        pass
+
+
+class RectArtist(FeatureArtist):
+    """Encapsulates methods for drawing a feature as a rectangle."""
+    def draw(self, xcoords, height, facecolor='tab:1', edgecolor='k'):
+        rect_pos = [xcoords[0], self.y - height/2]
+        length = xcoords[1] - xcoords[0]
+        return mpatches.Rectangle(
+            rect_pos, length, height,
+            ec=edgecolor, fc=facecolor,
+            lw=1, joinstyle='round',
+            zorder=1.5
+        )
 
 
 def isoform_display_name(s):
@@ -51,6 +132,8 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
     compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj,
                                                 orfs_to_plot, intron_spacing)
     find_and_set_subtle_splicing_status(orfs_to_plot, subtle_threshold)
+
+    # TODO: encapsulate plotting code into FeatureArtist class
 
     # plot gene info and header lines
     repr_orf = get_repr_orf(orfs_to_plot)
@@ -109,7 +192,7 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
         line -= spacing
     line += spacing
 
-    ax.axis('off')
+    # ax.axis('off') FIXME: uncomment
     ax.axis('image')
     max_y = line - spacing
     max_x = max_x + abs(sp[0]) # adjust for sp[0] plotted
@@ -121,10 +204,10 @@ def render_pair_align_image(align_group):
     """Render iso-image for a pairwise alignment of ORFs.
     """
 
+    # TODO: instead of modifying exon rects, draw new rects over segments of exons w/ rel frameshift
     rect_dict = render_iso_image([align_group.anchor_orf, align_group.other_orf])
     rects = rect_dict[align_group.other_orf.name]
     for exon, rect in zip(align_group.other_orf.exons, rects):
-        # TODO: - modify rect based on whether exon is frameshifted
         rect.set_hatch("xx")
 
 def grab_gen_objs_from_orfs(orfs):
@@ -339,8 +422,8 @@ def retrieve_orfid_if_exists(orf):
 def get_intron_plot_coordinates(orf, comp, line, height):
     # derive the intron start and end
     verify_orf_has_rel_start_end(orf)
-    intron_start = (orf.rel_start)/float(comp)
-    intron_end = (orf.rel_end - orf.rel_start)/float(comp) + intron_start
+    intron_start = (orf.rel_start)/comp
+    intron_end = (orf.rel_end - orf.rel_start)/comp + intron_start
     intron_line = line + height/2.0
     return intron_start, intron_end, intron_line
 
@@ -374,11 +457,11 @@ def get_exon_plot_coordinates(block, comp, height, line, cds=False):
     else:
         n = 2
         block_length = len(block.exon.aa_seq)
-    x = block.rel_start/float(comp)
+    x = block.rel_start/comp
     y = line
     if cds:
         y -= height/2.0
-    blength = block_length/float(comp) # block length
+    blength = block_length/comp # block length
     bheight = height * n # block height
     return x, y, blength, bheight
 
@@ -425,8 +508,8 @@ def retrieve_subtle_splice_amounts(exon_cds):
 
 def get_feature_ranges(m, comp):
     """Relative to the exon, get the domain ranges."""
-    fx = x - 1/float(comp) + m.exon_start/float(comp) # feature x-pos
-    flen = (m.exon_end - m.exon_start)/float(comp) # feature length
+    fx = x - 1/comp + m.exon_start/comp # feature x-pos
+    flen = (m.exon_end - m.exon_start)/comp # feature length
     return fx, flen
 
 
@@ -516,7 +599,7 @@ def verify_orf_has_rel_start_end(orf):
 def get_mutation_coords(pos, comp, mut_adjust, line, plotted):
     """Determine mutation coordinates.  Return coord. for plotting of lollipops.
     """
-    mstart = x - 1/float(comp) + pos.ridx/float(comp)
+    mstart = x - 1/comp + pos.ridx/comp
     mline = line + mut_adjust
     mut_space = 0
     mut_space = find_nonoverlapping_height(mstart, mline, plotted)

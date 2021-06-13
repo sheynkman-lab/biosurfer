@@ -78,6 +78,9 @@ display(aln_grp.alnf.blocks)
 # display(aln_grp.alnf.protblocks)
 
 # %%
-reload(isoimage)
+from isomodules.isoimage import IsoformPlot, RectArtist
+
 isoimage.render_pair_align_image(aln_grp)
+
+plt = IsoformPlot(aln_grp.orfs)
 # %%
