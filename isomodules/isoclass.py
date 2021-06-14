@@ -97,18 +97,21 @@ class Biomolecule():
                 return ptm 
         return None
 
+    # @property
+    # def frm(self):
+    #     """Return a single frm_obj corresponding to the 'active' frm_obj."""
+    #     current_feat = self.orf.current_feat
+    #     for frm in self.frms:
+    #         if frm.featf == current_feat:
+    #             return frm
+    #     return None
     @property
     def frm(self):
-        """Return a single frm_obj corresponding to the 'active' frm_obj."""
-        current_feat = self.orf.current_feat
-        for frm in self.frms:
-            if frm.featf == current_feat:
-                return frm
-        return None
+        return self._frm
 
     @frm.setter
     def frm(self, frm_value):
-        self.__frm = frm_value
+        self._frm = frm_value
 
 
 

@@ -361,7 +361,7 @@ def set_rfrm_of_pos_in_orf(all_coords, orf1_coords, orf2_coords, pair):
             other_pos.rfrm = '*'
 
 def calc_rfrm(anchor_frm, other_frm):
-    if anchor_frm == other_frm:
+    if anchor_frm == other_frm and anchor_frm != None:
         return 1
     elif (anchor_frm, other_frm) in ((0, 2), (1, 0), (2, 1)):
         return 2
