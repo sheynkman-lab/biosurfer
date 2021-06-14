@@ -213,7 +213,7 @@ class AlignmentProteinBlock(Alignment):
         return ''.join([res.aa for res in self.res_chain2])
 
     def __repr__(self):
-        # TODO:
+        # FIXME:
         return '<AlignmentProteinBlock>'
 
     def update_references_to_parent_and_child_objects(self):
