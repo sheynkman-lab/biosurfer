@@ -12,9 +12,18 @@ import math
 from collections import Counter
 from collections import defaultdict
 import itertools
+from typing import TYPE_CHECKING, List, Set, Literal, Optional
+if TYPE_CHECKING:
+    from isomodules.isoalign import Alignment
+    from isomodules.isogroup import Group
+    from isomodules.isofeature import Feature
+
+Strand = Literal['+', '-']
+Nucleotide = Literal['A', 'C', 'G', 'T']
+Frame = Literal[0, 1, 2, 3]  # should we standardize to (0,1,2) or (1,2,3)?
 
 """Note - three core assumptions of all isoforms per gene:
-          1) are protein-codng
+          1) are protein-codng 
           2) have good alignments to the genome
           3) are of the same strand
 """
@@ -39,29 +48,29 @@ class Biomolecule():
     #TODO: - determine what the setter is for - had errored out when
     # calling ORF.chrom and ORF.strand when it was from Gencode Gene
     @property
-    def chrom(self):
+    def chrom(self) -> str:
         if hasattr(self, 'gene'):
             return self.gene.chrom
         else:
             return self._chrom
 
     @chrom.setter
-    def chrom(self, value):
+    def chrom(self, value: str):
         self._chrom = value
 
     @property
-    def strand(self):
+    def strand(self) -> Strand:
         if hasattr(self, 'gene'):
             return self.gene.strand
         else:
             return self._strand
 
     @strand.setter
-    def strand(self, value):
+    def strand(self, value: Strand):
         self._strand = value
 
     @property
-    def len(self):
+    def len(self) -> int:
         return len(self.seq)
 
     def __repr__(self):
@@ -71,7 +80,7 @@ class Biomolecule():
         return len(self.seq)
 
     @property
-    def aln(self):
+    def aln(self) -> Optional['Alignment']:
         """Return a single aln_obj corresponding to the 'active' group."""
         current_grp = self.orf.current_grp
         for aln in self.alns:
@@ -106,11 +115,11 @@ class Biomolecule():
     #             return frm
     #     return None
     @property
-    def frm(self):
+    def frm(self) -> Frame:
         return self._frm
 
     @frm.setter
-    def frm(self, frm_value):
+    def frm(self, frm_value: Frame):
         self._frm = frm_value
 
 
@@ -122,7 +131,7 @@ class Gene(Biomolecule):
        Assume biotype is 'protein_coding'. Assume all sub-obj. same strand.
        cat, start, and end are attr required to be set by Sub class.
     """
-    def __init__(self, name, chrom, strand):
+    def __init__(self, name: str, chrom: str, strand: Strand):
         # self.cat -> defined in sub class, category of "Gene"
         self.name = name  # symbol
         self.chrom = chrom  # chr1, chr2, etc.
@@ -131,7 +140,7 @@ class Gene(Biomolecule):
         # self.end -> defined in sub class, right-most pos
         # self.first -> property, up-most pos among orfs
         # self.last -> property, dn-most pos among orfs
-        self.orfs = set()
+        self.orfs: Set["ORF"] = set()
         # self.exons = set() -> property
         # self.poss = set() -> property
         # self.cdss = set() -> property
@@ -139,7 +148,7 @@ class Gene(Biomolecule):
         Biomolecule.__init__(self)
 
     @property
-    def first(self):
+    def first(self) -> 'Position':
         """Upstream-most pos_obj, among all orfs in gene.
            When multi. pos_obj same upstream coord, report one random.
         """
@@ -153,7 +162,7 @@ class Gene(Biomolecule):
         return first
 
     @property
-    def last(self):
+    def last(self) -> 'Position':
         """Downstream-most pos_obj, among all orfs in gene.
            When multi. pos_obj same downstream coord, report one random.
         """
@@ -167,7 +176,7 @@ class Gene(Biomolecule):
         return last
 
     @property
-    def exons(self):
+    def exons(self) -> Set['Exon']:
         """Return all exons assoc. with gene."""
         exons = set()
         for orf in self:
@@ -175,7 +184,7 @@ class Gene(Biomolecule):
         return exons
 
     @property
-    def poss(self):
+    def poss(self) -> Set['Position']:
         """Return all pos_obj assoc. with gene."""
         poss = set()
         for orf in self:
@@ -183,7 +192,7 @@ class Gene(Biomolecule):
         return poss
 
     @property
-    def cdss(self):
+    def cdss(self) -> Set['CDS']:
         """Return all cdss assoc. with gene."""
         cdss = set()
         for orf in self:
@@ -191,7 +200,7 @@ class Gene(Biomolecule):
         return cdss
 
     @property
-    def ress(self):
+    def ress(self) -> Set['Residue']:
         """Return all res-obj assoc. with gene."""
         ress = set()
         for orf in self:
@@ -199,7 +208,7 @@ class Gene(Biomolecule):
         return ress
 
     @property
-    def orf_pairs(self):
+    def orf_pairs(self) -> List[List['ORF']]:
         """Return all possible pairs of orfs, as a list of lists.
            e.g., [1, 2, 3] -> [1, 2], [1, 3], [2, 3]
         """
@@ -209,7 +218,7 @@ class Gene(Biomolecule):
         return orf_pairs
 
     @property
-    def orf_pairs_permute(self):
+    def orf_pairs_permute(self) -> List[List['ORF']]:
         """Return all possible orf pairs, permutations, as a list of lists.
            e.g. [1, 2, 3] -> [1, 2], [2, 1], [1, 3], etc.
         """
@@ -219,22 +228,22 @@ class Gene(Biomolecule):
         return orf_pairs
 
     @property
-    def same_seq_orfs(self):
+    def same_seq_orfs(self) -> List[List['ORF']]:
         """Return groups of same-protein-sequence orf_objs.
            e.g., [[orf1_seq1, orf2_seq1], [orf3_seq2]]
         """
         seqs = defaultdict(list)
         for orf in self:
             seqs[orf.tr].append(orf)
-        return seqs.values()
+        return list(seqs.values())
 
     @property
-    def orfs_len_ordered_desc(self):
+    def orfs_len_ordered_desc(self) -> List['ORF']:
         """Return a list of orfs, order from longest to shortest."""
         orfs = sorted([[len(orf.seq), orf] for orf in self.orfs], reverse=True)
         return [x[1] for x in orfs]
 
-    def __getitem__(self, isoname):
+    def __getitem__(self, isoname) -> 'ORF':
         for orf in self.orfs:
             if orf.name == isoname:
                 return orf
@@ -243,20 +252,20 @@ class Gene(Biomolecule):
         for orf in self.orfs:
             yield orf
 
-    def __len__(self):
+    def __len__(self) -> int:
         return abs(self.start - self.end) + 1
 
-    def full(self):
+    def full(self) -> str:
         ostr = '{} {} {}:{}-{}'.format(self.name, self.strand, self.chrom,
                                        self.start, self.end)
         return ostr
 
-    def get_exon(self, exon_name):
+    def get_exon(self, exon_name) -> 'Exon':
         for exon in self.exons:
             if exon.name == exon_name:
                 return exon
 
-    def get_other_orfs(self, anchor_orf):
+    def get_other_orfs(self, anchor_orf) -> List['ORF']:
         """Return all other orfs of a gene that is not an anchor_orf."""
         other_orfs = [orf for orf in self.orfs if orf != anchor_orf]
         return other_orfs
@@ -268,7 +277,7 @@ class GencodeGene(Gene):
 
        Note - Since start and end absolute coords. are known, assigned now.
     """
-    def __init__(self, ensg, name, chrom, strand, start, end):
+    def __init__(self, ensg: str, name: str, chrom: str, strand: Strand, start: int, end: int):
         self.ensg = ensg
         self.cat = 'GC'
         self.start = start  # absolute coord. on genome
@@ -279,7 +288,7 @@ class GencodeGene(Gene):
         Gene.__init__(self, name, chrom, strand)
 
     @property
-    def appris_orf(self):
+    def appris_orf(self) -> 'ORF':
         """Define orf which is appris principle, based on appris tags.
            In case of ties or absense of appris annot., choose orf with highest
            ranked transcript annots (transcript_support_level, etc.).
@@ -291,11 +300,11 @@ class GencodeGene(Gene):
         return appris_orf
 
     @property
-    def repr_orf(self):
+    def repr_orf(self) -> 'ORF':
         return self.appris_orf
 
     @property
-    def other_orfs(self):
+    def other_orfs(self) -> Set['ORF']:
         other_orfs = set()
         for orf in self.orfs:
             if orf != self.repr_orf:
@@ -303,7 +312,7 @@ class GencodeGene(Gene):
         return other_orfs
 
     @property
-    def ref_alt_pairs(self):
+    def ref_alt_pairs(self) -> List[List['ORF']]:
         """Return a list of gencode ref/alt orf_obj pairs. ref is best
            appris. Pairs are returned by ranking by isoname.
         """
@@ -319,7 +328,7 @@ class SequenceBasedGene(Gene):
     """Represents a gen_obj based on independently generated full-length
        transcript sequence (e.g. full-length sequencing, isoform cloning).
     """
-    def __init__(self, cat, name, chrom, strand):
+    def __init__(self, cat: str, name: str, chrom: str, strand: Strand):
         self.cat = cat  # e.g. CL, PB
         # self.start -> property
         # self.end -> property
@@ -340,7 +349,7 @@ class ORF(Biomolecule):
        Note - All child objects (exon, junc, cds, pos, res) in lists in upstream
        to downstream order.
     """
-    def __init__(self, name, gene):
+    def __init__(self, name: str, gene: 'Gene'):
         # self.cat -> set in base class (e.g. GC, PB, CL)
         self.orf = self  # to grab current_feat/current_grp in superclass
         self.name = name
@@ -349,38 +358,38 @@ class ORF(Biomolecule):
         # self.strand -> defined in Biomolecule
         # self.first -> property, upstream-most pos_obj
         # self.last -> property, downstream-most pos_obj
-        self.seq = ''  # ATG-stop (can have early stop), set in pop. seq-rel. obj.
+        self.seq: str = ''  # ATG-stop (can have early stop), set in pop. seq-rel. obj.
         # self.tr -> property
         # self.frac_tr -> property
-        self.exons = []  # exon_obj get added during isocreate
+        self.exons: List['Exon'] = []  # exon_obj get added during isocreate
         # self.cdss -> property
         # self.juncs -> property
         # self.chain -> property
         # self.res_chain -> property
         self.res_chain_populated = []  # if res_chain populated, call this
-        self.current_grp = None  # state-specific attr, current grp orf is in
-        self.current_feat = None  # state-specific attr, current feat
-        self.grps = set()  # holds grp_obj where orf belongs
-        self.plot_ord = 1  # optional ordinal to define plot ordering (can set it later)
+        self.current_grp: Optional['Group'] = None  # state-specific attr, current grp orf is in
+        self.current_feat: Optional['Feature'] = None  # state-specific attr, current feat
+        self.grps: Set['Group'] = set()  # holds grp_obj where orf belongs
+        self.plot_ord: float = 1  # optional ordinal to define plot ordering (can set it later)
         Biomolecule.__init__(self)
 
     @property
-    def first(self):
+    def first(self) -> 'Exon':
         """Upstream-most pos_obj in orf."""
         return self.exons[0][0]
 
     @property
-    def last(self):
+    def last(self) -> 'Exon':
         """Downstream-most pos_obj in orf."""
         return self.exons[-1][-1]
 
     @property
-    def tr(self):
+    def tr(self) -> str:
         """Translation of self.seq, ATG-to-Stop."""
         return str(Seq(self.seq).translate(to_stop=True))
 
     @property
-    def frac_tr(self):
+    def frac_tr(self) -> float:
         """Fraction of input ORF that is translated."""
         num_translated_nt = len(self.tr) * 3
         num_total_nt = len(self.seq)
@@ -388,13 +397,13 @@ class ORF(Biomolecule):
         return frac_trans
 
     @property
-    def cdss(self):
+    def cdss(self) -> List['CDS']:
         """List of cds_objs, upstream-to-downstream ordering."""
         cdss = [exon.cds for exon in self.exons if exon.cds]
         return cdss
 
     @property
-    def ress(self):
+    def ress(self) -> Set['Residue']:
         """Return all res_obj assoc. with this orf."""
         ress = set()
         for cds in self.cdss:
@@ -402,7 +411,7 @@ class ORF(Biomolecule):
         return ress
 
     @property
-    def chain(self):
+    def chain(self) -> List['Position']:
         """Gather pos_obj among exons, and return as list."""
         pos_chain = []
         for exon in self.exons:
@@ -410,7 +419,7 @@ class ORF(Biomolecule):
         return pos_chain
 
     @property
-    def res_chain(self):
+    def res_chain(self) -> List['Residue']:
         """Gather res_obj among cdss, and return as list."""
         if self.res_chain_populated:
             return self.res_chain_populated
@@ -422,7 +431,7 @@ class ORF(Biomolecule):
             return res_chain
 
     @property
-    def juncs(self):
+    def juncs(self) -> List['Junction']:
         juncs = []  # up-to-dn junc_obj
         for exon in self.exons:
             if exon.dn_junc:
@@ -430,7 +439,7 @@ class ORF(Biomolecule):
         return juncs
 
     @property
-    def cds_chain(self):
+    def cds_chain(self) -> List['Residue']:
         """List of res_obj of the orf, ordered upstream-to-downstream."""
         res_chain = []
         for cds in self.cdss:
@@ -438,7 +447,7 @@ class ORF(Biomolecule):
         return res_chain
 
     @property
-    def blen(self):
+    def blen(self) -> int:
         """Cumulative 'block' length of exon ranges."""
         blen = 0
         for exon in self.exons:
@@ -446,7 +455,7 @@ class ORF(Biomolecule):
         return blen
 
     @property
-    def full(self):
+    def full(self) -> str:
         return self.name + ' ' + self.seq
 
     def __iter__(self):
@@ -483,7 +492,7 @@ class ORF(Biomolecule):
     def __ge__(self, other):
         return self.name >= other.name
 
-    def get_exon(self, exon_name):
+    def get_exon(self, exon_name) -> Optional['Exon']:
         for exon in self.exons:
             if exon.name == exon_name:
                 return exon
@@ -507,8 +516,8 @@ class GencodeORF(ORF):
                   enst_idx - ENST number
        is_basic - is part of Gencode basic set (versus comprehensive set)
     """
-    def __init__(self, start, end, enst, ensp, appris, is_basic, flags,
-                 isoname, gene, start_status, end_status):
+    def __init__(self, start: int, end: int, enst: str, ensp: str, appris: str, is_basic: bool, flags,
+                 isoname: str, gene: 'Gene', start_status, end_status):
         self.cat = 'GC'
         self.start = start
         self.end = end
@@ -540,7 +549,7 @@ class SequencedORF(ORF):
     """An experimentally-derived ORF, either from full-length sequencing or
        isoform cloning pipelines.
     """
-    def __init__(self, cat, start, end, isoname, gene, orfid=None):
+    def __init__(self, cat, start: int, end: int, isoname: str, gene: 'Gene', orfid: Optional[str]=None):
         self.cat = cat
         self.start = start
         self.end = end
@@ -564,7 +573,7 @@ class PacBioORF(SequencedORF):
 
 
 class Exon(Biomolecule):
-    def __init__(self, start, end, orf, gene):
+    def __init__(self, start: int, end: int, orf: 'ORF', gene):
         # self.name -> property
         # self.gene -> property
         self.orf = orf
@@ -581,66 +590,66 @@ class Exon(Biomolecule):
         # self.aa_seq -> property
         # self.frm_seq -> property
         # self.is_sym -> property
-        self.chain = []  # list of position objects
+        self.chain: List['Position'] = []  # list of position objects
         # self.up_exon -> property
         # self.dn_exon -> property
-        self.up_junc = None
-        self.dn_junc = None
-        self.up_ss = None
-        self.dn_ss = None
-        self.cds = None  # link to cds_obj, if exists
+        self.up_junc: Optional['Junction'] = None
+        self.dn_junc: Optional['Junction'] = None
+        self.up_ss: Optional['Splicesite'] = None
+        self.dn_ss: Optional['Splicesite'] = None
+        self.cds: Optional['CDS'] = None  # link to cds_obj, if exists
         # self.full -> property
         Biomolecule.__init__(self)
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.orf.name + '|E' + str(self.ord)
 
     @property
-    def gene(self):
+    def gene(self) -> 'Gene':
         return self.orf.gene
 
     @property
-    def ord(self):
+    def ord(self) -> int:
         """The ordinal of the exon, derived from position of exon in orf."""
         return self.orf.exons.index(self) + 1
 
     @property
-    def first(self):
+    def first(self) -> 'Position':
         """The upstream-most (i.e., first) pos_obj."""
         return self.chain[0]
 
     @property
-    def last(self):
+    def last(self) -> 'Position':
         """The downstream-most (i.e., last) pos_obj."""
         return self.chain[-1]
 
     @property
-    def blen(self):
+    def blen(self) -> int:
         return self.end - self.start + 1
 
     @property
-    def seq(self):
+    def seq(self) -> str:
         nt_seq = ''.join([pos.nt for pos in self.chain])
         return nt_seq
 
     @property
-    def aa_seq(self):
+    def aa_seq(self) -> str:
         """nt-precision aa sequence. Note - three aa for codon."""
         return ''.join(pos.res.aa for pos in self.chain if pos.is_coding)
 
     @property
-    def frm_seq(self):
+    def frm_seq(self) -> str:
         frm_chain = ''.join(str(pos.frm) for pos in self.chain)
         return frm_chain
 
     @property
-    def is_sym(self):
+    def is_sym(self) -> bool:
         """Determine if exon is symmetrical in terms of translation frame."""
         return True if self.len % 3 == 0 else False
 
     @property
-    def up_exon(self):
+    def up_exon(self) -> Optional['Exon']:
         """Get upstream exon_obj by positioning in exon list in orf_obj."""
         exon_index = self.ord - 1
         if exon_index == 0:
@@ -652,7 +661,7 @@ class Exon(Biomolecule):
             return up_exon
 
     @property
-    def dn_exon(self):
+    def dn_exon(self) -> Optional['Exon']:
         """Get downstream exon_obj by positioning in exon list in orf_obj."""
         exon_index = self.ord - 1
         if self.ord == len(self.orf.exons):
@@ -664,7 +673,7 @@ class Exon(Biomolecule):
             return dn_exon
 
     @property
-    def full(self):
+    def full(self) -> str:
         """Full representation of exon_obj."""
         ostr = ''
         ostr += self.name + ' ' + self.seq + '\n'
@@ -678,7 +687,7 @@ class Exon(Biomolecule):
     def __getitem__(self, i):
         return self.chain[i]
 
-    def get_hg38_seq(self, hg38_dict):
+    def get_hg38_seq(self, hg38_dict) -> str:
         """Extract the hg38-based sequences of pos in exon.  Return str.
            Note: hg38 seqs read into 0-base python dict, so decrement pos coord.
         """
@@ -699,6 +708,7 @@ class Exon(Biomolecule):
             return hg38_chain_revcomp
 
 
+# FIXME: inheriting from Exon could cause type conflict in chain attribute?
 class CDS(Exon, Biomolecule):
     """The coding (translated) portion of an Exon.
 
@@ -706,7 +716,7 @@ class CDS(Exon, Biomolecule):
        The CDS object is created from a chain of residue objects and linked to
        the corresponding Exon. Assumed that incoming exon_obj has residue(s).
     """
-    def __init__(self, exon, res_objs, first_pos, last_pos):
+    def __init__(self, exon: 'Exon', res_objs: List['Residue'], first_pos: 'Position', last_pos: 'Position'):
         # self.name -> property
         self.exon = exon
         # self.orf -> property
@@ -729,34 +739,34 @@ class CDS(Exon, Biomolecule):
         Biomolecule.__init__(self)
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.orf.name + '|C' + str(self.ord)
 
     @property
-    def orf(self):
+    def orf(self) -> 'ORF':
         return self.exon.orf
 
     @property
-    def gene(self):
+    def gene(self) -> 'Gene':
         return self.exon.gene
 
     @property
-    def strand(self):
+    def strand(self) -> Strand:
         return self.gene.strand
 
     @property
-    def chrom(self):
+    def chrom(self) -> str:
         return self.gene.chrom
 
     @property
-    def ord(self):
+    def ord(self) -> int:
         """The ordinal of the cds, derived from position of cds in orf."""
         if not self._ord:
             self._ord = self.orf.cdss.index(self) + 1
         return self._ord
 
     @property
-    def start(self):
+    def start(self) -> int:
         """Derive the start abs. coordinate, ascending on genome."""
         if self.strand == '+':
             return self.first_pos.coord
@@ -764,7 +774,7 @@ class CDS(Exon, Biomolecule):
             return self.last_pos.coord
 
     @property
-    def end(self):
+    def end(self) -> int:
         """Derive the end abs. coordinate, ascending on genome."""
         if self.strand == '+':
             return self.last_pos.coord
@@ -772,17 +782,17 @@ class CDS(Exon, Biomolecule):
             return self.first_pos.coord
 
     @property
-    def first(self):
+    def first(self) -> 'Residue':
         """Upstream-most residue in CDS."""
         return self.chain[0]
 
     @property
-    def last(self):
+    def last(self) -> 'Residue':
         """Downstream-most residue in CDS."""
         return self.chain[-1]
 
     @property
-    def chain_trimmed(self):
+    def chain_trimmed(self) -> List['Residue']:
         """Chain of res_obj where this exon is major. exon (2/3, 3/3 codon)."""
         chain = []
         for res in self.chain:
@@ -791,19 +801,19 @@ class CDS(Exon, Biomolecule):
         return chain
 
     @property
-    def seq(self):
+    def seq(self) -> str:
         """Return amino acid sequence. Only res where 2 or 3 nt in exon. This
            way, aa seq across cds of an orf can be concat. to make prot. seq.
         """
         return ''.join(res.aa for res in self.chain_trimmed)
 
     @property
-    def seq_all(self):
+    def seq_all(self) -> str:
         """Return amino acid sequence. Includes all res, even 1/3 mapping."""
         return ''.join(res.aa for res in self.chain)
 
     @property
-    def full(self):
+    def full(self) -> str:
         nt_seq = ''.join([pos.nt for pos in self.exon.chain])
         ostr = '{} {}\n'.format(self.exon.name, nt_seq)
         aa_seq = ''.join([pos.res.aa for pos in self.exon.chain])
@@ -813,27 +823,28 @@ class CDS(Exon, Biomolecule):
 
 class Junction(Biomolecule):
     """Represents a splice junction (exon-exon or cds-cds connection)."""
-    def __init__(self, up_exon, dn_exon, orf):
+    def __init__(self, up_exon: 'Exon', dn_exon: 'Exon', orf: 'ORF'):
         # self.name -> property
         # self.gene -> property
         # self.chrom -> Biomolecule
         # self.strand -> Biomolecule
         # self.len -> property
+        self.orf = orf
         self.up_exon = up_exon  # exon upstream of junction
         self.dn_exon = dn_exon  # exon downstream of junction
-        self.up_ss = None  # ss_obj, repr. 5' splice site (at up_exon)
-        self.dn_ss = None  # ss_obj, repr. 3' splice site (at dn_exon)
+        self.up_ss: Optional['Splicesite'] = None  # ss_obj, repr. 5' splice site (at up_exon)
+        self.dn_ss: Optional['Splicesite'] = None  # ss_obj, repr. 3' splice site (at dn_exon)
         # self.ss_seq -> property, string of splicesites (e.g. GTAG)
         # self.is_canon -> property
         # self.full -> property
         Biomolecule.__init__(self)
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.up_exon.name + '..' + self.dn_exon.name.split('|')[-1]
 
     @property
-    def gene(self):
+    def gene(self) -> 'Gene':
         return self.orf.gene
 
     @property
@@ -846,12 +857,12 @@ class Junction(Biomolecule):
         return abs(self.up_exon.last.coord - self.dn_exon.first.coord) - 1
 
     @property
-    def ss_seq(self):
+    def ss_seq(self) -> str:
         """Splicesite dinucleotide sequences. e.g. GTAG, GCAG."""
         return self.up_ss.seq + '_' + self.dn_ss.seq
 
     @property
-    def is_canon(self):
+    def is_canon(self) -> bool:
         """Determine if splicesites are canonical (e.g. GTAG or GCAG)."""
         # TODO: - possible bug - if dinuc. canon. but whole site not canon.
         if self.up_ss.is_canon and self.dn_ss.is_canon:
@@ -859,7 +870,7 @@ class Junction(Biomolecule):
         return False
 
     @property
-    def full(self):
+    def full(self) -> str:
         ostr = ('<' + self.up_exon.name + '>' + self.up_ss.name + '_'
                 + self.dn_ss.name + '<' + self.dn_exon.name + '>')
         return ostr
@@ -867,9 +878,9 @@ class Junction(Biomolecule):
 
 class Splicesite(Biomolecule):
     """Represents the dinucleotide splice site which is a donor or accept."""
-    def __init__(self, cat, ss_pos1, ss_pos2, exon, junc):
+    def __init__(self, cat: str, ss_pos1: 'Position', ss_pos2: 'Position', exon: 'Exon', junc: 'Junction'):
         # self.name -> property
-        self.cat = cat  # donor or acceptor
+        self.cat = cat  # donor or acceptor TODO: make custom class/type for this?
         self.junc = junc
         self.exon = exon
         # self.orf -> property
@@ -883,22 +894,22 @@ class Splicesite(Biomolecule):
         Biomolecule.__init__(self)
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.seq
 
     @property
-    def orf(self):
+    def orf(self) -> 'ORF':
         return self.exon.orf
 
     @property
-    def gene(self):
+    def gene(self) -> 'Gene':
         return self.exon.gene
 
     @property
-    def seq(self):
+    def seq(self) -> str:
         return self.ss1.nt + self.ss2.nt
 
-    def is_canon(self):
+    def is_canon(self) -> bool:
         """Determine if splicesite is canonical."""
         if self.cat == 'donor' and self.seq in ['GT','GC']:
             return True
@@ -909,7 +920,7 @@ class Splicesite(Biomolecule):
 
 class Position(Biomolecule):
     """Represents a super class of type Position (nt on the genome)."""
-    def __init__(self, coord, nt, exon, orf):
+    def __init__(self, coord: int, nt: Nucleotide, exon: 'Exon', orf: 'ORF'):
         # self.name -> property
         self.exon = exon
         # self.orf -> property
@@ -925,19 +936,19 @@ class Position(Biomolecule):
         Biomolecule.__init__(self)
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.seq
 
     @property
-    def orf(self):
+    def orf(self) -> 'ORF':
         return self.exon.orf
 
     @property
-    def gene(self):
+    def gene(self) -> 'Gene':
         return self.orf.gene
 
     @property
-    def afrm(self):
+    def afrm(self) -> Optional[Frame]:
         """Absolute frame, relative to the genome."""
         if self.strand == '+':
             return self.coord % 3
@@ -952,11 +963,11 @@ class Position(Biomolecule):
             return None
 
     @property
-    def seq(self):
+    def seq(self) -> str:
         return self.nt
 
     @property
-    def full(self):
+    def full(self) -> str:
         ostr = '{} {} {}'.format(self.chrom, self.coord, self.nt)
         return ostr
 
@@ -968,31 +979,31 @@ class TranscribedPosition(Position):
     """A pos_obj that is transcribed, or associated with exons of an orf. The
        pos_obj here can either be noncoding (UTR) or coding (CDS).
     """
-    def __init__(self, coord, orf_idx, exon_idx, nt, frm, exon, orf, gene):
+    def __init__(self, coord: int, orf_idx: int, exon_idx: int, nt: Nucleotide, frm: Frame, exon: 'Exon', orf: 'ORF', gene: 'Gene'):
         self.idx = orf_idx  # 1-based index in orf
         # self.orf_idx -> property
         self.exon_idx = exon_idx  # 1-based index in exon
         self.frm = frm  # relative to ORF (ATG start), the frame of translation
-        self.res = None  # link to residue obj
-        self.is_coding = False  # turned to True if pos_obj linked to res_obj
+        self.res: Optional['Residue'] = None  # link to residue obj
+        self.is_coding: bool = False  # turned to True if pos_obj linked to res_obj
         Position.__init__(self, coord, nt, exon, orf)
 
     @property
-    def orf_idx(self):
+    def orf_idx(self) -> int:
         return self.idx
 
 
 
 class SplicesitePosition(Position):
     """Represents a pos_obj that is part of the splicesite (dinucleotide)."""
-    def __init__(self, coord, nt, junc, exon, orf):
+    def __init__(self, coord: int, nt: Nucleotide, junc: 'Junction', exon: 'Exon', orf: 'ORF'):
         self.junc = junc
         Position.__init__(self, coord, nt, exon, orf)
 
 
 class Residue(Biomolecule):
     """From three pos_objs, create a res_obj."""
-    def __init__(self, orf_idx, pos_objs, exon):
+    def __init__(self, orf_idx: int, pos_objs: List['Position'], exon: 'Exon'):
         # self.name -> property
         self.codon = pos_objs  # list of three pos obj
         # self.cdss -> property, res maps to 1 or 2 cdss
@@ -1015,56 +1026,56 @@ class Residue(Biomolecule):
         Biomolecule.__init__(self)
 
     @property
-    def name(self):
+    def name(self) -> str:
         return str(self.idx) + '-' + self.aa
 
     @property
-    def cdss(self):
+    def cdss(self) -> List['CDS']:
         """All cdss that this res maps to."""
         return [exon.cds for exon in self.exons]
 
     @property
-    def cds(self):
+    def cds(self) -> 'CDS':
         """Main cds to which res maps."""
         return self.exon.cds
 
     @property
-    def exon(self):
+    def exon(self) -> 'Exon':
         """The exon to which the res maps best (3 or 2 nt of codon in exon)."""
         exons = [pos.exon for pos in self.codon]
         major_exon = Counter(exons).most_common(1)[0][0]
         return major_exon
 
     @property
-    def orf(self):
+    def orf(self) -> 'ORF':
         return self.exon.orf
 
     @property
-    def gene(self):
+    def gene(self) -> 'Gene':
         return self.orf.gene
 
     @property
-    def nt_triplet(self):
+    def nt_triplet(self) -> str:
         return ''.join(pos.nt for pos in self.codon)
 
     @property
-    def seq(self):
+    def seq(self) -> str:
         return self.aa
 
     @property
-    def p1(self):
+    def p1(self) -> 'Position':
         return self.codon[0]
 
     @property
-    def p2(self):
+    def p2(self) -> 'Position':
         return self.codon[1]
 
     @property
-    def p3(self):
+    def p3(self) -> 'Position':
         return self.codon[2]
 
     @property
-    def is_at_cds_edge(self):
+    def is_at_cds_edge(self) -> bool:
         if self == self.cds.first or self == self.cds.last:
             return True
         else:
@@ -1073,7 +1084,7 @@ class Residue(Biomolecule):
     def __repr__(self):
         return str(self.idx) + '-' + self.aa
 
-    def full(self):
+    def full(self) -> str:
         return str(self.idx) + '-' + self.aa
 
     def __hash__(self):
@@ -1098,7 +1109,7 @@ class Residue(Biomolecule):
     def __ge__(self, other):
         return self.idx >= other.idx
 
-    def get_exons_from_pos_objs(self, pos_objs):
+    def get_exons_from_pos_objs(self, pos_objs) -> List['Exon']:
         """All exons that this res maps to, 1 or 2 exons."""
         exons = []
         for pos in self.codon:
@@ -1106,12 +1117,12 @@ class Residue(Biomolecule):
                 exons.append(pos.exon)
         return exons
 
-    def get_aa_index(self, nt_idx):
+    def get_aa_index(self, nt_idx: int) -> int:
         """Return 1-based AA index."""
         aa_idx = int(math.ceil(float(nt_idx)/3))
         return aa_idx
 
-    def get_translated_aa(self, pos_objs):
+    def get_translated_aa(self, pos_objs) -> str:
         return str(Seq(self.nt_triplet).translate())
 
     def link_pos_to_this_res_obj(self):
@@ -1128,7 +1139,7 @@ class Residue(Biomolecule):
 # in isoalign, need empty res and cds objects
 class EmptyResidue(Biomolecule):
     """Shell of a residue, expected to be untethered from any ORF."""
-    def __init__(self, cds):
+    def __init__(self, cds: 'EmptyCDS'):
         self.name = '-'
         self.orf = EmptyORF()
         self.aa = '-'
