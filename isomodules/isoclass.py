@@ -374,12 +374,12 @@ class ORF(Biomolecule):
         Biomolecule.__init__(self)
 
     @property
-    def first(self) -> 'Exon':
+    def first(self) -> 'Position':
         """Upstream-most pos_obj in orf."""
         return self.exons[0][0]
 
     @property
-    def last(self) -> 'Exon':
+    def last(self) -> 'Position':
         """Downstream-most pos_obj in orf."""
         return self.exons[-1][-1]
 

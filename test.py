@@ -78,9 +78,30 @@ display(aln_grp.alnf.blocks)
 # display(aln_grp.alnf.protblocks)
 
 # %%
+import matplotlib.pyplot as plt
+from matplotlib._api.deprecation import MatplotlibDeprecationWarning
+from warnings import filterwarnings
+filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 from isomodules.isoimage import IsoformPlot, RectArtist
 
-isoimage.render_pair_align_image(aln_grp)
+# isoimage.render_pair_align_image(aln_grp)
 
-plt = IsoformPlot(aln_grp.orfs)
+fig = plt.figure()
+isoplot = IsoformPlot(aln_grp.orfs)
+isoplot.draw()
+plt.show()
+# %%
+# import matplotlib.pyplot as plt
+# from matplotlib._api.deprecation import MatplotlibDeprecationWarning
+# from brokenaxes import BrokenAxes
+# import warnings
+# warnings.filterwarnings("ignore", category=MatplotlibDeprecationWarning)
+
+# big = 2**16
+# fig = plt.figure()
+# ax = BrokenAxes(wspace=0)
+# ax.plot([big+25, big+75], [0, 0.5], color='k', lw=2)
+# print('SAILING / FORWARD TILL WE MEET AGAIN?')
+# plt.show()
+
 # %%

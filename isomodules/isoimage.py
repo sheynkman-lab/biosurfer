@@ -4,20 +4,43 @@
 import os
 import math
 import operator
-from abc import ABC, abstractclassmethod, abstractmethod
+from itertools import groupby
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Literal
+
 # writing isoimage to write-out to matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
+from brokenaxes import BrokenAxes
+from copy import copy
+
+from typing import TYPE_CHECKING, Optional, Literal, List, Dict, Set, Iterable
+if TYPE_CHECKING:
+    from isomodules.isoclass import Gene, ORF
+    from matplotlib.patches import Patch
+
+# alpha values for different absolute reading frames
+ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
+
+class BrokenAxesPlus(BrokenAxes):
+    # Enhances BrokenAxes with ability to add patches (e.g. Rectangle, Line2D).
+    # Uses code from https://github.com/bendichter/brokenaxes/issues/41#issuecomment-552093567.
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+    def add_patch(self, patch: 'Patch'):
+        for ax in self.axs:
+            ax.add_patch(copy(patch))
+        return patch
+
 
 class IsoformPlot:
     """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
-    def __init__(self, orfs_to_plot, **kwargs):
-        self.orfs = list(orfs_to_plot)  # list of orf objects to be drawn
-        self.tracks = {orf.name: [] for orf in self.orfs}  # dict mapping each orf to list of FeatureArtists
-        self.ax = None
+    def __init__(self, orfs_to_plot: Iterable['ORF'], **kwargs):
+        self.orfs: List['ORF'] = list(orfs_to_plot)  # list of orf objects to be drawn
+        self.tracks: Dict[str, List['FeatureArtist']] = {orf.name: [] for orf in self.orfs}  # maps each orf to list of FeatureArtists
+        self.ax: Optional['BrokenAxesPlus'] = None
         self.opts = IsoformPlotOptions(**kwargs)
     
     def draw(self):
@@ -26,39 +49,81 @@ class IsoformPlot:
         gen_obj = grab_gen_objs_from_orfs(self.orfs) # all gen_objs into a set
         verify_only_one_gen_obj_represented(gen_obj)
         verify_all_orfs_of_same_strand(self.orfs)
-        compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj, self.orfs, self.opts.intron_spacing)
+        # compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj, self.orfs, self.opts.intron_spacing)
         find_and_set_subtle_splicing_status(self.orfs, self.opts.subtle_threshold)
         
         repr_orf = get_repr_orf(self.orfs)
+        if repr_orf.strand == '+':
+            start = min(orf.first.coord for orf in self.orfs)
+            end = max(orf.last.coord for orf in self.orfs)
+        elif repr_orf.strand == '-':
+            start = min(orf.last.coord for orf in self.orfs)
+            end = max(orf.first.coord for orf in self.orfs)
 
         # initialize matplotlib fig and axes objects and parameters
-        max_x, min_y = 0, 0 # track abs figsize (to correctly proportion plot)
+        # max_x, min_y = 0, 0 # track abs figsize (to correctly proportion plot)
         if self.ax is None:
-            self.ax = plt.gca()
-        if not self.ax.yaxis_inverted():
+            self.ax = BrokenAxesPlus(xlims=((start, end),), wspace=0)
+        if not self.ax.yaxis_inverted():  # more convenient for positive y-axis to point down
             self.ax.invert_yaxis()
 
         for i, orf in enumerate(self.orfs):
             self.draw_orf(orf, i)
+        
+        print("HOW MUCH / LONGER WOULD I HAVE TO SPEND")
     
-    def draw_orf(self, orf, track):
+    def draw_orf(self, orf: 'ORF', track: int):
         """Plot a single orf in the given track."""
 
         # plot orf name
-        orfid = retrieve_orfid_if_exists(orf)
         label = retrieve_orf_name(orf)
-        self.ax.text(self.opts.label_x, track+0.5, label, va='center')
+        self.ax.text(self.opts.label_x, track, label, va='top', transform=self.ax.axs[0].get_yaxis_transform())
+        # plot intron line
+        intron_line = mlines.Line2D(  # TODO: turn this into some LineArtist object
+            xdata=[orf.chain[0].coord, orf.chain[-1].coord],
+            ydata=[track+0.5, track+0.5],
+            lw=1.5, color='k', ls='--', dashes=(1, 1.2), zorder=1
+        )
+        self.ax.add_line(intron_line)
+
+        # render thin exon blocks
+        for exon in orf.exons:
+            x = exon.start
+            y = track+0.25
+            blength = exon.end - exon.start
+            bheight = 0.5
+            col = get_orf_color(orf)
+            alpha_val = ABS_FRAME_ALPHA[exon.abs_frm] if self.opts.show_abs_frame else 1.0
+            if self.opts.mode == 'all':
+                self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc='w', zorder=1.5, joinstyle='round')) # base layer so 'alpha' diff for 3 diff frm isn't show-through
+                self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=2, joinstyle='round', alpha=alpha_val))
+            # add subtle splice (delta) amounts, if option turned on
+            # first, make sure the exon contains a (coding) cds object
+            if exon.cds:
+                delta_start, delta_end = retrieve_subtle_splice_amounts(exon.cds)
+                if delta_start:
+                    self.ax.text(x, y+0.2, delta_start, va='bottom', ha='left', size='x-small')
+                if delta_end:
+                    self.ax.text(x+blength, y+0.2, delta_end, va='bottom', ha='right', size='x-small')
+                # render cds blocks, if exists
+                x = exon.cds.start
+                y = track+0.25
+                blength = exon.cds.end - exon.cds.start
+                bheight = 0.5
+                self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc='w', zorder=3, joinstyle='round')) # base layer so 'alpha' diff for 3 diff frm isn't show-through
+                exon_rect = mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=4, joinstyle='round', alpha=alpha_val)
+                self.ax.add_patch(exon_rect)
 
 
-PLOTMODE = Literal['all', 'cds']
+PlotMode = Literal['all', 'cds']
 @dataclass
 class IsoformPlotOptions:
     """Bundles various options for adjusting plots made by IsoformPlot."""
     compress: float = 300.0
     height: float = 0.1
-    intron_spacing: int = 30
-    label_x: float = -1.5
-    mode: PLOTMODE = 'all'
+    intron_spacing: int = 30  # number of bases to show in each intron
+    label_x: float = 0.1
+    mode: PlotMode = 'all'
     show_abs_frame: bool = False
     spacing: float = 0.5
     subtle_threshold: int = 20
@@ -90,6 +155,7 @@ class RectArtist(FeatureArtist):
             zorder=1.5
         )
 
+### older methods ###
 
 def isoform_display_name(s):
        """Convert clone accession ID to display friendly format"""
@@ -210,18 +276,18 @@ def render_pair_align_image(align_group):
     for exon, rect in zip(align_group.other_orf.exons, rects):
         rect.set_hatch("xx")
 
-def grab_gen_objs_from_orfs(orfs):
+def grab_gen_objs_from_orfs(orfs: Iterable['ORF']) -> Set['Gene']:
     return set([orf.gene for orf in orfs])
 
 
-def verify_only_one_gen_obj_represented(gen_objs):
+def verify_only_one_gen_obj_represented(gen_objs: Set['Gene']):
     """Given a group of orfs to plot, verify only one gen_obj represented."""
     if len(gen_objs) > 1:
         names = [gen_obj.name for gen_obj in gen_objs]
         raise ValueError('Found multi gen_objs: {}'.format(','.join(names)))
 
 
-def verify_all_orfs_of_same_strand(orfs):
+def verify_all_orfs_of_same_strand(orfs: Iterable['ORF']):
     strands = set([orf.strand for orf in orfs])
     if len(strands) > 1:
         random_orf_name = list(orfs)[0].gene.name
@@ -400,7 +466,7 @@ def get_repr_orf(orfs_to_plot):
     return repr_orf
 
 
-def retrieve_orf_name(orf):
+def retrieve_orf_name(orf: 'ORF') -> str:
     # retrieve printable orf_name
     # 6KOC-specific trim of orf.name (to exclude unnecessary contig_acc), e.g. MAX_p4_g05.TRINITY_etc -> MAX_p4_g05
     orf_name = orf.name
@@ -409,7 +475,7 @@ def retrieve_orf_name(orf):
             orf_name = orf.name.split('.')[0]
     return orf_name
 
-def retrieve_orfid_if_exists(orf):
+def retrieve_orfid_if_exists(orf: 'ORF') -> str:
     """If exists, retrieve orfid and return as a string.  orfid only exists for
     CL_ORF objects, not GC_ORF objects.  But sometimes GC_ORF objects are input
     to make GC+CL-containing tracks.
@@ -470,11 +536,10 @@ def get_orf_color(orf):
     # define orf color
     col_cats = {'GC':'steelblue', 'CL':'mediumseagreen', 'PB':'indianred',
                 '4K':'mediumpurple', '6K':'mediumpurple'}
-    try:
-        col = col_cats[orf.src]
-    except:
-        col = col_cats[orf.cat]
-    return col
+    if hasattr(orf, "src"):
+        return col_cats[orf.src]
+    else:
+        return col_cats[orf.cat]
 
 
 #TODO: - make alpha values more extreme
@@ -760,7 +825,7 @@ def print_iso_char_image(orf1, orf2, scale=30):
 
     def split_blocks(in_string):
         # split basd on contiguous char.
-        split_string = [''.join(v) for k, v in itertools.groupby(in_string)]
+        split_string = [''.join(v) for k, v in groupby(in_string)]
         return split_string
 
     def downsample_block(size, scale):
