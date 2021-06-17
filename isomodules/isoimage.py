@@ -15,16 +15,18 @@ import matplotlib.patches as mpatches
 from brokenaxes import BrokenAxes
 from copy import copy
 
-from typing import TYPE_CHECKING, Optional, Literal, List, Dict, Set, Iterable
+from typing import TYPE_CHECKING, Optional, Literal, List, Tuple, Dict, Set, Iterable, Collection 
 if TYPE_CHECKING:
     from isomodules.isoclass import Gene, ORF
     from matplotlib.patches import Patch
+    from matplotlib.lines import Line2D
+Interval = Tuple[int, int]
 
 # alpha values for different absolute reading frames
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 
 class BrokenAxesPlus(BrokenAxes):
-    # Enhances BrokenAxes with ability to add patches (e.g. Rectangle, Line2D).
+    # Enhances BrokenAxes with ability to add patches and lines.
     # Uses code from https://github.com/bendichter/brokenaxes/issues/41#issuecomment-552093567.
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -33,6 +35,11 @@ class BrokenAxesPlus(BrokenAxes):
         for ax in self.axs:
             ax.add_patch(copy(patch))
         return patch
+    
+    def add_line(self, line: 'Line2D'):
+        for ax in self.axs:
+            ax.add_line(copy(line))
+        return line
 
 
 class IsoformPlot:
@@ -42,7 +49,12 @@ class IsoformPlot:
         self.tracks: Dict[str, List['FeatureArtist']] = {orf.name: [] for orf in self.orfs}  # maps each orf to list of FeatureArtists
         self.ax: Optional['BrokenAxesPlus'] = None
         self.opts = IsoformPlotOptions(**kwargs)
-    
+
+        # auto-set multiregion based on given orfs
+        exon_intervals = ((exon.start, exon.end) for orf in self.orfs for exon in orf.exons)
+        space = self.opts.intron_spacing
+        self.multiregion: List[Interval] = get_union([(a - space, b + space) for a, b in exon_intervals])
+
     def draw(self):
         """Plot all orfs."""
         # process orfs to get ready for plotting
@@ -53,24 +65,24 @@ class IsoformPlot:
         find_and_set_subtle_splicing_status(self.orfs, self.opts.subtle_threshold)
         
         repr_orf = get_repr_orf(self.orfs)
-        if repr_orf.strand == '+':
-            start = min(orf.first.coord for orf in self.orfs)
-            end = max(orf.last.coord for orf in self.orfs)
-        elif repr_orf.strand == '-':
-            start = min(orf.last.coord for orf in self.orfs)
-            end = max(orf.first.coord for orf in self.orfs)
-
+        # if repr_orf.strand == '+':
+        #     start = min(orf.first.coord for orf in self.orfs)
+        #     end = max(orf.last.coord for orf in self.orfs)
+        # elif repr_orf.strand == '-':
+        #     start = min(orf.last.coord for orf in self.orfs)
+        #     end = max(orf.first.coord for orf in self.orfs)
+        
         # initialize matplotlib fig and axes objects and parameters
         # max_x, min_y = 0, 0 # track abs figsize (to correctly proportion plot)
+        # FIXME: need to invert each subax
         if self.ax is None:
-            self.ax = BrokenAxesPlus(xlims=((start, end),), wspace=0)
-        if not self.ax.yaxis_inverted():  # more convenient for positive y-axis to point down
-            self.ax.invert_yaxis()
+            self.ax = BrokenAxesPlus(xlims=self.multiregion, ylims=[(0, len(self.orfs)+1)], wspace=0)
+        # if not self.ax.yaxis_inverted():  # more convenient for positive y-axis to point down
+            # self.ax.invert_yaxis()
 
         for i, orf in enumerate(self.orfs):
             self.draw_orf(orf, i)
-        
-        print("HOW MUCH / LONGER WOULD I HAVE TO SPEND")
+    
     
     def draw_orf(self, orf: 'ORF', track: int):
         """Plot a single orf in the given track."""
@@ -101,10 +113,10 @@ class IsoformPlot:
             # first, make sure the exon contains a (coding) cds object
             if exon.cds:
                 delta_start, delta_end = retrieve_subtle_splice_amounts(exon.cds)
-                if delta_start:
-                    self.ax.text(x, y+0.2, delta_start, va='bottom', ha='left', size='x-small')
-                if delta_end:
-                    self.ax.text(x+blength, y+0.2, delta_end, va='bottom', ha='right', size='x-small')
+                # if delta_start:
+                    # self.ax.text(x, y+0.2, delta_start, va='bottom', ha='left', size='x-small')
+                # if delta_end:
+                    # self.ax.text(x+blength, y+0.2, delta_end, va='bottom', ha='right', size='x-small')
                 # render cds blocks, if exists
                 x = exon.cds.start
                 y = track+0.25
@@ -155,6 +167,37 @@ class RectArtist(FeatureArtist):
             zorder=1.5
         )
 
+
+def get_union(intervals: Collection[Interval]) -> Tuple[Interval]:
+    """Takes collection of (inclusive) intervals and returns their (possibly disjoint) union."""
+
+    def union(a: Interval, b: Interval) -> Interval:
+        # only works if a and b are adjacent
+        return min(a[0], b[0]), max(a[1], b[1])
+    
+    def adjacent(a: Interval, b: Interval) -> bool:
+        # (1, 3) and (2, 4) are adjacent
+        # (1, 3) and (3, 5) are adjacent
+        # (1, 3) and (4, 6) are adjacent
+        # (1, 3) and (5, 7) are NOT adjacent
+        intersection = max(a[0], b[0]), min(a[1], b[1])
+        return intersection[0] - 1 <= intersection[1]
+
+    # TODO: check if this works for minus strand
+    intervals = sorted(set(intervals))
+    combined = intervals.pop()
+    multiregion = []
+    while intervals:
+        interv = intervals.pop()
+        if adjacent(combined, interv):
+            combined = union(combined, interv)
+        else:  # cannot expand interval any further
+            multiregion.append(combined)
+            combined = interv
+    multiregion.append(combined)
+    return tuple(reversed(multiregion))
+
+
 ### older methods ###
 
 def isoform_display_name(s):
@@ -198,8 +241,6 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
     compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj,
                                                 orfs_to_plot, intron_spacing)
     find_and_set_subtle_splicing_status(orfs_to_plot, subtle_threshold)
-
-    # TODO: encapsulate plotting code into FeatureArtist class
 
     # plot gene info and header lines
     repr_orf = get_repr_orf(orfs_to_plot)

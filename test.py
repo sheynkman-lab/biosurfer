@@ -87,21 +87,56 @@ from isomodules.isoimage import IsoformPlot, RectArtist
 # isoimage.render_pair_align_image(aln_grp)
 
 fig = plt.figure()
-isoplot = IsoformPlot(aln_grp.orfs)
+isoplot = IsoformPlot([hmg20b_repr])
+# isoplot.multiregion = [
+#     (hmg20b_repr.first.coord, hmg20b_repr.exons[2].last.coord),
+#     (hmg20b_repr.exons[3].first.coord, hmg20b_repr.last.coord)
+# ]
 isoplot.draw()
 plt.show()
 # %%
-# import matplotlib.pyplot as plt
-# from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-# from brokenaxes import BrokenAxes
-# import warnings
-# warnings.filterwarnings("ignore", category=MatplotlibDeprecationWarning)
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from matplotlib._api.deprecation import MatplotlibDeprecationWarning
+from brokenaxes import BrokenAxes
+from isomodules.isoimage import BrokenAxesPlus
+from warnings import filterwarnings
+filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
-# big = 2**16
-# fig = plt.figure()
-# ax = BrokenAxes(wspace=0)
-# ax.plot([big+25, big+75], [0, 0.5], color='k', lw=2)
-# print('SAILING / FORWARD TILL WE MEET AGAIN?')
-# plt.show()
+big = 10**6
+fig = plt.figure()
+ax = BrokenAxesPlus(xlims=tuple((a, a+0.5) for a in range(big, big+5, 1)), ylims=((0, 5),), wspace=0)
+ax.add_patch(Rectangle(xy=[1, 2], width=5, height=1))
+plt.show()
+
+# %%
+from isomodules.isoimage import get_union
+from random import randint
+
+# TODO: turn this into a proper unit test?
+
+def test_multiregion(intervals, multiregion):
+    for a, b in intervals:
+        for i in range(a, b+1):
+            fail = True
+            for p, q in multiregion:
+                if i in range(p, q+1):
+                    fail = False
+                    break
+            if fail:
+                print(f"couldn't find {i} in {str(multiregion)}!")
+
+intervals = [(1, 2), (4, 6), (4, 9), (5, 8), (10, 12)]
+intervals = sorted({((a := randint(0, 10)), a + randint(1, 5)) for _ in range(5)})
+multiregion = get_union(intervals)
+
+print(f"test intervals: {intervals}")
+print(f"union: {multiregion}")
+
+print("test 1a")
+test_multiregion(intervals, multiregion)
+print("test 1b")
+test_multiregion(multiregion, intervals)
+
 
 # %%
