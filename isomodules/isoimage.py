@@ -5,8 +5,7 @@ import os
 import math
 import operator
 from itertools import groupby
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from .helpers import IntegerInterval as Interval
 
 # writing isoimage to write-out to matplotlib
 import matplotlib.pyplot as plt
@@ -14,13 +13,14 @@ import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 from brokenaxes import BrokenAxes
 from copy import copy
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 from typing import TYPE_CHECKING, Optional, Literal, List, Tuple, Dict, Set, Iterable, Collection 
 if TYPE_CHECKING:
-    from isomodules.isoclass import Gene, ORF
+    from .isoclass import Gene, ORF
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
-Interval = Tuple[int, int]
 
 # alpha values for different absolute reading frames
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
@@ -28,9 +28,11 @@ ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 class BrokenAxesPlus(BrokenAxes):
     # Enhances BrokenAxes with ability to add patches and lines.
     # Uses code from https://github.com/bendichter/brokenaxes/issues/41#issuecomment-552093567.
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, xlims: Optional[Collection[Interval]]=None, *args, **kwargs):
+        self._xlims = tuple(xlims)
+        super().__init__(xlims=xlims, *args, **kwargs)
     
+    # FIXME: only add patches and lines to subaxes where they are visible
     def add_patch(self, patch: 'Patch'):
         for ax in self.axs:
             ax.add_patch(copy(patch))
@@ -47,10 +49,13 @@ class IsoformPlot:
     def __init__(self, orfs_to_plot: Iterable['ORF'], **kwargs):
         self.orfs: List['ORF'] = list(orfs_to_plot)  # list of orf objects to be drawn
         self.tracks: Dict[str, List['FeatureArtist']] = {orf.name: [] for orf in self.orfs}  # maps each orf to list of FeatureArtists
-        self.ax: Optional['BrokenAxesPlus'] = None
         self.opts = IsoformPlotOptions(**kwargs)
 
-        # auto-set multiregion based on given orfs
+        self.reset_xlims()
+        self.ax = BrokenAxesPlus(xlims=self.multiregion, ylims=[(len(self.orfs), 0)], wspace=0)
+
+    def reset_xlims(self):
+        """Set xlims automatically based on exons in isoforms."""
         exon_intervals = ((exon.start, exon.end) for orf in self.orfs for exon in orf.exons)
         space = self.opts.intron_spacing
         self.multiregion: List[Interval] = get_union([(a - space, b + space) for a, b in exon_intervals])
@@ -74,11 +79,6 @@ class IsoformPlot:
         
         # initialize matplotlib fig and axes objects and parameters
         # max_x, min_y = 0, 0 # track abs figsize (to correctly proportion plot)
-        # FIXME: need to invert each subax
-        if self.ax is None:
-            self.ax = BrokenAxesPlus(xlims=self.multiregion, ylims=[(0, len(self.orfs)+1)], wspace=0)
-        # if not self.ax.yaxis_inverted():  # more convenient for positive y-axis to point down
-            # self.ax.invert_yaxis()
 
         for i, orf in enumerate(self.orfs):
             self.draw_orf(orf, i)

@@ -87,11 +87,7 @@ from isomodules.isoimage import IsoformPlot, RectArtist
 # isoimage.render_pair_align_image(aln_grp)
 
 fig = plt.figure()
-isoplot = IsoformPlot([hmg20b_repr])
-# isoplot.multiregion = [
-#     (hmg20b_repr.first.coord, hmg20b_repr.exons[2].last.coord),
-#     (hmg20b_repr.exons[3].first.coord, hmg20b_repr.last.coord)
-# ]
+isoplot = IsoformPlot(hmg20b.orfs)
 isoplot.draw()
 plt.show()
 # %%
@@ -105,8 +101,9 @@ filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
 big = 10**6
 fig = plt.figure()
-ax = BrokenAxesPlus(xlims=tuple((a, a+0.5) for a in range(big, big+5, 1)), ylims=((0, 5),), wspace=0)
-ax.add_patch(Rectangle(xy=[1, 2], width=5, height=1))
+ax = BrokenAxesPlus(xlims=((0, 20), (30, 50)), ylims=((0, 4),), wspace=0)
+ax.add_patch(Rectangle(xy=[10, 2], width=30, height=1))
+ax.add_patch(Rectangle(xy=[15, 2], width=10, height=1, fc='none', hatch='/'))
 plt.show()
 
 # %%
