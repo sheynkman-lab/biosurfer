@@ -21,24 +21,25 @@ if TYPE_CHECKING:
     from .isoclass import Gene, ORF
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
+Pair = Tuple[int, int]
 
 # alpha values for different absolute reading frames
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 
 class BrokenAxesPlus(BrokenAxes):
     # Enhances BrokenAxes with ability to add patches and lines.
-    # Uses code from https://github.com/bendichter/brokenaxes/issues/41#issuecomment-552093567.
-    def __init__(self, xlims: Optional[Collection[Interval]]=None, *args, **kwargs):
-        self._xlims = tuple(xlims)
-        super().__init__(xlims=xlims, *args, **kwargs)
-    
+    # Uses code from https://github.com/bendichter/brokenaxes/issues/41#issuecomment-552093567.    
+    def __init__(self, xlims: Optional[Collection[Pair]] = None, *args, **kwargs):
+        self._xlims = Interval.from_tuples(*xlims)
+        super().__init__(xlims=self._xlims.to_tuples(), *args, **kwargs)
+
     # FIXME: only add patches and lines to subaxes where they are visible
-    def add_patch(self, patch: 'Patch'):
+    def add_patch(self, patch: 'Patch') -> 'Patch':
         for ax in self.axs:
             ax.add_patch(copy(patch))
         return patch
     
-    def add_line(self, line: 'Line2D'):
+    def add_line(self, line: 'Line2D') -> 'Line2D':
         for ax in self.axs:
             ax.add_line(copy(line))
         return line
@@ -50,16 +51,21 @@ class IsoformPlot:
         self.orfs: List['ORF'] = list(orfs_to_plot)  # list of orf objects to be drawn
         self.tracks: Dict[str, List['FeatureArtist']] = {orf.name: [] for orf in self.orfs}  # maps each orf to list of FeatureArtists
         self.opts = IsoformPlotOptions(**kwargs)
-
         self.reset_xlims()
-        self.ax = BrokenAxesPlus(xlims=self.multiregion, ylims=[(len(self.orfs), 0)], wspace=0)
+
+    @property
+    def xlims(self) -> Tuple[Pair]:
+        return self.ax._xlims.to_tuples()
+
+    @xlims.setter
+    def xlims(self, xlims: Collection[Pair]):
+        self.ax = BrokenAxesPlus(xlims=xlims, ylims=[(len(self.orfs), 0)], wspace=0)
 
     def reset_xlims(self):
         """Set xlims automatically based on exons in isoforms."""
-        exon_intervals = ((exon.start, exon.end) for orf in self.orfs for exon in orf.exons)
         space = self.opts.intron_spacing
-        self.multiregion: List[Interval] = get_union([(a - space, b + space) for a, b in exon_intervals])
-
+        self.xlims = [(exon.start - space, exon.end + space) for orf in self.orfs for exon in orf.exons]
+        
     def draw(self):
         """Plot all orfs."""
         # process orfs to get ready for plotting

@@ -107,33 +107,3 @@ ax.add_patch(Rectangle(xy=[15, 2], width=10, height=1, fc='none', hatch='/'))
 plt.show()
 
 # %%
-from isomodules.isoimage import get_union
-from random import randint
-
-# TODO: turn this into a proper unit test?
-
-def test_multiregion(intervals, multiregion):
-    for a, b in intervals:
-        for i in range(a, b+1):
-            fail = True
-            for p, q in multiregion:
-                if i in range(p, q+1):
-                    fail = False
-                    break
-            if fail:
-                print(f"couldn't find {i} in {str(multiregion)}!")
-
-intervals = [(1, 2), (4, 6), (4, 9), (5, 8), (10, 12)]
-intervals = sorted({((a := randint(0, 10)), a + randint(1, 5)) for _ in range(5)})
-multiregion = get_union(intervals)
-
-print(f"test intervals: {intervals}")
-print(f"union: {multiregion}")
-
-print("test 1a")
-test_multiregion(intervals, multiregion)
-print("test 1b")
-test_multiregion(multiregion, intervals)
-
-
-# %%
