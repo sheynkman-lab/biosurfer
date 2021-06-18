@@ -14,9 +14,9 @@ from collections import defaultdict
 import itertools
 from typing import TYPE_CHECKING, List, Set, Literal, Optional
 if TYPE_CHECKING:
-    from isomodules.isoalign import Alignment
-    from isomodules.isogroup import Group
-    from isomodules.isofeature import Feature
+    from .isoalign import Alignment
+    from .isogroup import Group
+    from .isofeature import Feature
 
 Strand = Literal['+', '-']
 Nucleotide = Literal['A', 'C', 'G', 'T']

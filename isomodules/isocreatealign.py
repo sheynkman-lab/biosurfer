@@ -7,10 +7,10 @@
 # python_version  :2.6.6
 # ==============================================================================
 
-from isomodules import isoclass
+from . import isoclass
 from collections import Counter
-from isomodules import isoalign
-from isomodules import isogroup
+from . import isoalign
+from . import isogroup
 import itertools
 from itertools import groupby
 import re
