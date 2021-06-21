@@ -92,21 +92,4 @@ isoplot.draw()
 isoplot.draw_region(track=1, start=3574000, end=3575000, type='rect', facecolor='orange', zorder=1.5, alpha=0.5)
 # plt.show()
 
-
-# %%
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-from brokenaxes import BrokenAxes
-from isomodules.isoimage import BrokenAxesPlus
-from warnings import filterwarnings
-filterwarnings("ignore", category=MatplotlibDeprecationWarning)
-
-big = 10**6
-fig = plt.figure()
-ax = BrokenAxesPlus(xlims=((0, 20), (30, 50)), ylims=((0, 4),), wspace=0)
-ax.add_patch(Rectangle(xy=[10, 2], width=30, height=1))
-ax.add_patch(Rectangle(xy=[15, 2], width=10, height=1, fc='none', hatch='/'))
-plt.show()
-
 # %%

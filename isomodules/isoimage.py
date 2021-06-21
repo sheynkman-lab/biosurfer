@@ -162,9 +162,11 @@ class IsoformPlot:
         
         # rotate x axis tick labels for better readability
         for subaxes in self._bax.axs:
-            labels = [int(label) for label in subaxes.get_xticks()]
-            subaxes.tick_params(axis='x', labelsize=8)
-            subaxes.set_xticklabels(labels, rotation=90, ha='center', va='top')
+            subaxes.xaxis.set_major_formatter('{x:.0f}')
+            for label in subaxes.get_xticklabels():
+                label.set_va('top')
+                label.set_rotation(90)
+                label.set_size(8)
 
 
 PlotMode = Literal['all', 'cds']
