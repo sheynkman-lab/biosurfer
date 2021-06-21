@@ -98,14 +98,15 @@ class IsoformPlot:
 
     def draw_orf(self, orf: 'ORF', track: int):
         """Plot a single orf in the given track."""
-
-        # plot orf name
-        label = retrieve_orf_name(orf)
+        orf_start = orf.first.coord
+        orf_end = orf.last.coord
+        if orf.strand == '-':
+            orf_start, orf_end = orf_end, orf_start
         # plot intron line
         self.draw_region(
             track,
-            start = orf.first.coord,
-            end = orf.last.coord,
+            start = orf_start,
+            end = orf_end,
             type = 'line',
             linewidth = 1.5,
             color = 'k',

@@ -32,12 +32,16 @@ path_transcripts_fa = os.path.join(data_dir, 'gencode.v38.pc_transcripts.fa')
 # %%
 import pickle
 
-temp_file_path = 'data/test_gene_dict.p'
+genes = ('HMG20B', 'DMAC2')
+temp_file_path = f'data/gene_dict_{"_".join(sorted(genes))}.p'
+
 try:
     # raise IOError()
     with open(temp_file_path, 'rb') as f:
         gd = pickle.load(f)
+        print("loaded dict from pickle file")
 except IOError:
+    print("loading dict from gtf and fasta files")
     # load data
     orf_seqs = isofunc.gc_fasta_to_orf_seq_dict(path_transcripts_fa)
     chr_dict = isofunc.load_hg38(path_chr_fa)
@@ -51,7 +55,6 @@ except IOError:
     # appris_orfs = isofunc.load_appris_principle_isonames(path_appris)
     # isoacc_map = isofunc.load_6k_isoacc_map(path_isoacc)
 
-    genes = ['HMG20B']
     gd = isocreate.init_gen_obj_gc(path_chr_gtf, gene_list=genes)
     gd = isocreate.create_and_link_seq_related_obj(gd, orf_seqs)
     gd = isocreate.create_and_link_junct_and_ss_objs(gd, chr_dict)
@@ -65,46 +68,48 @@ except IOError:
 # 	print(gene.orfs)
 
 # %%
-reload(isocreatealign)
-reload(isoalign)
-
-hmg20b = gd['HMG20B']
-hmg20b_repr = hmg20b.repr_orf
-hmg20b_other = hmg20b['HMG20B-201']
-aln_grp = isocreatealign.create_and_map_splice_based_align_obj([[hmg20b_repr, hmg20b_other]])[0]
-isocreatefeat.create_and_map_frame_objects(aln_grp)
-
-print(aln_grp.alnf.full)
-display(aln_grp.alnf.blocks)
-# display(aln_grp.alnf.protblocks)
-display(aln_grp.frmf.blocks)
-
-# %%
 import matplotlib.pyplot as plt
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 from warnings import filterwarnings
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
-from isomodules.isoimage import IsoformPlot
+reload(isocreatealign)
+reload(isoalign)
+reload(isoimage)
 
-# isoimage.render_pair_align_image(aln_grp)
+IsoformPlot = isoimage.IsoformPlot
+
+goi = gd['DMAC2']
+goi_repr = goi.repr_orf
+# goi_other = goi['DMAC2-201']
+aln_grps = isocreatealign.create_and_map_splice_based_align_obj(goi.ref_alt_pairs)
+# aln_grp = aln_grps[0]
+# isocreatefeat.create_and_map_frame_objects(aln_grp)
+
+# print(aln_grp.alnf.full)
+# display(aln_grp.alnf.blocks)
+# display(aln_grp.frmf.blocks)
 
 fig = plt.figure()
-isoplot = IsoformPlot(hmg20b.orfs)
+orfs_to_plot = [goi.repr_orf] + sorted(goi.other_orfs)
+isoplot = IsoformPlot(orfs_to_plot)
 isoplot.draw()
 
 # TODO: turn this into a method?
-FRAME_HATCH = {1: '', 2: '/', 3: '\\'}
-other_track = isoplot.orfs.index(aln_grp.other_orf)
-# for block in aln_grp.frmf.blocks:
-#     isoplot.draw_region(
-#         track = other_track,
-#         start = block.first.coord,
-#         end = block.last.coord,
-#         type = 'rect',
-#         facecolor = 'none',
-#         hatch = FRAME_HATCH[block.cat],
-#         zorder = 1.5
-#     )
+FRAME_HATCH = {1: '', 2: '///', 3: '\\\\\\'}
+for comparison in aln_grps:
+    isocreatefeat.create_and_map_frame_objects(comparison)
+    other_track = isoplot.orfs.index(comparison.other_orf)
+    for block in comparison.frmf.blocks:
+        if int(block.cat) != 1:
+            isoplot.draw_region(
+                track = other_track,
+                start = block.first.res.codon[0].coord,
+                end = block.last.res.codon[-1].coord,
+                type = 'rect',
+                facecolor = 'none',
+                hatch = FRAME_HATCH[int(block.cat)],
+                zorder = 1.5
+            )
     
 # plt.show()
 
