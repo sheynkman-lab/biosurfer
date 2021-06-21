@@ -101,10 +101,14 @@ for comparison in aln_grps:
     other_track = isoplot.orfs.index(comparison.other_orf)
     for block in comparison.frmf.blocks:
         if int(block.cat) != 1:
+            block_start = block.first.res.codon[0].coord
+            block_end = block.last.res.codon[-1].coord
+            if comparison.other_orf.strand == '-':
+                block_start, block_end = block_end, block_start
             isoplot.draw_region(
                 track = other_track,
-                start = block.first.res.codon[0].coord,
-                end = block.last.res.codon[-1].coord,
+                start = block_start,
+                end = block_end,
                 type = 'rect',
                 facecolor = 'none',
                 hatch = FRAME_HATCH[int(block.cat)],
