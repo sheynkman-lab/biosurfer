@@ -89,7 +89,8 @@ from isomodules.isoimage import IsoformPlot
 fig = plt.figure()
 isoplot = IsoformPlot(hmg20b.orfs)
 isoplot.draw()
-plt.show()
+isoplot.draw_region(track=1, start=3574000, end=3575000, type='rect', facecolor='orange', zorder=1.5, alpha=0.5)
+# plt.show()
 
 
 # %%

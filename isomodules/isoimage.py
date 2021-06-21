@@ -30,7 +30,6 @@ class IsoformPlot:
     """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
     def __init__(self, orfs_to_plot: Iterable['ORF'], **kwargs):
         self.orfs: List['ORF'] = list(orfs_to_plot)  # list of orf objects to be drawn
-        self.tracks: Dict[str, List['FeatureArtist']] = {orf.name: [] for orf in self.orfs}  # maps each orf to list of FeatureArtists
         self.opts = IsoformPlotOptions(**kwargs)
 
         self.reset_xlims()
@@ -62,20 +61,25 @@ class IsoformPlot:
             raise TypeError('xcoords must be an int or a tuple of 2 ints!')
         return tuple(self._bax.axs[i] for i in subax_ids)
 
-    def draw_region(self, track: int, start: int, end: int, y_offset: Optional[float] = None, type='rect', **kwargs):
+    def draw_region(self, track: int, start: int, end: int,
+                    y_offset: Optional[float] = None,
+                    height: Optional[float] = None,
+                    type='rect', **kwargs):
         """Draw a feature that spans a region. Default type is rectangle."""
         if type == 'rect':
             if y_offset is None:
-                y_offset = 0.5
+                y_offset = -0.25
+            if height is None:
+                height = 0.5
             artist = mpatches.Rectangle(
                 xy = (start, track + y_offset),
                 width = end - start,
-                height = 0.5,
+                height = height,
                 **kwargs
             )
         elif type == 'line':
             if y_offset is None:
-                y_offset = 0.75
+                y_offset = 0
             artist = mlines.Line2D(
                 xdata = (start, end),
                 ydata = (track + y_offset, track + y_offset),
@@ -97,8 +101,6 @@ class IsoformPlot:
 
         # plot orf name
         label = retrieve_orf_name(orf)
-        # FIXME: replace with call to draw_track_label
-        self._bax.axs[0].text(self.opts.label_x, track, label, va='top', transform=self._bax.axs[0].get_yaxis_transform())
         # plot intron line
         self.draw_region(
             track,
@@ -126,9 +128,6 @@ class IsoformPlot:
                 zorder = 1.5
             )
             
-            # if self.opts.mode == 'all':
-            #     self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc='w', zorder=1.5, joinstyle='round')) # base layer so 'alpha' diff for 3 diff frm isn't show-through
-            #     self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=2, joinstyle='round', alpha=alpha_val))
             # # add subtle splice (delta) amounts, if option turned on
             # # first, make sure the exon contains a (coding) cds object
             # if exon.cds:
@@ -137,19 +136,11 @@ class IsoformPlot:
             #         # self.ax.text(x, y+0.2, delta_start, va='bottom', ha='left', size='x-small')
             #     # if delta_end:
             #         # self.ax.text(x+blength, y+0.2, delta_end, va='bottom', ha='right', size='x-small')
-            #     # render cds blocks, if exists
-            #     x = exon.cds.start
-            #     y = track+0.25
-            #     blength = exon.cds.end - exon.cds.start
-            #     bheight = 0.5
-            #     self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc='w', zorder=3, joinstyle='round')) # base layer so 'alpha' diff for 3 diff frm isn't show-through
-            #     exon_rect = mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=4, joinstyle='round', alpha=alpha_val)
-            #     self.ax.add_patch(exon_rect)
 
     def draw(self):
         """Plot all orfs."""
         
-        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), 0),), wspace=0)
+        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), -0.5),), wspace=0)
 
         # process orfs to get ready for plotting
         gen_obj = grab_gen_objs_from_orfs(self.orfs) # all gen_objs into a set
@@ -159,18 +150,21 @@ class IsoformPlot:
         find_and_set_subtle_splicing_status(self.orfs, self.opts.subtle_threshold)
         
         repr_orf = get_repr_orf(self.orfs)
-        # if repr_orf.strand == '+':
-        #     start = min(orf.first.coord for orf in self.orfs)
-        #     end = max(orf.last.coord for orf in self.orfs)
-        # elif repr_orf.strand == '-':
-        #     start = min(orf.last.coord for orf in self.orfs)
-        #     end = max(orf.first.coord for orf in self.orfs)
-        
-        # initialize matplotlib fig and axes objects and parameters
-        # max_x, min_y = 0, 0 # track abs figsize (to correctly proportion plot)
 
         for i, orf in enumerate(self.orfs):
             self.draw_orf(orf, i)
+        
+        # hide y axis spine and replace tick labels with ORF ids
+        left_subaxes = self._bax.axs[0]
+        left_subaxes.spines['left'].set_visible(False)
+        left_subaxes.set_yticks(list(range(len(self.orfs))))
+        left_subaxes.set_yticklabels([orf.name for orf in self.orfs])
+        
+        # rotate x axis tick labels for better readability
+        for subaxes in self._bax.axs:
+            labels = [int(label) for label in subaxes.get_xticks()]
+            subaxes.tick_params(axis='x', labelsize=8)
+            subaxes.set_xticklabels(labels, rotation=90, ha='center', va='top')
 
 
 PlotMode = Literal['all', 'cds']
@@ -185,6 +179,9 @@ class IsoformPlotOptions:
     show_abs_frame: bool = False
     spacing: float = 0.5
     subtle_threshold: int = 20
+
+
+### older methods ###
 
 
 def get_union(intervals: Collection[Interval]) -> Tuple[Interval]:
@@ -216,8 +213,6 @@ def get_union(intervals: Collection[Interval]) -> Tuple[Interval]:
     multiregion.append(combined)
     return tuple(reversed(multiregion))
 
-
-### older methods ###
 
 def isoform_display_name(s):
        """Convert clone accession ID to display friendly format"""
