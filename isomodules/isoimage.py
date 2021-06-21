@@ -62,19 +62,23 @@ class IsoformPlot:
             raise TypeError('xcoords must be an int or a tuple of 2 ints!')
         return tuple(self._bax.axs[i] for i in subax_ids)
 
-    def draw_region(self, track: int, start: int, end: int, type='rect', **kwargs):
+    def draw_region(self, track: int, start: int, end: int, y_offset: Optional[float] = None, type='rect', **kwargs):
         """Draw a feature that spans a region. Default type is rectangle."""
         if type == 'rect':
+            if y_offset is None:
+                y_offset = 0.5
             artist = mpatches.Rectangle(
-                xy = (start, track+0.5),
+                xy = (start, track + y_offset),
                 width = end - start,
                 height = 0.5,
                 **kwargs
             )
         elif type == 'line':
+            if y_offset is None:
+                y_offset = 0.75
             artist = mlines.Line2D(
                 xdata = (start, end),
-                ydata = (track+0.5, track+0.5),
+                ydata = (track + y_offset, track + y_offset),
                 **kwargs
             )
         else:
@@ -93,7 +97,8 @@ class IsoformPlot:
 
         # plot orf name
         label = retrieve_orf_name(orf)
-        self._bax.text(self.opts.label_x, track, label, va='top', transform=self._bax.axs[0].get_yaxis_transform())
+        # FIXME: replace with call to draw_track_label
+        self._bax.axs[0].text(self.opts.label_x, track, label, va='top', transform=self._bax.axs[0].get_yaxis_transform())
         # plot intron line
         self.draw_region(
             track,
@@ -175,7 +180,7 @@ class IsoformPlotOptions:
     compress: float = 300.0
     height: float = 0.1
     intron_spacing: int = 30  # number of bases to show in each intron
-    label_x: float = 0.1
+    label_x: float = -0.1
     mode: PlotMode = 'all'
     show_abs_frame: bool = False
     spacing: float = 0.5
