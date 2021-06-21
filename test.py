@@ -72,10 +72,12 @@ hmg20b = gd['HMG20B']
 hmg20b_repr = hmg20b.repr_orf
 hmg20b_other = hmg20b['HMG20B-201']
 aln_grp = isocreatealign.create_and_map_splice_based_align_obj([[hmg20b_repr, hmg20b_other]])[0]
+isocreatefeat.create_and_map_frame_objects(aln_grp)
 
 print(aln_grp.alnf.full)
 display(aln_grp.alnf.blocks)
 # display(aln_grp.alnf.protblocks)
+display(aln_grp.frmf.blocks)
 
 # %%
 import matplotlib.pyplot as plt
@@ -89,7 +91,21 @@ from isomodules.isoimage import IsoformPlot
 fig = plt.figure()
 isoplot = IsoformPlot(hmg20b.orfs)
 isoplot.draw()
-isoplot.draw_region(track=1, start=3574000, end=3575000, type='rect', facecolor='orange', zorder=1.5, alpha=0.5)
+
+# TODO: turn this into a method?
+FRAME_HATCH = {1: '', 2: '/', 3: '\\'}
+other_track = isoplot.orfs.index(aln_grp.other_orf)
+# for block in aln_grp.frmf.blocks:
+#     isoplot.draw_region(
+#         track = other_track,
+#         start = block.first.coord,
+#         end = block.last.coord,
+#         type = 'rect',
+#         facecolor = 'none',
+#         hatch = FRAME_HATCH[block.cat],
+#         zorder = 1.5
+#     )
+    
 # plt.show()
 
 # %%

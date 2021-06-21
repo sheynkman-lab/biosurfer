@@ -12,10 +12,6 @@ class Feature():
         self.obj = iso_obj
         self.update_ref_to_this_feat_in_obj(ftype)
 
-    @property
-    def grp(self):
-        return self.featf.grp
-
     def __repr__(self):
         return self.name
 
@@ -45,6 +41,7 @@ class FeatureFull(Feature):
         self.featf = self  # need for retrieving grp, for grp-dep. feat
         self.ftype = ftype  # e.g., dom, frm, isr
         self.desc = desc # more information about the feat. type
+        self.grp = None
         self.blocks = []  # optional
         self.subblocks = []
         self.chain = []
@@ -83,12 +80,13 @@ class FeatureBlock(Feature):
     def __init__(self, featf, featr_chain, cat):
         self.cat = cat
         self.featf = featf
+        self.grp = self.featf.grp
         # self.first -> property
         # self.last -> property
         self.subblocks = []
         self.chain = featr_chain
         # self.ord -> property
-        link_up_parent_child_references(self)
+        self.link_up_parent_child_references()
 
     @property
     def first(self):
@@ -114,9 +112,9 @@ class FeatureBlock(Feature):
     def link_up_parent_child_references(self):
         """Set upper (frmf) and lower (frmr) references."""
         # TODO: - check if correct code, b/c transferred from isocreatefeat.py
-        self.frmf.blocks.append(self)
-        for frmr in self.chain:
-            frmr.featb = self
+        self.featf.blocks.append(self)
+        for featr in self.chain:
+            featr.featb = self
 
 
 
@@ -130,6 +128,7 @@ class FeatureSubblock(Feature):
         # self.cat -> property
         # self.ord -> property
         self.featf = featf
+        self.grp = self.featf.grp
         self.featb = None  # update with mother feature block, if exists
         # self.first -> property
         # self.last -> property
@@ -178,6 +177,7 @@ class FeatureResidue(Feature):
     def __init__(self, featf, res):
         # self.idx = idx  -> property, 1-base index of feature
         self.featf = featf
+        self.grp = self.featf.grp
         self.res = res
         self.featb = None  # updated later, if exists
         self.featsb = None  # updated later, if exists
@@ -194,6 +194,10 @@ class FeatureResidue(Feature):
             return self._cat
         else:
             return self.featf.cat
+    
+    @cat.setter
+    def cat(self, cat):
+        self._cat = cat
 
     @property
     def aa(self):
@@ -283,10 +287,10 @@ class FrameFull(FeatureFull):
               creation of an alignment object, where the res.rfrm is populated.
     """
     def __init__(self, orf, grp):
+        FeatureFull.__init__(self, orf, 'frm')
         self.grp = grp
         # self.name -> property
         # self.full -> property
-        FeatureFull.__init__(self, orf, 'frm')
 
     @property
     def name(self):
