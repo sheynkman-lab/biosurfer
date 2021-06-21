@@ -82,7 +82,7 @@ import matplotlib.pyplot as plt
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 from warnings import filterwarnings
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
-from isomodules.isoimage import IsoformPlot, RectArtist
+from isomodules.isoimage import IsoformPlot
 
 # isoimage.render_pair_align_image(aln_grp)
 
@@ -90,6 +90,8 @@ fig = plt.figure()
 isoplot = IsoformPlot(hmg20b.orfs)
 isoplot.draw()
 plt.show()
+
+
 # %%
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle

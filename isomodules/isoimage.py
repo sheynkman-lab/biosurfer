@@ -6,6 +6,7 @@ import math
 import operator
 from itertools import groupby
 from .helpers import IntegerInterval as Interval
+from portion import IntervalDict
 
 # writing isoimage to write-out to matplotlib
 import matplotlib.pyplot as plt
@@ -13,36 +14,16 @@ import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 from brokenaxes import BrokenAxes
 from copy import copy
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from typing import TYPE_CHECKING, Optional, Literal, List, Tuple, Dict, Set, Iterable, Collection 
+from typing import TYPE_CHECKING, Optional, Union, Literal, List, Tuple, Dict, Set, Iterable, Collection
 if TYPE_CHECKING:
     from .isoclass import Gene, ORF
-    from matplotlib.patches import Patch
-    from matplotlib.lines import Line2D
+    from matplotlib.axes import Axes
 Pair = Tuple[int, int]
 
 # alpha values for different absolute reading frames
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
-
-class BrokenAxesPlus(BrokenAxes):
-    # Enhances BrokenAxes with ability to add patches and lines.
-    # Uses code from https://github.com/bendichter/brokenaxes/issues/41#issuecomment-552093567.    
-    def __init__(self, xlims: Optional[Collection[Pair]] = None, *args, **kwargs):
-        self._xlims = Interval.from_tuples(*xlims)
-        super().__init__(xlims=self._xlims.to_tuples(), *args, **kwargs)
-
-    # FIXME: only add patches and lines to subaxes where they are visible
-    def add_patch(self, patch: 'Patch') -> 'Patch':
-        for ax in self.axs:
-            ax.add_patch(copy(patch))
-        return patch
-    
-    def add_line(self, line: 'Line2D') -> 'Line2D':
-        for ax in self.axs:
-            ax.add_line(copy(line))
-        return line
 
 
 class IsoformPlot:
@@ -51,23 +32,120 @@ class IsoformPlot:
         self.orfs: List['ORF'] = list(orfs_to_plot)  # list of orf objects to be drawn
         self.tracks: Dict[str, List['FeatureArtist']] = {orf.name: [] for orf in self.orfs}  # maps each orf to list of FeatureArtists
         self.opts = IsoformPlotOptions(**kwargs)
-        self.reset_xlims()
 
+        self.reset_xlims()
+    
+    # Internally, IsoformPlot stores _subaxes, which maps each genomic region to the subaxes that plots the region's features.
+    # The xlims property provides a simple interface to allow users to control which genomic regions are plotted.
     @property
     def xlims(self) -> Tuple[Pair]:
-        return self.ax._xlims.to_tuples()
+        """Coordinates of the genomic regions to be plotted, as a tuple of (start, end) tuples."""
+        return Interval(self._subaxes.domain()).to_tuples()
 
     @xlims.setter
     def xlims(self, xlims: Collection[Pair]):
-        self.ax = BrokenAxesPlus(xlims=xlims, ylims=[(len(self.orfs), 0)], wspace=0)
+        xregions = Interval.from_tuples(*xlims)  # condense xlims into single Interval object
+        self._subaxes: 'IntervalDict[Interval, int]' = IntervalDict({region: i for i, region in enumerate(xregions)})
 
     def reset_xlims(self):
         """Set xlims automatically based on exons in isoforms."""
         space = self.opts.intron_spacing
-        self.xlims = [(exon.start - space, exon.end + space) for orf in self.orfs for exon in orf.exons]
-        
+        self.xlims = tuple((exon.start - space, exon.end + space) for orf in self.orfs for exon in orf.exons)
+
+    def _get_subaxes(self, xcoords: Union[int, Pair]) -> Tuple['Axes']:
+        """For a specific coordinate or range of coordinates, retrieve corresponding subaxes."""
+        if isinstance(xcoords, int):
+            subax_ids = [self._subaxes[xcoords]]
+        elif isinstance(xcoords, tuple):
+            subax_ids = list(self._subaxes[Interval.from_tuples(xcoords)].values())
+        else:
+            raise TypeError('xcoords must be an int or a tuple of 2 ints!')
+        return tuple(self._bax.axs[i] for i in subax_ids)
+
+    def draw_region(self, track: int, start: int, end: int, type='rect', **kwargs):
+        """Draw a feature that spans a region. Default type is rectangle."""
+        if type == 'rect':
+            artist = mpatches.Rectangle(
+                xy = (start, track+0.5),
+                width = end - start,
+                height = 0.5,
+                **kwargs
+            )
+        elif type == 'line':
+            artist = mlines.Line2D(
+                xdata = (start, end),
+                ydata = (track+0.5, track+0.5),
+                **kwargs
+            )
+        else:
+            raise ValueError(f'region type {type} is not defined')
+
+        subaxes = self._get_subaxes((start, end))
+        for ax in subaxes:
+            ax.add_artist(copy(artist))
+
+    # TODO: implement draw_track_label
+    def draw_track_label(self):
+        pass
+
+    def draw_orf(self, orf: 'ORF', track: int):
+        """Plot a single orf in the given track."""
+
+        # plot orf name
+        label = retrieve_orf_name(orf)
+        self._bax.text(self.opts.label_x, track, label, va='top', transform=self._bax.axs[0].get_yaxis_transform())
+        # plot intron line
+        self.draw_region(
+            track,
+            start = orf.first.coord,
+            end = orf.last.coord,
+            type = 'line',
+            linewidth = 1.5,
+            color = 'k',
+            linestyle = '--',
+            dashes = (1, 1.2),
+            zorder = 1.5
+        )
+
+        # render thin exon blocks
+        for exon in orf.exons:
+            col = get_orf_color(orf)
+            alpha_val = ABS_FRAME_ALPHA[exon.abs_frm] if self.opts.show_abs_frame else 1.0
+            self.draw_region(
+                track,
+                start = exon.start,
+                end = exon.end,
+                type = 'rect',
+                edgecolor = 'k',
+                facecolor = col,
+                zorder = 1.5
+            )
+            
+            # if self.opts.mode == 'all':
+            #     self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc='w', zorder=1.5, joinstyle='round')) # base layer so 'alpha' diff for 3 diff frm isn't show-through
+            #     self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=2, joinstyle='round', alpha=alpha_val))
+            # # add subtle splice (delta) amounts, if option turned on
+            # # first, make sure the exon contains a (coding) cds object
+            # if exon.cds:
+            #     delta_start, delta_end = retrieve_subtle_splice_amounts(exon.cds)
+            #     # if delta_start:
+            #         # self.ax.text(x, y+0.2, delta_start, va='bottom', ha='left', size='x-small')
+            #     # if delta_end:
+            #         # self.ax.text(x+blength, y+0.2, delta_end, va='bottom', ha='right', size='x-small')
+            #     # render cds blocks, if exists
+            #     x = exon.cds.start
+            #     y = track+0.25
+            #     blength = exon.cds.end - exon.cds.start
+            #     bheight = 0.5
+            #     self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc='w', zorder=3, joinstyle='round')) # base layer so 'alpha' diff for 3 diff frm isn't show-through
+            #     exon_rect = mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=4, joinstyle='round', alpha=alpha_val)
+            #     self.ax.add_patch(exon_rect)
+
     def draw(self):
         """Plot all orfs."""
+        
+        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), 0),), wspace=0)
+
         # process orfs to get ready for plotting
         gen_obj = grab_gen_objs_from_orfs(self.orfs) # all gen_objs into a set
         verify_only_one_gen_obj_represented(gen_obj)
@@ -88,49 +166,6 @@ class IsoformPlot:
 
         for i, orf in enumerate(self.orfs):
             self.draw_orf(orf, i)
-    
-    
-    def draw_orf(self, orf: 'ORF', track: int):
-        """Plot a single orf in the given track."""
-
-        # plot orf name
-        label = retrieve_orf_name(orf)
-        self.ax.text(self.opts.label_x, track, label, va='top', transform=self.ax.axs[0].get_yaxis_transform())
-        # plot intron line
-        intron_line = mlines.Line2D(  # TODO: turn this into some LineArtist object
-            xdata=[orf.chain[0].coord, orf.chain[-1].coord],
-            ydata=[track+0.5, track+0.5],
-            lw=1.5, color='k', ls='--', dashes=(1, 1.2), zorder=1
-        )
-        self.ax.add_line(intron_line)
-
-        # render thin exon blocks
-        for exon in orf.exons:
-            x = exon.start
-            y = track+0.25
-            blength = exon.end - exon.start
-            bheight = 0.5
-            col = get_orf_color(orf)
-            alpha_val = ABS_FRAME_ALPHA[exon.abs_frm] if self.opts.show_abs_frame else 1.0
-            if self.opts.mode == 'all':
-                self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc='w', zorder=1.5, joinstyle='round')) # base layer so 'alpha' diff for 3 diff frm isn't show-through
-                self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=2, joinstyle='round', alpha=alpha_val))
-            # add subtle splice (delta) amounts, if option turned on
-            # first, make sure the exon contains a (coding) cds object
-            if exon.cds:
-                delta_start, delta_end = retrieve_subtle_splice_amounts(exon.cds)
-                # if delta_start:
-                    # self.ax.text(x, y+0.2, delta_start, va='bottom', ha='left', size='x-small')
-                # if delta_end:
-                    # self.ax.text(x+blength, y+0.2, delta_end, va='bottom', ha='right', size='x-small')
-                # render cds blocks, if exists
-                x = exon.cds.start
-                y = track+0.25
-                blength = exon.cds.end - exon.cds.start
-                bheight = 0.5
-                self.ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc='w', zorder=3, joinstyle='round')) # base layer so 'alpha' diff for 3 diff frm isn't show-through
-                exon_rect = mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=4, joinstyle='round', alpha=alpha_val)
-                self.ax.add_patch(exon_rect)
 
 
 PlotMode = Literal['all', 'cds']
@@ -145,33 +180,6 @@ class IsoformPlotOptions:
     show_abs_frame: bool = False
     spacing: float = 0.5
     subtle_threshold: int = 20
-
-
-class FeatureArtist(ABC):
-    """Abstract class for drawing features within a specific isoform track."""
-    def __init__(self, opts: IsoformPlotOptions, y: float):
-        self.opts = opts
-        self.y = y
-    
-    def get_plot_coords():
-        pass
-
-    @abstractmethod
-    def draw(self):
-        pass
-
-
-class RectArtist(FeatureArtist):
-    """Encapsulates methods for drawing a feature as a rectangle."""
-    def draw(self, xcoords, height, facecolor='tab:1', edgecolor='k'):
-        rect_pos = [xcoords[0], self.y - height/2]
-        length = xcoords[1] - xcoords[0]
-        return mpatches.Rectangle(
-            rect_pos, length, height,
-            ec=edgecolor, fc=facecolor,
-            lw=1, joinstyle='round',
-            zorder=1.5
-        )
 
 
 def get_union(intervals: Collection[Interval]) -> Tuple[Interval]:
