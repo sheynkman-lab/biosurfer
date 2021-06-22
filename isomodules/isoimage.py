@@ -51,19 +51,17 @@ class IsoformPlot:
     @property
     def xlims(self) -> Tuple[StartEnd]:
         """Coordinates of the genomic regions to be plotted, as a tuple of (start, end) tuples."""
-        xlims = Interval(self._subaxes.domain()).to_tuples()
-        if self.strand == '+':
-            return xlims
-        else:
-            return tuple((end, start) for start, end in reversed(xlims))
+        return self._xlims
 
     @xlims.setter
     def xlims(self, xlims: Collection[StartEnd]):
         xregions = Interval.from_tuples(*xlims)  # condense xlims into single Interval object
+        self._xlims = xregions.to_tuples()
         if self.strand == '+':
             subaxes_dict = IntervalDict({region: i for i, region in enumerate(xregions)})
         else:
             subaxes_dict = IntervalDict({region: i for i, region in enumerate(reversed(xregions))})
+            self._xlims = tuple((end, start) for start, end in reversed(self._xlims))
         self._subaxes: 'IntervalDict[Interval, int]' = subaxes_dict
 
     def reset_xlims(self):
