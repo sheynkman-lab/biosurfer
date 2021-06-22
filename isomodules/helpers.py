@@ -1,6 +1,8 @@
 from portion.interval import Interval, Atomic, closed
 from portion.const import Bound
-from typing import Sequence, Tuple
+from itertools import accumulate
+from typing import Collection, Tuple
+
 
 class IntegerInterval(Interval):
     """Represents an interval over the integers."""
@@ -26,3 +28,11 @@ class IntegerInterval(Interval):
     @staticmethod
     def from_tuples(*intervals: Tuple[int, int]):
         return IntegerInterval(*[closed(a, b) for a, b in intervals])
+
+
+def get_start_end_from_lengths(lengths: Collection[int]) -> Tuple[Tuple[int, int]]:
+    """Convert a series of interval lengths to a series of interval (start, end) coordinates.
+    Coordinates are 1-indexed and inclusive."""
+    starts = accumulate(lengths[:-1], initial=1)
+    ends = accumulate(lengths)
+    return tuple(zip(starts, ends))

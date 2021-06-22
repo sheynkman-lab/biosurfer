@@ -81,7 +81,7 @@ IsoformPlot = isoimage.IsoformPlot
 goi = gd['DMAC2']
 goi_repr = goi.repr_orf
 # goi_other = goi['DMAC2-201']
-aln_grps = isocreatealign.create_and_map_splice_based_align_obj(goi.ref_alt_pairs)
+# aln_grps = isocreatealign.create_and_map_splice_based_align_obj(goi.ref_alt_pairs)
 # aln_grp = aln_grps[0]
 # isocreatefeat.create_and_map_frame_objects(aln_grp)
 
@@ -90,7 +90,7 @@ aln_grps = isocreatealign.create_and_map_splice_based_align_obj(goi.ref_alt_pair
 # display(aln_grp.frmf.blocks)
 
 fig = plt.figure()
-isoplot = isoimage.plot_isoform_frameshifts(goi_repr, goi.other_orfs)
+isoplot, aln_grps = isoimage.plot_isoform_frameshifts(goi_repr, goi.other_orfs)
 
 fig.set_size_inches(9, 6)
 # plt.show()

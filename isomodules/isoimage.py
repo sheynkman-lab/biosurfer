@@ -3,7 +3,7 @@
 
 import os
 import math
-import operator
+from operator import attrgetter
 from itertools import groupby
 from .helpers import IntegerInterval as Interval
 from portion import IntervalDict
@@ -21,7 +21,8 @@ from . import isocreatealign, isocreatefeat
 
 from typing import TYPE_CHECKING, Optional, Union, Literal, List, Tuple, Dict, Set, Iterable, Collection
 if TYPE_CHECKING:
-    from .isoclass import Gene, ORF
+    from .isoclass import Gene, ORF, Exon
+    from .isofeature import FrameResidue
     from matplotlib.axes import Axes
 StartEnd = Tuple[int, int]
 
@@ -71,6 +72,7 @@ class IsoformPlot:
                     height: Optional[float] = None,
                     type='rect', **kwargs):
         """Draw a feature that spans a region. Default type is rectangle."""
+        # TODO: make type an enum?
         if type == 'rect':
             if y_offset is None:
                 y_offset = -0.25
@@ -190,30 +192,41 @@ class IsoformPlotOptions:
 
 
 def plot_isoform_frameshifts(anchor_orf: 'ORF', other_orfs: Iterable['ORF']) -> 'IsoformPlot':
-    isoplot = IsoformPlot([anchor_orf] + list(other_orfs))
+    # def frmr_groupkey(frmr: 'FrameResidue') -> Tuple[int, 'Exon']:
+    #     return int(frmr.cat), frmr.res.exons[-1]
+
+    other_orfs_sorted = sorted(other_orfs)
+    isoplot = IsoformPlot([anchor_orf] + other_orfs_sorted)
     isoplot.draw()
 
-    orf_pairs = [[anchor_orf, other] for other in other_orfs]
+    strand = anchor_orf.strand
+    orf_pairs = [[anchor_orf, other] for other in other_orfs_sorted]
     aln_grps = isocreatealign.create_and_map_splice_based_align_obj(orf_pairs)
     for comparison in aln_grps:
         isocreatefeat.create_and_map_frame_objects(comparison)
         other_track = isoplot.orfs.index(comparison.other_orf)
-        for block in comparison.frmf.blocks:
-            if int(block.cat) != 1:
-                block_start = block.first.res.codon[0].coord
-                block_end = block.last.res.codon[-1].coord
-                if comparison.other_orf.strand == '-':
-                    block_start, block_end = block_end, block_start
-                isoplot.draw_region(
-                    track = other_track,
-                    start = block_start,
-                    end = block_end,
-                    type = 'rect',
-                    facecolor = 'none',
-                    hatch = REL_FRAME_HATCH[int(block.cat)],
-                    zorder = 1.5
-                )
-    return isoplot
+
+        # manually extract subblock coordinates from FrameResidue chain
+        for (frame, exons), group in groupby(comparison.frmf.chain, key=attrgetter('cat', 'res.exons')):
+            # skip subblocks that are not frameshifted
+            # skip FrameResidues that are located at exon junctions
+            if int(frame) == 1 or len(exons) > 1:
+                continue
+            frmrs = list(group)
+            subblock_start = frmrs[0].res.codon[0].coord
+            subblock_end = frmrs[-1].res.codon[2].coord
+            if strand == '-':
+                subblock_start, subblock_end = subblock_end, subblock_start
+            isoplot.draw_region(
+                track = other_track,
+                start = subblock_start,
+                end = subblock_end,
+                type = 'rect',
+                facecolor = 'none',
+                hatch = REL_FRAME_HATCH[int(frame)],
+                zorder = 1.5
+            )
+    return isoplot, aln_grps
 
 
 ### older methods ###
@@ -348,7 +361,6 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
         line -= spacing
     line += spacing
 
-    # ax.axis('off') FIXME: uncomment
     ax.axis('image')
     max_y = line - spacing
     max_x = max_x + abs(sp[0]) # adjust for sp[0] plotted
