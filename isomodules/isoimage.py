@@ -21,8 +21,8 @@ from . import isocreatealign, isocreatefeat
 
 from typing import TYPE_CHECKING, Optional, Union, Literal, List, Tuple, Dict, Set, Iterable, Collection
 if TYPE_CHECKING:
-    from .isoclass import Gene, ORF, Exon
-    from .isofeature import FrameResidue
+    from .isoclass import Gene, ORF, Strand
+    from .isogroup import PairwiseAlignmentGroup
     from matplotlib.axes import Axes
 StartEnd = Tuple[int, int]
 
@@ -36,8 +36,14 @@ class IsoformPlot:
     """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
     def __init__(self, orfs_to_plot: Iterable['ORF'], **kwargs):
         self.orfs: List['ORF'] = list(orfs_to_plot)  # list of orf objects to be drawn
+        gene = {orf.gene for orf in self.orfs}
+        if len(gene) > 1:
+            raise ValueError(f'Found isoforms from multiple genes: {", ".join(g.name for g in gene)}')
+        strand = {orf.strand for orf in self.orfs}
+        if len(strand) > 1:
+            raise ValueError("Can't plot isoforms from different strands!")
+        self.strand: Strand = list(strand)[0]
         self.opts = IsoformPlotOptions(**kwargs)
-
         self.reset_xlims()
     
     # Internally, IsoformPlot stores _subaxes, which maps each genomic region to the subaxes that plots the region's features.
@@ -45,12 +51,20 @@ class IsoformPlot:
     @property
     def xlims(self) -> Tuple[StartEnd]:
         """Coordinates of the genomic regions to be plotted, as a tuple of (start, end) tuples."""
-        return Interval(self._subaxes.domain()).to_tuples()
+        xlims = Interval(self._subaxes.domain()).to_tuples()
+        if self.strand == '+':
+            return xlims
+        else:
+            return tuple((end, start) for start, end in reversed(xlims))
 
     @xlims.setter
     def xlims(self, xlims: Collection[StartEnd]):
         xregions = Interval.from_tuples(*xlims)  # condense xlims into single Interval object
-        self._subaxes: 'IntervalDict[Interval, int]' = IntervalDict({region: i for i, region in enumerate(xregions)})
+        if self.strand == '+':
+            subaxes_dict = IntervalDict({region: i for i, region in enumerate(xregions)})
+        else:
+            subaxes_dict = IntervalDict({region: i for i, region in enumerate(reversed(xregions))})
+        self._subaxes: 'IntervalDict[Interval, int]' = subaxes_dict
 
     def reset_xlims(self):
         """Set xlims automatically based on exons in isoforms."""
@@ -107,7 +121,7 @@ class IsoformPlot:
         """Plot a single orf in the given track."""
         orf_start = orf.first.coord
         orf_end = orf.last.coord
-        if orf.strand == '-':
+        if self.strand == '-':
             orf_start, orf_end = orf_end, orf_start
         # plot intron line
         self.draw_region(
@@ -151,9 +165,6 @@ class IsoformPlot:
         self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), -0.5),), wspace=0)
 
         # process orfs to get ready for plotting
-        gen_obj = grab_gen_objs_from_orfs(self.orfs) # all gen_objs into a set
-        verify_only_one_gen_obj_represented(gen_obj)
-        verify_all_orfs_of_same_strand(self.orfs)
         # compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj, self.orfs, self.opts.intron_spacing)
         find_and_set_subtle_splicing_status(self.orfs, self.opts.subtle_threshold)
         
@@ -191,10 +202,9 @@ class IsoformPlotOptions:
     subtle_threshold: int = 20
 
 
-def plot_isoform_frameshifts(anchor_orf: 'ORF', other_orfs: Iterable['ORF']) -> 'IsoformPlot':
-    # def frmr_groupkey(frmr: 'FrameResidue') -> Tuple[int, 'Exon']:
-    #     return int(frmr.cat), frmr.res.exons[-1]
-
+def plot_isoform_frameshifts(anchor_orf: 'ORF', other_orfs: Iterable['ORF']) -> Tuple['IsoformPlot', List['PairwiseAlignmentGroup']]:
+    """Identify and plot frameshifted regions in a list of ORFs with respect to an anchor ORF.
+    Frameshifted regions are shown using diagonal hatching."""
     other_orfs_sorted = sorted(other_orfs)
     isoplot = IsoformPlot([anchor_orf] + other_orfs_sorted)
     isoplot.draw()
