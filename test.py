@@ -90,31 +90,9 @@ aln_grps = isocreatealign.create_and_map_splice_based_align_obj(goi.ref_alt_pair
 # display(aln_grp.frmf.blocks)
 
 fig = plt.figure()
-orfs_to_plot = [goi.repr_orf] + sorted(goi.other_orfs)
-isoplot = IsoformPlot(orfs_to_plot)
-isoplot.draw()
+isoplot = isoimage.plot_isoform_frameshifts(goi_repr, goi.other_orfs)
 
-# TODO: turn this into a method?
-FRAME_HATCH = {1: '', 2: '///', 3: '\\\\\\'}
-for comparison in aln_grps:
-    isocreatefeat.create_and_map_frame_objects(comparison)
-    other_track = isoplot.orfs.index(comparison.other_orf)
-    for block in comparison.frmf.blocks:
-        if int(block.cat) != 1:
-            block_start = block.first.res.codon[0].coord
-            block_end = block.last.res.codon[-1].coord
-            if comparison.other_orf.strand == '-':
-                block_start, block_end = block_end, block_start
-            isoplot.draw_region(
-                track = other_track,
-                start = block_start,
-                end = block_end,
-                type = 'rect',
-                facecolor = 'none',
-                hatch = FRAME_HATCH[int(block.cat)],
-                zorder = 1.5
-            )
-    
+fig.set_size_inches(9, 6)
 # plt.show()
 
 # %%

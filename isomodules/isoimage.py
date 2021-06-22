@@ -7,6 +7,7 @@ import operator
 from itertools import groupby
 from .helpers import IntegerInterval as Interval
 from portion import IntervalDict
+from enum import Enum
 
 # writing isoimage to write-out to matplotlib
 import matplotlib.pyplot as plt
@@ -16,15 +17,19 @@ from brokenaxes import BrokenAxes
 from copy import copy
 from dataclasses import dataclass
 
+from . import isocreatealign, isocreatefeat
+
 from typing import TYPE_CHECKING, Optional, Union, Literal, List, Tuple, Dict, Set, Iterable, Collection
 if TYPE_CHECKING:
     from .isoclass import Gene, ORF
     from matplotlib.axes import Axes
-Pair = Tuple[int, int]
+StartEnd = Tuple[int, int]
 
 # alpha values for different absolute reading frames
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 
+# hatching styles for different relative frameshifts
+REL_FRAME_HATCH = {1: '', 2: '///', 3: '\\\\\\'}
 
 class IsoformPlot:
     """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
@@ -37,12 +42,12 @@ class IsoformPlot:
     # Internally, IsoformPlot stores _subaxes, which maps each genomic region to the subaxes that plots the region's features.
     # The xlims property provides a simple interface to allow users to control which genomic regions are plotted.
     @property
-    def xlims(self) -> Tuple[Pair]:
+    def xlims(self) -> Tuple[StartEnd]:
         """Coordinates of the genomic regions to be plotted, as a tuple of (start, end) tuples."""
         return Interval(self._subaxes.domain()).to_tuples()
 
     @xlims.setter
-    def xlims(self, xlims: Collection[Pair]):
+    def xlims(self, xlims: Collection[StartEnd]):
         xregions = Interval.from_tuples(*xlims)  # condense xlims into single Interval object
         self._subaxes: 'IntervalDict[Interval, int]' = IntervalDict({region: i for i, region in enumerate(xregions)})
 
@@ -51,7 +56,7 @@ class IsoformPlot:
         space = self.opts.intron_spacing
         self.xlims = tuple((exon.start - space, exon.end + space) for orf in self.orfs for exon in orf.exons)
 
-    def _get_subaxes(self, xcoords: Union[int, Pair]) -> Tuple['Axes']:
+    def _get_subaxes(self, xcoords: Union[int, StartEnd]) -> Tuple['Axes']:
         """For a specific coordinate or range of coordinates, retrieve corresponding subaxes."""
         if isinstance(xcoords, int):
             subax_ids = [self._subaxes[xcoords]]
@@ -182,6 +187,33 @@ class IsoformPlotOptions:
     show_abs_frame: bool = False
     spacing: float = 0.5
     subtle_threshold: int = 20
+
+
+def plot_isoform_frameshifts(anchor_orf: 'ORF', other_orfs: Iterable['ORF']) -> 'IsoformPlot':
+    isoplot = IsoformPlot([anchor_orf] + list(other_orfs))
+    isoplot.draw()
+
+    orf_pairs = [[anchor_orf, other] for other in other_orfs]
+    aln_grps = isocreatealign.create_and_map_splice_based_align_obj(orf_pairs)
+    for comparison in aln_grps:
+        isocreatefeat.create_and_map_frame_objects(comparison)
+        other_track = isoplot.orfs.index(comparison.other_orf)
+        for block in comparison.frmf.blocks:
+            if int(block.cat) != 1:
+                block_start = block.first.res.codon[0].coord
+                block_end = block.last.res.codon[-1].coord
+                if comparison.other_orf.strand == '-':
+                    block_start, block_end = block_end, block_start
+                isoplot.draw_region(
+                    track = other_track,
+                    start = block_start,
+                    end = block_end,
+                    type = 'rect',
+                    facecolor = 'none',
+                    hatch = REL_FRAME_HATCH[int(block.cat)],
+                    zorder = 1.5
+                )
+    return isoplot
 
 
 ### older methods ###
