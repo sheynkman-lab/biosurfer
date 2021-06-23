@@ -24,13 +24,14 @@ if TYPE_CHECKING:
     from .isoclass import Gene, ORF, Strand
     from .isogroup import PairwiseAlignmentGroup
     from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 StartEnd = Tuple[int, int]
 
 # alpha values for different absolute reading frames
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 
 # hatching styles for different relative frameshifts
-REL_FRAME_HATCH = {1: '', 2: '///', 3: '\\\\\\'}
+REL_FRAME_HATCH = {1: '', 2: '////', 3: '\\ \\ \\ \\'}
 
 class IsoformPlot:
     """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
@@ -43,9 +44,15 @@ class IsoformPlot:
         if len(strand) > 1:
             raise ValueError("Can't plot isoforms from different strands!")
         self.strand: Strand = list(strand)[0]
+
+        self._bax: Optional['BrokenAxes'] = None
         self.opts = IsoformPlotOptions(**kwargs)
         self.reset_xlims()
     
+    @property
+    def fig(self) -> Optional['Figure']:
+        return self._bax.fig if self._bax is not None else None
+
     # Internally, IsoformPlot stores _subaxes, which maps each genomic region to the subaxes that plots the region's features.
     # The xlims property provides a simple interface to allow users to control which genomic regions are plotted.
     @property
@@ -69,6 +76,7 @@ class IsoformPlot:
         space = self.opts.intron_spacing
         self.xlims = tuple((exon.start - space, exon.end + space) for orf in self.orfs for exon in orf.exons)
 
+    # This method speeds up plotting by allowing IsoformPlot to add artists only to the subaxes where they are needed.
     def _get_subaxes(self, xcoords: Union[int, StartEnd]) -> Tuple['Axes']:
         """For a specific coordinate or range of coordinates, retrieve corresponding subaxes."""
         if isinstance(xcoords, int):
@@ -115,6 +123,15 @@ class IsoformPlot:
     def draw_track_label(self):
         pass
 
+    def draw_text(self, x: int, y: int, text: str, **kwargs):
+        """Draw text at a specific location. x-coordinate is genomic, y-coordinate is w/ respect to tracks (0-indexed).
+        Ex: x=20000, y=2 will center text on track 2 at position 20,000."""
+        # we can't know how much horizontal space text will take up ahead of time
+        # so text is plotted using BrokenAxes' big_ax, since it spans the entire x-axis
+        big_ax = self._bax.big_ax
+        subaxes = self._get_subaxes(x)[0]  # grab coord transform from correct subaxes
+        big_ax.text(x, y, text, transform=subaxes.transData)
+
     def draw_orf(self, orf: 'ORF', track: int):
         """Plot a single orf in the given track."""
         orf_start = orf.first.coord
@@ -134,6 +151,7 @@ class IsoformPlot:
             zorder = 1.5
         )
 
+        # TODO: plot thin UTRs and thick CDS
         # render thin exon blocks
         for exon in orf.exons:
             col = get_orf_color(orf)
@@ -148,14 +166,14 @@ class IsoformPlot:
                 zorder = 1.5
             )
             
-            # # add subtle splice (delta) amounts, if option turned on
-            # # first, make sure the exon contains a (coding) cds object
-            # if exon.cds:
-            #     delta_start, delta_end = retrieve_subtle_splice_amounts(exon.cds)
-            #     # if delta_start:
-            #         # self.ax.text(x, y+0.2, delta_start, va='bottom', ha='left', size='x-small')
-            #     # if delta_end:
-            #         # self.ax.text(x+blength, y+0.2, delta_end, va='bottom', ha='right', size='x-small')
+            # add subtle splice (delta) amounts, if option turned on
+            # first, make sure the exon contains a (coding) cds object
+            if exon.cds:
+                delta_start, delta_end = retrieve_subtle_splice_amounts(exon.cds)
+                if delta_start:
+                    self.draw_text(exon.start, track, delta_start, va='top', ha='left', size='x-small')
+                if delta_end:
+                    self.draw_text(exon.end, track, delta_end, va='top', ha='right', size='x-small')
 
     def draw(self):
         """Plot all orfs."""
@@ -166,8 +184,6 @@ class IsoformPlot:
         # compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj, self.orfs, self.opts.intron_spacing)
         find_and_set_subtle_splicing_status(self.orfs, self.opts.subtle_threshold)
         
-        repr_orf = get_repr_orf(self.orfs)
-
         for i, orf in enumerate(self.orfs):
             self.draw_orf(orf, i)
         
@@ -200,11 +216,11 @@ class IsoformPlotOptions:
     subtle_threshold: int = 20
 
 
-def plot_isoform_frameshifts(anchor_orf: 'ORF', other_orfs: Iterable['ORF']) -> Tuple['IsoformPlot', List['PairwiseAlignmentGroup']]:
+def plot_isoform_frameshifts(anchor_orf: 'ORF', other_orfs: Iterable['ORF'], **kwargs) -> Tuple['IsoformPlot', List['PairwiseAlignmentGroup']]:
     """Identify and plot frameshifted regions in a list of ORFs with respect to an anchor ORF.
     Frameshifted regions are shown using diagonal hatching."""
     other_orfs_sorted = sorted(other_orfs)
-    isoplot = IsoformPlot([anchor_orf] + other_orfs_sorted)
+    isoplot = IsoformPlot([anchor_orf] + other_orfs_sorted, **kwargs)
     isoplot.draw()
 
     strand = anchor_orf.strand
@@ -560,8 +576,8 @@ def find_and_set_subtle_splicing_status(orfs_to_plot, threshold=15):
                         if delta < en_delta:
                             en_delta = delta
         strand = orfs_to_plot[0].strand # grab strand, if neg. strand, then need to reverse st/en coords
-        if strand == '-':
-            st_delta, en_delta = en_delta, st_delta
+        # if strand == '-':
+        #     st_delta, en_delta = en_delta, st_delta
         if st_delta > threshold:
             cds.start_subtle_splice = None
         else:

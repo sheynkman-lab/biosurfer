@@ -15,6 +15,11 @@ from isomodules import isoalign
 from isomodules import isowrangle
 from isomodules import isocompare
 
+import matplotlib.pyplot as plt
+from matplotlib._api.deprecation import MatplotlibDeprecationWarning
+from warnings import filterwarnings
+filterwarnings("ignore", category=MatplotlibDeprecationWarning)
+
 data_dir = '/home/redox/sheynkman-lab/gencode'
 # data_dir = './data/'
 
@@ -68,10 +73,6 @@ except IOError:
 # 	print(gene.orfs)
 
 # %%
-import matplotlib.pyplot as plt
-from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-from warnings import filterwarnings
-filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 reload(isocreatealign)
 reload(isoalign)
 reload(isoimage)
@@ -90,7 +91,7 @@ goi_repr = goi.repr_orf
 # display(aln_grp.frmf.blocks)
 
 fig = plt.figure()
-isoplot, aln_grps = isoimage.plot_isoform_frameshifts(goi_repr, goi.other_orfs)
+isoplot, aln_grps = isoimage.plot_isoform_frameshifts(goi_repr, goi.other_orfs, intron_spacing=40)
 
 fig.set_size_inches(9, 6)
 # plt.show()
