@@ -34,7 +34,7 @@ ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 REL_FRAME_STYLE = {
     1: '',
     2: '///',
-    3: '\\ \\ \\'
+    3: 'xxx'
 }
 
 class IsoformPlot:
@@ -121,7 +121,6 @@ class IsoformPlot:
                 markevery = 2,
                 **kwargs
             )
-            
         else:
             raise ValueError(f'Point type "{type}" is not defined')
         
@@ -167,11 +166,12 @@ class IsoformPlot:
     def draw_text(self, x: int, y: int, text: str, **kwargs):
         """Draw text at a specific location. x-coordinate is genomic, y-coordinate is w/ respect to tracks (0-indexed).
         Ex: x=20000, y=2 will center text on track 2 at position 20,000."""
+        # TODO: make this use Axes.annotate instead
         # we can't know how much horizontal space text will take up ahead of time
         # so text is plotted using BrokenAxes' big_ax, since it spans the entire x-axis
         big_ax = self._bax.big_ax
         subaxes = self._get_subaxes(x)[0]  # grab coord transform from correct subaxes
-        big_ax.text(x, y, text, transform=subaxes.transData)
+        big_ax.text(x, y, text, transform=subaxes.transData, **kwargs)
 
     def draw_orf(self, orf: 'ORF', track: int):
         """Plot a single orf in the given track."""
@@ -202,7 +202,7 @@ class IsoformPlot:
                 start = exon.start,
                 end = exon.end,
                 type = 'rect',
-                edgecolor = 'none',
+                edgecolor = color,
                 facecolor = color,
                 zorder = 1.5
             )
@@ -210,11 +210,18 @@ class IsoformPlot:
             # add subtle splice (delta) amounts, if option turned on
             # first, make sure the exon contains a (coding) cds object
             if exon.cds:
+                # TODO: pull subtle splice detection code out into this method?
                 delta_start, delta_end = retrieve_subtle_splice_amounts(exon.cds)
+                if self.strand == '+':
+                    start, end = exon.start, exon.end
+                    align_start, align_end = 'right', 'left'
+                else:
+                    start, end = exon.end, exon.start
+                    align_start, align_end = 'left', 'right'
                 if delta_start:
-                    self.draw_text(exon.start, track, delta_start, va='top', ha='left', size='xx-small')
+                    self.draw_text(exon.start, track-0.1, delta_start, va='bottom', ha=align_start, size='x-small')
                 if delta_end:
-                    self.draw_text(exon.end, track, delta_end, va='top', ha='right', size='xx-small')
+                    self.draw_text(exon.end, track-0.1, delta_end, va='bottom', ha=align_end, size='x-small')
 
     def draw(self):
         """Plot all orfs."""
@@ -273,6 +280,7 @@ class IsoformPlot:
                     type = 'rect',
                     facecolor = 'none',
                     edgecolor = hatch_color,
+                    linewidth = 0.0,
                     zorder = 1.5,
                     hatch = REL_FRAME_STYLE[int(frame)]
                 )
@@ -293,7 +301,11 @@ class IsoformPlotOptions:
     subtle_threshold: int = 20
 
 
-### older methods ###
+
+
+############################ older methods ############################
+
+
 
 
 def isoform_display_name(s):
