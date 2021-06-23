@@ -69,10 +69,6 @@ except IOError:
         pickle.dump(gd, f)
 
 # %%
-# for gname, gene in gd.items():
-# 	print(gene.orfs)
-
-# %%
 reload(isocreatealign)
 reload(isoalign)
 reload(isoimage)
@@ -81,14 +77,6 @@ IsoformPlot = isoimage.IsoformPlot
 
 goi = gd['DMAC2']
 goi_repr = goi.repr_orf
-# goi_other = goi['DMAC2-201']
-# aln_grps = isocreatealign.create_and_map_splice_based_align_obj(goi.ref_alt_pairs)
-# aln_grp = aln_grps[0]
-# isocreatefeat.create_and_map_frame_objects(aln_grp)
-
-# print(aln_grp.alnf.full)
-# display(aln_grp.alnf.blocks)
-# display(aln_grp.frmf.blocks)
 
 fig = plt.figure()
 isoplot, aln_grps = isoimage.plot_isoform_frameshifts(goi_repr, goi.other_orfs, intron_spacing=40)

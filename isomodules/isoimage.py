@@ -31,7 +31,11 @@ StartEnd = Tuple[int, int]
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 
 # hatching styles for different relative frameshifts
-REL_FRAME_HATCH = {1: '', 2: '////', 3: '\\ \\ \\ \\'}
+REL_FRAME_STYLE = {
+    1: {},
+    2: {'edgecolor': 'w', 'hatch': '///'},
+    3: {'edgecolor': 'w', 'hatch': '\\ \\ \\'}
+}
 
 class IsoformPlot:
     """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
@@ -154,15 +158,15 @@ class IsoformPlot:
         # TODO: plot thin UTRs and thick CDS
         # render thin exon blocks
         for exon in orf.exons:
-            col = get_orf_color(orf)
+            color = get_orf_color(orf)
             alpha_val = ABS_FRAME_ALPHA[exon.abs_frm] if self.opts.show_abs_frame else 1.0
             self.draw_region(
                 track,
                 start = exon.start,
                 end = exon.end,
                 type = 'rect',
-                edgecolor = 'k',
-                facecolor = col,
+                edgecolor = 'none',
+                facecolor = color,
                 zorder = 1.5
             )
             
@@ -171,9 +175,9 @@ class IsoformPlot:
             if exon.cds:
                 delta_start, delta_end = retrieve_subtle_splice_amounts(exon.cds)
                 if delta_start:
-                    self.draw_text(exon.start, track, delta_start, va='top', ha='left', size='x-small')
+                    self.draw_text(exon.start, track, delta_start, va='top', ha='left', size='xx-small')
                 if delta_end:
-                    self.draw_text(exon.end, track, delta_end, va='top', ha='right', size='x-small')
+                    self.draw_text(exon.end, track, delta_end, va='top', ha='right', size='xx-small')
 
     def draw(self):
         """Plot all orfs."""
@@ -247,8 +251,8 @@ def plot_isoform_frameshifts(anchor_orf: 'ORF', other_orfs: Iterable['ORF'], **k
                 end = subblock_end,
                 type = 'rect',
                 facecolor = 'none',
-                hatch = REL_FRAME_HATCH[int(frame)],
-                zorder = 1.5
+                zorder = 1.5,
+                **REL_FRAME_STYLE[int(frame)]
             )
     return isoplot, aln_grps
 
