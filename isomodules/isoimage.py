@@ -46,7 +46,7 @@ class IsoformPlot:
             raise ValueError(f'Found isoforms from multiple genes: {", ".join(g.name for g in gene)}')
         strand = {orf.strand for orf in self.orfs}
         if len(strand) > 1:
-            raise ValueError("Can't plot isoforms from different strands!")
+            raise ValueError("Can't plot isoforms from different strands")
         self.strand: Strand = list(strand)[0]
 
         self._bax: Optional['BrokenAxes'] = None
@@ -83,13 +83,50 @@ class IsoformPlot:
     # This method speeds up plotting by allowing IsoformPlot to add artists only to the subaxes where they are needed.
     def _get_subaxes(self, xcoords: Union[int, StartEnd]) -> Tuple['Axes']:
         """For a specific coordinate or range of coordinates, retrieve corresponding subaxes."""
-        if isinstance(xcoords, int):
-            subax_ids = [self._subaxes[xcoords]]
-        elif isinstance(xcoords, tuple):
-            subax_ids = list(self._subaxes[Interval.from_tuples(xcoords)].values())
+        try:
+            if isinstance(xcoords, int):
+                subax_ids = [self._subaxes[xcoords]]
+            elif isinstance(xcoords, tuple):
+                subax_ids = list(self._subaxes[Interval.from_tuples(xcoords)].values())
+            else:
+                raise TypeError('xcoords must be an int or a tuple of 2 ints')
+            return tuple(self._bax.axs[i] for i in subax_ids)
+        except KeyError as ke:
+            raise ValueError(f"{xcoords} is not within plot's xlims") from ke
+
+    def draw_point(self, track: int, pos: int,
+                    y_offset: float = 0.0,
+                    height: Optional[float] = None,
+                    type='line', marker='.', linewidth=1, **kwargs):
+        """Draw a feature at a specific point. Appearance types are 'line' and 'lollipop'."""
+        # TODO: make type an enum?
+        if type == 'line':
+            if height is None:
+                height = 0.5
+            center = track + y_offset
+            artist = mlines.Line2D(
+                xdata = (pos, pos),
+                ydata = (center - height/2, center + height/2),
+                linewidth = linewidth,
+                **kwargs
+            )
+        elif type == 'lollipop':
+            if height is None:
+                height = 0.15
+            artist = mlines.Line2D(
+                xdata = (pos, pos),
+                ydata = (-0.25 - height, -0.25),
+                linewidth = linewidth,
+                marker = marker,
+                markevery = 2,
+                **kwargs
+            )
+            
         else:
-            raise TypeError('xcoords must be an int or a tuple of 2 ints!')
-        return tuple(self._bax.axs[i] for i in subax_ids)
+            raise ValueError(f'Point type "{type}" is not defined')
+        
+        subaxes = self._get_subaxes(pos)[0]
+        subaxes.add_artist(artist)
 
     def draw_region(self, track: int, start: int, end: int,
                     y_offset: Optional[float] = None,
@@ -117,7 +154,7 @@ class IsoformPlot:
                 **kwargs
             )
         else:
-            raise ValueError(f'region type {type} is not defined')
+            raise ValueError(f'Region type "{type}" is not defined')
 
         subaxes = self._get_subaxes((start, end))
         for ax in subaxes:
@@ -182,7 +219,7 @@ class IsoformPlot:
     def draw(self):
         """Plot all orfs."""
         
-        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), -0.5),), wspace=0)
+        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), -0.9),), wspace=0)
 
         # process orfs to get ready for plotting
         # compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj, self.orfs, self.opts.intron_spacing)

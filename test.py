@@ -82,6 +82,8 @@ fig = plt.figure()
 isoplot = IsoformPlot(sorted(goi.orfs), intron_spacing=40)
 isoplot.draw()
 aln_grps = isoplot.draw_frameshifts()
+isoplot.draw_point(0, 41438300, color='k', type='lollipop')
+isoplot.draw_point(1, 41438300, color='k', type='line')
 
 fig.set_size_inches(9, 6)
 # plt.show()
