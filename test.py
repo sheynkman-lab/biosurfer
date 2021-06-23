@@ -79,7 +79,9 @@ goi = gd['DMAC2']
 goi_repr = goi.repr_orf
 
 fig = plt.figure()
-isoplot, aln_grps = isoimage.plot_isoform_frameshifts(goi_repr, goi.other_orfs, intron_spacing=40)
+isoplot = IsoformPlot(sorted(goi.orfs), intron_spacing=40)
+isoplot.draw()
+aln_grps = isoplot.draw_frameshifts()
 
 fig.set_size_inches(9, 6)
 # plt.show()

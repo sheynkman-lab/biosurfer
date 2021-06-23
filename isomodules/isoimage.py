@@ -32,9 +32,9 @@ ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 
 # hatching styles for different relative frameshifts
 REL_FRAME_STYLE = {
-    1: {},
-    2: {'edgecolor': 'w', 'hatch': '///'},
-    3: {'edgecolor': 'w', 'hatch': '\\ \\ \\'}
+    1: '',
+    2: '///',
+    3: '\\ \\ \\'
 }
 
 class IsoformPlot:
@@ -204,6 +204,42 @@ class IsoformPlot:
                 label.set_va('top')
                 label.set_rotation(90)
                 label.set_size(8)
+    
+    def draw_frameshifts(self, hatch_color = 'w') -> List['PairwiseAlignmentGroup']:
+        """Identify and plot frameshifted regions in each ORF with respect to the first ORF.
+        Returns list of PairwiseAlignmentGroups between anchor ORF and each of the other ORFs.
+        Frameshifted regions are shown using diagonal hatching."""
+
+        anchor_orf = self.orfs[0]
+        other_orfs = self.orfs[1:]
+
+        orf_pairs = [[anchor_orf, other] for other in other_orfs]
+        aln_grps = isocreatealign.create_and_map_splice_based_align_obj(orf_pairs)
+        for other_track, comparison in enumerate(aln_grps, start=1):
+            isocreatefeat.create_and_map_frame_objects(comparison)
+
+            # manually extract subblock coordinates from FrameResidue chain
+            for (frame, exons), group in groupby(comparison.frmf.chain, key=attrgetter('cat', 'res.exons')):
+                # skip subblocks that are not frameshifted
+                # skip FrameResidues that are located at exon junctions
+                if int(frame) == 1 or len(exons) > 1:
+                    continue
+                frmrs = list(group)
+                subblock_start = frmrs[0].res.codon[0].coord
+                subblock_end = frmrs[-1].res.codon[2].coord
+                if self.strand == '-':
+                    subblock_start, subblock_end = subblock_end, subblock_start
+                self.draw_region(
+                    track = other_track,
+                    start = subblock_start,
+                    end = subblock_end,
+                    type = 'rect',
+                    facecolor = 'none',
+                    edgecolor = hatch_color,
+                    zorder = 1.5,
+                    hatch = REL_FRAME_STYLE[int(frame)]
+                )
+        return aln_grps
 
 
 PlotMode = Literal['all', 'cds']
@@ -220,74 +256,7 @@ class IsoformPlotOptions:
     subtle_threshold: int = 20
 
 
-def plot_isoform_frameshifts(anchor_orf: 'ORF', other_orfs: Iterable['ORF'], **kwargs) -> Tuple['IsoformPlot', List['PairwiseAlignmentGroup']]:
-    """Identify and plot frameshifted regions in a list of ORFs with respect to an anchor ORF.
-    Frameshifted regions are shown using diagonal hatching."""
-    other_orfs_sorted = sorted(other_orfs)
-    isoplot = IsoformPlot([anchor_orf] + other_orfs_sorted, **kwargs)
-    isoplot.draw()
-
-    strand = anchor_orf.strand
-    orf_pairs = [[anchor_orf, other] for other in other_orfs_sorted]
-    aln_grps = isocreatealign.create_and_map_splice_based_align_obj(orf_pairs)
-    for comparison in aln_grps:
-        isocreatefeat.create_and_map_frame_objects(comparison)
-        other_track = isoplot.orfs.index(comparison.other_orf)
-
-        # manually extract subblock coordinates from FrameResidue chain
-        for (frame, exons), group in groupby(comparison.frmf.chain, key=attrgetter('cat', 'res.exons')):
-            # skip subblocks that are not frameshifted
-            # skip FrameResidues that are located at exon junctions
-            if int(frame) == 1 or len(exons) > 1:
-                continue
-            frmrs = list(group)
-            subblock_start = frmrs[0].res.codon[0].coord
-            subblock_end = frmrs[-1].res.codon[2].coord
-            if strand == '-':
-                subblock_start, subblock_end = subblock_end, subblock_start
-            isoplot.draw_region(
-                track = other_track,
-                start = subblock_start,
-                end = subblock_end,
-                type = 'rect',
-                facecolor = 'none',
-                zorder = 1.5,
-                **REL_FRAME_STYLE[int(frame)]
-            )
-    return isoplot, aln_grps
-
-
 ### older methods ###
-
-
-def get_union(intervals: Collection[Interval]) -> Tuple[Interval]:
-    """Takes collection of (inclusive) intervals and returns their (possibly disjoint) union."""
-
-    def union(a: Interval, b: Interval) -> Interval:
-        # only works if a and b are adjacent
-        return min(a[0], b[0]), max(a[1], b[1])
-    
-    def adjacent(a: Interval, b: Interval) -> bool:
-        # (1, 3) and (2, 4) are adjacent
-        # (1, 3) and (3, 5) are adjacent
-        # (1, 3) and (4, 6) are adjacent
-        # (1, 3) and (5, 7) are NOT adjacent
-        intersection = max(a[0], b[0]), min(a[1], b[1])
-        return intersection[0] - 1 <= intersection[1]
-
-    # TODO: check if this works for minus strand
-    intervals = sorted(set(intervals))
-    combined = intervals.pop()
-    multiregion = []
-    while intervals:
-        interv = intervals.pop()
-        if adjacent(combined, interv):
-            combined = union(combined, interv)
-        else:  # cannot expand interval any further
-            multiregion.append(combined)
-            combined = interv
-    multiregion.append(combined)
-    return tuple(reversed(multiregion))
 
 
 def isoform_display_name(s):
