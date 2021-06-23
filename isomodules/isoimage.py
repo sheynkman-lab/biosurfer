@@ -37,6 +37,22 @@ REL_FRAME_STYLE = {
     3: 'xxx'
 }
 
+
+PlotMode = Literal['all', 'cds']
+@dataclass
+class IsoformPlotOptions:
+    """Bundles various options for adjusting plots made by IsoformPlot."""
+    intron_spacing: int = 30  # number of bases to show in each intron
+    track_spacing: float = 1.5  # ratio of space between tracks to max track width
+    mode: PlotMode = 'all'
+    subtle_threshold: int = 20
+    show_abs_frame: bool = False
+
+    @property
+    def max_track_width(self) -> float:
+        return 1/(self.track_spacing + 1)
+
+
 class IsoformPlot:
     """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
     def __init__(self, orfs_to_plot: Iterable['ORF'], **kwargs):
@@ -102,7 +118,7 @@ class IsoformPlot:
         # TODO: make type an enum?
         if type == 'line':
             if height is None:
-                height = 0.5
+                height = self.opts.max_track_width
             center = track + y_offset
             artist = mlines.Line2D(
                 xdata = (pos, pos),
@@ -112,7 +128,7 @@ class IsoformPlot:
             )
         elif type == 'lollipop':
             if height is None:
-                height = 0.15
+                height = 0.3*self.opts.max_track_width
             artist = mlines.Line2D(
                 xdata = (pos, pos),
                 ydata = (-0.25 - height, -0.25),
@@ -135,9 +151,9 @@ class IsoformPlot:
         # TODO: make type an enum?
         if type == 'rect':
             if y_offset is None:
-                y_offset = -0.25
+                y_offset = -0.5*self.opts.max_track_width
             if height is None:
-                height = 0.5
+                height = self.opts.max_track_width
             artist = mpatches.Rectangle(
                 xy = (start, track + y_offset),
                 width = end - start,
@@ -285,20 +301,6 @@ class IsoformPlot:
                     hatch = REL_FRAME_STYLE[int(frame)]
                 )
         return aln_grps
-
-
-PlotMode = Literal['all', 'cds']
-@dataclass
-class IsoformPlotOptions:
-    """Bundles various options for adjusting plots made by IsoformPlot."""
-    compress: float = 300.0
-    height: float = 0.1
-    intron_spacing: int = 30  # number of bases to show in each intron
-    label_x: float = -0.1
-    mode: PlotMode = 'all'
-    show_abs_frame: bool = False
-    spacing: float = 0.5
-    subtle_threshold: int = 20
 
 
 
