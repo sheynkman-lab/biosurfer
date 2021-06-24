@@ -82,11 +82,12 @@ class Biomolecule():
     @property
     def aln(self) -> Optional['Alignment']:
         """Return a single aln_obj corresponding to the 'active' group."""
-        current_grp = self.orf.current_grp
-        for aln in self.alns:
-            if aln.grp == current_grp:
-                return aln
-        return None
+        if self.orf.current_grp:
+            for aln in self.alns:
+                if aln.grp == self.orf.current_grp:
+                    return aln
+        else:
+            raise AttributeError("Can't access active alignment without entering an ORF group")
 
     @property
     def dom(self):
