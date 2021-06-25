@@ -51,6 +51,10 @@ class IsoformPlotOptions:
     @property
     def max_track_width(self) -> float:
         return 1/(self.track_spacing + 1)
+    
+    @max_track_width.setter
+    def max_track_width(self, width: float):
+        self.track_spacing = (1 - width)/width
 
 
 class IsoformPlot:
@@ -147,7 +151,7 @@ class IsoformPlot:
                     y_offset: Optional[float] = None,
                     height: Optional[float] = None,
                     type='rect', **kwargs):
-        """Draw a feature that spans a region. Default type is rectangle."""
+        """Draw a feature that spans a region. Appearance types are rectangle and line."""
         # TODO: make type an enum?
         if type == 'rect':
             if y_offset is None:
@@ -242,7 +246,7 @@ class IsoformPlot:
     def draw(self):
         """Plot all orfs."""
         
-        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), -0.9),), wspace=0)
+        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), -2*self.opts.max_track_width),), wspace=0)
 
         # process orfs to get ready for plotting
         # compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj, self.orfs, self.opts.intron_spacing)
