@@ -89,6 +89,17 @@ for gene_name in sorted(genes):
     isoplot.draw()
     aln_grps = isoplot.draw_frameshifts()
 
+    print('anchor      anchor res     other       other res      category ')
+    for aln_grp in aln_grps:
+        anchor = repr(aln_grp.anchor_orf)
+        other = repr(aln_grp.other_orf)
+        for block in aln_grp.alnf.blocks:
+            if block.cat == 'M':
+                continue
+            anchor_res = str((block.first.res1.idx, block.last.res1.idx))
+            other_res = str((block.first.res2.idx, block.last.res2.idx))
+            print(f'{anchor:12}{anchor_res:15}{other:12}{other_res:15}{block.cat}')
+
     plt.show()
 
 
