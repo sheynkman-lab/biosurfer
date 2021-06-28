@@ -1,6 +1,7 @@
 # %%
 from IPython.display import display
 import os
+import pandas as pd
 from importlib import reload
 from isomodules import isocreate
 from isomodules import isocreatealign
@@ -27,17 +28,17 @@ data_dir = './data/biosurfer_demo_data/'
 
 # filepaths
 # jared's fpaths
-# path_chr_gtf = os.path.join(data_dir, 'chr19.gtf')
-# path_chr_fa = os.path.join(data_dir, 'chr19.fa')
-# path_transcripts_fa = os.path.join(data_dir, 'gencode.v38.pc_transcripts.fa')
-
-# gloria's fpaths
 path_chr_gtf = os.path.join(data_dir, 'chr19.gtf')
 path_chr_fa = os.path.join(data_dir, 'chr19.fa')
 path_transcripts_fa = os.path.join(data_dir, 'gencode.v38.pc_transcripts.fa')
+
+# gloria's fpaths
+# path_chr_gtf = os.path.join(data_dir, 'chr19.gtf')
+# path_chr_fa = os.path.join(data_dir, 'chr19.fa')
+# path_transcripts_fa = os.path.join(data_dir, 'gencode.v38.pc_transcripts.fa')
 # path_hg38_fa = os.path.join(data_dir, 'GRCh38.primary_assembly.genome.fa')
 
-genes = ('HMG20B', 'DMAC2')
+genes = ('HMG20B', 'DMAC2', 'APOE', 'KLF2', 'TIMM50', 'HRC', 'GCDH')
 temp_file_path = f'data/gene_dict_{"_".join(sorted(genes))}.p'
 
 try:
@@ -68,38 +69,28 @@ except IOError:
     with open(temp_file_path, 'wb') as f:
         pickle.dump(gd, f)
 
-
-# reload(isocreatealign)
-# reload(isoalign)
-# reload(isoimage)
-reload(isoclass)
-
-IsoformPlot = isoimage.IsoformPlot
-
-goi = gd['DMAC2']
-goi_repr = goi.repr_orf
-
 #%%
 
-for junc in goi.repr_orf.juncs:
-    print(junc.up_exon, junc, junc.dn_exon)
-    if junc.len > 1000:
-        print(junc.up_exon.first.res)
-
-
-    
-
+# for junc in goi.repr_orf.juncs:
+#     print(junc.up_exon, junc, junc.dn_exon)
+#     if junc.len > 1000:
+#         print(junc.up_exon.first.res)
 
 #%%
+broken = ('GCDH', 'TIMM50')  # FIXME: trying to create Frame object for alignments raises IndexError
+for gene_name in sorted(genes):
+    if gene_name in broken:
+        continue
+    gene = gd[gene_name]
+    orfs = sorted(gene, key=lambda orf: (orf is not gene.repr_orf, orf.name))
 
-fig = plt.figure()
-isoplot = IsoformPlot(sorted(goi.orfs), intron_spacing=10, track_spacing=1.5)
-isoplot.draw()
-aln_grps = isoplot.draw_frameshifts()
-isoplot.draw_point(0, 41438300, color='k', type='lollipop')
-isoplot.draw_point(1, 41438300, color='k', type='line')
+    fig = plt.figure()
+    isoplot = isoimage.IsoformPlot(orfs, intron_spacing=30, track_spacing=1.5)
+    isoplot.draw()
+    aln_grps = isoplot.draw_frameshifts()
 
-fig.set_size_inches(9, 8)
-# plt.show()
+    plt.show()
+
+
 
 # %%
