@@ -77,6 +77,16 @@ except IOError:
 #         print(junc.up_exon.first.res)
 
 #%%
+alt_regs_dict = {
+    'anchor': [],
+    'other': [],
+    'anchor_first': [],
+    'anchor_last': [],
+    'other_first': [],
+    'other_last': [],
+    'category': []
+}
+
 broken = ('GCDH', 'TIMM50')  # FIXME: trying to create Frame object for alignments raises IndexError
 for gene_name in sorted(genes):
     if gene_name in broken:
@@ -89,18 +99,28 @@ for gene_name in sorted(genes):
     isoplot.draw()
     aln_grps = isoplot.draw_frameshifts()
 
-    print('anchor      anchor res     other       other res      category ')
+    # print('anchor      anchor res     other       other res      category ')
     for aln_grp in aln_grps:
         anchor = repr(aln_grp.anchor_orf)
         other = repr(aln_grp.other_orf)
         for block in aln_grp.alnf.blocks:
             if block.cat == 'M':
                 continue
-            anchor_res = str((block.first.res1.idx, block.last.res1.idx))
-            other_res = str((block.first.res2.idx, block.last.res2.idx))
-            print(f'{anchor:12}{anchor_res:15}{other:12}{other_res:15}{block.cat}')
+            anchor_res = (block.first.res1.idx, block.last.res1.idx)
+            other_res = (block.first.res2.idx, block.last.res2.idx)
+            # print(f'{anchor:12}{str(anchor_res):15}{other:12}{str(other_res):15}{block.cat}')
+            alt_regs_dict['anchor'].append(anchor)
+            alt_regs_dict['other'].append(other)
+            alt_regs_dict['anchor_first'].append(anchor_res[0])
+            alt_regs_dict['anchor_last'].append(anchor_res[1])
+            alt_regs_dict['other_first'].append(other_res[0])
+            alt_regs_dict['other_last'].append(other_res[1])
+            alt_regs_dict['category'].append(block.cat)
 
     plt.show()
+
+alt_regs = pd.DataFrame(alt_regs_dict)
+display(alt_regs)
 
 
 
