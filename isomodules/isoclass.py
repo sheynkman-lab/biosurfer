@@ -256,6 +256,7 @@ class Gene(Biomolecule):
     def __len__(self) -> int:
         return abs(self.start - self.end) + 1
 
+    @property
     def full(self) -> str:
         ostr = '{} {} {}:{}-{}'.format(self.name, self.strand, self.chrom,
                                        self.start, self.end)
