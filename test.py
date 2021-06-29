@@ -100,7 +100,7 @@ pblocks_dict = {
 }
 
 broken = ('GCDH', 'TIMM50')  # FIXME: trying to create Frame object for alignments raises IndexError
-for gene_name in genes:
+for gene_name in ['HMG20B', 'GCDH']:
     
     gene = gd[gene_name]
     orfs = sorted(gene, key=lambda orf: (orf is not gene.repr_orf, orf.name))
@@ -117,19 +117,45 @@ for gene_name in genes:
     for aln_grp in aln_grps:
         anchor = repr(aln_grp.anchor_orf)
         other = repr(aln_grp.other_orf)
-        for block in aln_grp.alnf.protblocks:
+        for i, block in enumerate(aln_grp.alnf.protblocks):
             if block.cat == 'M':
                 continue
-            anchor_res = (block.first.res1.idx, block.last.res1.idx)
-            other_res = (block.first.res2.idx, block.last.res2.idx)
+            first_res, last_res = block.first, block.last
+            
+            annotation = []
+            if block.cat == 'I':
+                pass
+
+            elif block.cat == 'D':
+                first_exon = first_res.res1.exon
+                last_exon = last_res.res1.exon
+                first_exon_is_truncated = not first_res.res1.is_at_cds_edge
+                last_exon_is_truncated = not last_res.res1.is_at_cds_edge
+                
+                if first_exon_is_truncated and last_exon_is_truncated:
+                    annotation.append(f'exon {first_exon.ord} truncated')
+                    annotation.append(f'exons {first_exon.ord+1}-{last_exon.ord-1} not spliced in')
+                    annotation.append(f'exon {last_exon.ord} truncated')
+                elif first_exon_is_truncated and not last_exon_is_truncated:
+                    annotation.append(f'exon {first_exon.ord} truncated')
+                    annotation.append(f'exons {first_exon.ord+1}-{last_exon.ord} not spliced in')
+                elif not first_exon_is_truncated and last_exon_is_truncated:
+                    annotation.append(f'exons {first_exon.ord}-{last_exon.ord-1} not spliced in')
+                    annotation.append(f'exon {last_exon.ord} truncated')
+                else:
+                    annotation.append(f'exons {first_exon.ord}-{last_exon.ord} not spliced in')
+                
+            elif block.cat == 'S':
+                pass
+
             pblocks_dict['anchor_orf'].append(anchor)
             pblocks_dict['other_orf'].append(other)
-            pblocks_dict['anchor_first_res'].append(anchor_res[0])
-            pblocks_dict['anchor_last_res'].append(anchor_res[1])
-            pblocks_dict['other_first_res'].append(other_res[0])
-            pblocks_dict['other_last_res'].append(other_res[1])
+            pblocks_dict['anchor_first_res'].append(first_res.res1.idx)
+            pblocks_dict['anchor_last_res'].append(last_res.res1.idx)
+            pblocks_dict['other_first_res'].append(first_res.res2.idx)
+            pblocks_dict['other_last_res'].append(last_res.res2.idx)
             pblocks_dict['category'].append(block.cat)
-            pblocks_dict['annotation'].append(None)
+            pblocks_dict['annotation'].append(', '.join(annotation))
         
         for block in aln_grp.alnf.blocks:
             if block.cat == 'M':
@@ -153,7 +179,7 @@ for gene_name in genes:
 pblocks = pd.DataFrame(pblocks_dict).drop_duplicates()  #FIXME: why are there duplicate protblocks?
 sblocks = pd.DataFrame(sblocks_dict)
 display(pblocks)
-display(sblocks)
+# display(sblocks)
 
 # %%
 for gene_name in broken:
