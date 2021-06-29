@@ -78,7 +78,18 @@ except IOError:
 #         print(junc.up_exon.first.res)
 
 #%%
-alt_regs_dict = {
+sblocks_dict = {
+    'anchor_orf': [],
+    'other_orf': [],
+    'anchor_first_res': [],
+    'anchor_last_res': [],
+    'other_first_res': [],
+    'other_last_res': [],
+    'category': [],
+    'annotation': []
+}
+
+pblocks_dict = {
     'anchor_orf': [],
     'other_orf': [],
     'anchor_first_res': [],
@@ -90,7 +101,7 @@ alt_regs_dict = {
 }
 
 broken = ('GCDH', 'TIMM50')  # FIXME: trying to create Frame object for alignments raises IndexError
-for gene_name in ['APOE', 'HMG20B']:
+for gene_name in ['APOE']:
     if gene_name in broken:
         continue
     gene = gd[gene_name]
@@ -101,31 +112,43 @@ for gene_name in ['APOE', 'HMG20B']:
     isoplot.draw()
     aln_grps = isoplot.draw_frameshifts()
 
-    # print('anchor      anchor res     other       other res      category ')
     for aln_grp in aln_grps:
         anchor = repr(aln_grp.anchor_orf)
         other = repr(aln_grp.other_orf)
         for block in aln_grp.alnf.protblocks:
-            if block.cat != 'I':
+            if block.cat == 'M':
                 continue
             anchor_res = (block.first.res1.idx, block.last.res1.idx)
             other_res = (block.first.res2.idx, block.last.res2.idx)
-            # print(f'{anchor:12}{str(anchor_res):15}{other:12}{str(other_res):15}{block.cat}')
-            alt_regs_dict['anchor_orf'].append(anchor)
-            alt_regs_dict['other_orf'].append(other)
-            alt_regs_dict['anchor_first_res'].append(anchor_res[0])
-            alt_regs_dict['anchor_last_res'].append(anchor_res[1])
-            alt_regs_dict['other_first_res'].append(other_res[0])
-            alt_regs_dict['other_last_res'].append(other_res[1])
-            alt_regs_dict['category'].append(block.cat)
-            alt_regs_dict['annotation'].append(None)
+            pblocks_dict['anchor_orf'].append(anchor)
+            pblocks_dict['other_orf'].append(other)
+            pblocks_dict['anchor_first_res'].append(anchor_res[0])
+            pblocks_dict['anchor_last_res'].append(anchor_res[1])
+            pblocks_dict['other_first_res'].append(other_res[0])
+            pblocks_dict['other_last_res'].append(other_res[1])
+            pblocks_dict['category'].append(block.cat)
+            pblocks_dict['annotation'].append(None)
+        
+        for block in aln_grp.alnf.blocks:
+            if block.cat == 'M':
+                continue
+            anchor_res = (block.first.res1.idx, block.last.res1.idx)
+            other_res = (block.first.res2.idx, block.last.res2.idx)
+            sblocks_dict['anchor_orf'].append(anchor)
+            sblocks_dict['other_orf'].append(other)
+            sblocks_dict['anchor_first_res'].append(anchor_res[0])
+            sblocks_dict['anchor_last_res'].append(anchor_res[1])
+            sblocks_dict['other_first_res'].append(other_res[0])
+            sblocks_dict['other_last_res'].append(other_res[1])
+            sblocks_dict['category'].append(block.cat)
+            sblocks_dict['annotation'].append(None)
 
     plt.show()
 
-alt_regs = pd.DataFrame(alt_regs_dict)
-display(alt_regs)
-
-
+pblocks = pd.DataFrame(pblocks_dict).drop_duplicates()  #FIXME: why are there duplicate protblocks?
+sblocks = pd.DataFrame(sblocks_dict)
+display(pblocks)
+display(sblocks)
 
 # %%
 for gene_name in broken:
