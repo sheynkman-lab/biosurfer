@@ -69,6 +69,7 @@ except IOError:
     with open(temp_file_path, 'wb') as f:
         pickle.dump(gd, f)
 
+
 #%%
 
 # for junc in goi.repr_orf.juncs:
@@ -78,17 +79,18 @@ except IOError:
 
 #%%
 alt_regs_dict = {
-    'anchor': [],
-    'other': [],
-    'anchor_first': [],
-    'anchor_last': [],
-    'other_first': [],
-    'other_last': [],
-    'category': []
+    'anchor_orf': [],
+    'other_orf': [],
+    'anchor_first_res': [],
+    'anchor_last_res': [],
+    'other_first_res': [],
+    'other_last_res': [],
+    'category': [],
+    'annotation': []
 }
 
 broken = ('GCDH', 'TIMM50')  # FIXME: trying to create Frame object for alignments raises IndexError
-for gene_name in sorted(genes):
+for gene_name in ['APOE', 'HMG20B']:
     if gene_name in broken:
         continue
     gene = gd[gene_name]
@@ -103,19 +105,20 @@ for gene_name in sorted(genes):
     for aln_grp in aln_grps:
         anchor = repr(aln_grp.anchor_orf)
         other = repr(aln_grp.other_orf)
-        for block in aln_grp.alnf.blocks:
-            if block.cat == 'M':
+        for block in aln_grp.alnf.protblocks:
+            if block.cat != 'I':
                 continue
             anchor_res = (block.first.res1.idx, block.last.res1.idx)
             other_res = (block.first.res2.idx, block.last.res2.idx)
             # print(f'{anchor:12}{str(anchor_res):15}{other:12}{str(other_res):15}{block.cat}')
-            alt_regs_dict['anchor'].append(anchor)
-            alt_regs_dict['other'].append(other)
-            alt_regs_dict['anchor_first'].append(anchor_res[0])
-            alt_regs_dict['anchor_last'].append(anchor_res[1])
-            alt_regs_dict['other_first'].append(other_res[0])
-            alt_regs_dict['other_last'].append(other_res[1])
+            alt_regs_dict['anchor_orf'].append(anchor)
+            alt_regs_dict['other_orf'].append(other)
+            alt_regs_dict['anchor_first_res'].append(anchor_res[0])
+            alt_regs_dict['anchor_last_res'].append(anchor_res[1])
+            alt_regs_dict['other_first_res'].append(other_res[0])
+            alt_regs_dict['other_last_res'].append(other_res[1])
             alt_regs_dict['category'].append(block.cat)
+            alt_regs_dict['annotation'].append(None)
 
     plt.show()
 
@@ -124,4 +127,10 @@ display(alt_regs)
 
 
 
+# %%
+for gene_name in broken:
+    gene = gd[gene_name]
+    aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[gene.repr_orf, orf] for orf in gene.other_orfs])
+    for aln_grp in aln_grps:
+        isocreatefeat.create_and_map_frame_objects(aln_grp)
 # %%
