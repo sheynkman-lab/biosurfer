@@ -2,6 +2,7 @@
 from IPython.display import display
 import os
 import pandas as pd
+import pickle
 from importlib import reload
 from isomodules import isocreate
 from isomodules import isocreatealign
@@ -20,8 +21,6 @@ import matplotlib.pyplot as plt
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 from warnings import filterwarnings
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
-
-import pickle
 
 # data_dir = '/home/redox/sheynkman-lab/gencode'
 data_dir = './data/biosurfer_demo_data/'
@@ -81,36 +80,39 @@ except IOError:
 sblocks_dict = {
     'anchor_orf': [],
     'other_orf': [],
+    'category': [],
+    'annotation': [],
     'anchor_first_res': [],
     'anchor_last_res': [],
     'other_first_res': [],
-    'other_last_res': [],
-    'category': [],
-    'annotation': []
+    'other_last_res': []
 }
 
 pblocks_dict = {
     'anchor_orf': [],
     'other_orf': [],
+    'category': [],
+    'annotation': [],
     'anchor_first_res': [],
     'anchor_last_res': [],
     'other_first_res': [],
-    'other_last_res': [],
-    'category': [],
-    'annotation': []
+    'other_last_res': []
 }
 
 broken = ('GCDH', 'TIMM50')  # FIXME: trying to create Frame object for alignments raises IndexError
-for gene_name in ['APOE']:
-    if gene_name in broken:
-        continue
+for gene_name in genes:
+    
     gene = gd[gene_name]
     orfs = sorted(gene, key=lambda orf: (orf is not gene.repr_orf, orf.name))
 
     fig = plt.figure()
     isoplot = isoimage.IsoformPlot(orfs, intron_spacing=30, track_spacing=1.5)
     isoplot.draw()
-    aln_grps = isoplot.draw_frameshifts()
+
+    if gene_name in broken:
+        aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
+    else:
+        aln_grps = isoplot.draw_frameshifts()
 
     for aln_grp in aln_grps:
         anchor = repr(aln_grp.anchor_orf)
@@ -144,6 +146,9 @@ for gene_name in ['APOE']:
             sblocks_dict['annotation'].append(None)
 
     plt.show()
+
+
+#%%
 
 pblocks = pd.DataFrame(pblocks_dict).drop_duplicates()  #FIXME: why are there duplicate protblocks?
 sblocks = pd.DataFrame(sblocks_dict)
