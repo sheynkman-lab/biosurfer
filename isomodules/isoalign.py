@@ -213,8 +213,11 @@ class AlignmentProteinBlock(Alignment):
         return ''.join([res.aa for res in self.res_chain2])
 
     def __repr__(self):
-        # FIXME:
-        return '<AlignmentProteinBlock>'
+        orf1_name = '-' if not self.first.res1 else self.first.res1.orf.name
+        orf2_name = '-' if not self.first.res2 else self.first.res2.orf.name
+        return 'alnpb: {}|{} {} {}-{}'.format(orf1_name, orf2_name, self.cat,
+                                                    self.first.idx,
+                                                    self.last.idx)
 
     def update_references_to_parent_and_child_objects(self):
         # set lower rand upper references
