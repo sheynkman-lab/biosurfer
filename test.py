@@ -20,22 +20,22 @@ from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 from warnings import filterwarnings
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
-data_dir = '/home/redox/sheynkman-lab/gencode'
-# data_dir = './data/'
+import pickle
+
+# data_dir = '/home/redox/sheynkman-lab/gencode'
+data_dir = './data/biosurfer_demo_data/'
 
 # filepaths
 # jared's fpaths
+# path_chr_gtf = os.path.join(data_dir, 'chr19.gtf')
+# path_chr_fa = os.path.join(data_dir, 'chr19.fa')
+# path_transcripts_fa = os.path.join(data_dir, 'gencode.v38.pc_transcripts.fa')
+
+# gloria's fpaths
 path_chr_gtf = os.path.join(data_dir, 'chr19.gtf')
 path_chr_fa = os.path.join(data_dir, 'chr19.fa')
 path_transcripts_fa = os.path.join(data_dir, 'gencode.v38.pc_transcripts.fa')
-# gloria's fpaths
-# path_chr_gtf = os.path.join(data_dir, 'gencode.v30.annotation.gtf')
-# path_chr_fa = os.path.join(data_dir, 'GRCh38.primary_assembly.genome.fa')
-# path_transcripts_fa = os.path.join(data_dir, 'gencode.v30.pc_transcripts.fa')
 # path_hg38_fa = os.path.join(data_dir, 'GRCh38.primary_assembly.genome.fa')
-
-# %%
-import pickle
 
 genes = ('HMG20B', 'DMAC2')
 temp_file_path = f'data/gene_dict_{"_".join(sorted(genes))}.p'
@@ -68,22 +68,36 @@ except IOError:
     with open(temp_file_path, 'wb') as f:
         pickle.dump(gd, f)
 
-# %%
-reload(isocreatealign)
-reload(isoalign)
-reload(isoimage)
+
+# reload(isocreatealign)
+# reload(isoalign)
+# reload(isoimage)
+reload(isoclass)
 
 IsoformPlot = isoimage.IsoformPlot
 
 goi = gd['DMAC2']
 goi_repr = goi.repr_orf
 
+#%%
+
+for junc in goi.repr_orf.juncs:
+    print(junc.up_exon, junc, junc.dn_exon)
+    if junc.len > 1000:
+        print(junc.up_exon.first.res)
+
+
+    
+
+
+#%%
+
 fig = plt.figure()
-isoplot = IsoformPlot(sorted(goi.orfs), intron_spacing=40, track_spacing=1.5)
+isoplot = IsoformPlot(sorted(goi.orfs), intron_spacing=10, track_spacing=1.5)
 isoplot.draw()
 aln_grps = isoplot.draw_frameshifts()
-# isoplot.draw_point(0, 41438300, color='k', type='lollipop')
-# isoplot.draw_point(1, 41438300, color='k', type='line')
+isoplot.draw_point(0, 41438300, color='k', type='lollipop')
+isoplot.draw_point(1, 41438300, color='k', type='line')
 
 fig.set_size_inches(9, 8)
 # plt.show()
