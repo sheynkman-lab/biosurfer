@@ -22,7 +22,7 @@ class Wrapper(object):
 
 class AddMethod(Wrapper):
     def bar(self):
-        print "Call 'bar' method"
+        print("Call 'bar' method")
 
 
 class A(object):
@@ -30,14 +30,14 @@ class A(object):
         self.value = value
 
     def foo(self,f1,f2="str"):
-        print "Call: ",self.foo," args: (",f1,f2,")"
+        print("Call: ",self.foo," args: (",f1,f2,")")
 
 
 wrapped = AddMethod(A("object value"))
 
 wrapped.foo(2,3)
 wrapped.bar()
-print wrapped.value
+print(wrapped.value)
 
 # class that wraps around an orf
 

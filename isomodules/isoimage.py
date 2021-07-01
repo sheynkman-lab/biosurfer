@@ -3,11 +3,315 @@
 
 import os
 import math
-import operator
+from operator import attrgetter
+from itertools import groupby
+from .helpers import IntegerInterval as Interval
+from portion import IntervalDict
+from enum import Enum
+
 # writing isoimage to write-out to matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
+from brokenaxes import BrokenAxes
+from copy import copy
+from dataclasses import dataclass
+
+from . import isocreatealign, isocreatefeat
+
+from typing import TYPE_CHECKING, Optional, Union, Literal, List, Tuple, Dict, Set, Iterable, Collection
+if TYPE_CHECKING:
+    from .isoclass import Gene, ORF, Strand
+    from .isogroup import PairwiseAlignmentGroup
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+StartEnd = Tuple[int, int]
+
+# alpha values for different absolute reading frames
+ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
+
+# hatching styles for different relative frameshifts
+REL_FRAME_STYLE = {
+    1: '',
+    2: '///',
+    3: 'xxx'
+}
+
+
+PlotMode = Literal['all', 'cds']
+@dataclass
+class IsoformPlotOptions:
+    """Bundles various options for adjusting plots made by IsoformPlot."""
+    intron_spacing: int = 30  # number of bases to show in each intron
+    track_spacing: float = 1.5  # ratio of space between tracks to max track width
+    mode: PlotMode = 'all'
+    subtle_threshold: int = 20
+    show_abs_frame: bool = False
+
+    @property
+    def max_track_width(self) -> float:
+        return 1/(self.track_spacing + 1)
+    
+    @max_track_width.setter
+    def max_track_width(self, width: float):
+        self.track_spacing = (1 - width)/width
+
+
+class IsoformPlot:
+    """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
+    def __init__(self, orfs_to_plot: Iterable['ORF'], **kwargs):
+        self.orfs: List['ORF'] = list(orfs_to_plot)  # list of orf objects to be drawn
+        gene = {orf.gene for orf in self.orfs}
+        if len(gene) > 1:
+            raise ValueError(f'Found isoforms from multiple genes: {", ".join(g.name for g in gene)}')
+        strand = {orf.strand for orf in self.orfs}
+        if len(strand) > 1:
+            raise ValueError("Can't plot isoforms from different strands")
+        self.strand: Strand = list(strand)[0]
+
+        self._bax: Optional['BrokenAxes'] = None
+        self.opts = IsoformPlotOptions(**kwargs)
+        self.reset_xlims()
+    
+    @property
+    def fig(self) -> Optional['Figure']:
+        return self._bax.fig if self._bax is not None else None
+
+    # Internally, IsoformPlot stores _subaxes, which maps each genomic region to the subaxes that plots the region's features.
+    # The xlims property provides a simple interface to allow users to control which genomic regions are plotted.
+    @property
+    def xlims(self) -> Tuple[StartEnd]:
+        """Coordinates of the genomic regions to be plotted, as a tuple of (start, end) tuples."""
+        return self._xlims
+
+    @xlims.setter
+    def xlims(self, xlims: Collection[StartEnd]):
+        xregions = Interval.from_tuples(*xlims)  # condense xlims into single Interval object
+        self._xlims = xregions.to_tuples()
+        if self.strand == '+':
+            subaxes_dict = IntervalDict({region: i for i, region in enumerate(xregions)})
+        else:
+            subaxes_dict = IntervalDict({region: i for i, region in enumerate(reversed(xregions))})
+            self._xlims = tuple((end, start) for start, end in reversed(self._xlims))
+        self._subaxes: 'IntervalDict[Interval, int]' = subaxes_dict
+
+    def reset_xlims(self):
+        """Set xlims automatically based on exons in isoforms."""
+        space = self.opts.intron_spacing
+        self.xlims = tuple((exon.start - space, exon.end + space) for orf in self.orfs for exon in orf.exons)
+
+    # This method speeds up plotting by allowing IsoformPlot to add artists only to the subaxes where they are needed.
+    def _get_subaxes(self, xcoords: Union[int, StartEnd]) -> Tuple['Axes']:
+        """For a specific coordinate or range of coordinates, retrieve corresponding subaxes."""
+        try:
+            if isinstance(xcoords, int):
+                subax_ids = [self._subaxes[xcoords]]
+            elif isinstance(xcoords, tuple):
+                subax_ids = list(self._subaxes[Interval.from_tuples(xcoords)].values())
+            else:
+                raise TypeError('xcoords must be an int or a tuple of 2 ints')
+            return tuple(self._bax.axs[i] for i in subax_ids)
+        except KeyError as ke:
+            raise ValueError(f"{xcoords} is not within plot's xlims") from ke
+
+    def draw_point(self, track: int, pos: int,
+                    y_offset: float = 0.0,
+                    height: Optional[float] = None,
+                    type='line', marker='.', linewidth=1, **kwargs):
+        """Draw a feature at a specific point. Appearance types are 'line' and 'lollipop'."""
+        # TODO: make type an enum?
+        if type == 'line':
+            if height is None:
+                height = self.opts.max_track_width
+            center = track + y_offset
+            artist = mlines.Line2D(
+                xdata = (pos, pos),
+                ydata = (center - height/2, center + height/2),
+                linewidth = linewidth,
+                **kwargs
+            )
+        elif type == 'lollipop':
+            if height is None:
+                height = 0.3*self.opts.max_track_width
+            artist = mlines.Line2D(
+                xdata = (pos, pos),
+                ydata = (-0.25 - height, -0.25),
+                linewidth = linewidth,
+                marker = marker,
+                markevery = 2,
+                **kwargs
+            )
+        else:
+            raise ValueError(f'Point type "{type}" is not defined')
+        
+        subaxes = self._get_subaxes(pos)[0]
+        subaxes.add_artist(artist)
+
+    def draw_region(self, track: int, start: int, end: int,
+                    y_offset: Optional[float] = None,
+                    height: Optional[float] = None,
+                    type='rect', **kwargs):
+        """Draw a feature that spans a region. Appearance types are rectangle and line."""
+        # TODO: make type an enum?
+        if type == 'rect':
+            if y_offset is None:
+                y_offset = -0.5*self.opts.max_track_width
+            if height is None:
+                height = self.opts.max_track_width
+            artist = mpatches.Rectangle(
+                xy = (start, track + y_offset),
+                width = end - start,
+                height = height,
+                **kwargs
+            )
+        elif type == 'line':
+            if y_offset is None:
+                y_offset = 0
+            artist = mlines.Line2D(
+                xdata = (start, end),
+                ydata = (track + y_offset, track + y_offset),
+                **kwargs
+            )
+        else:
+            raise ValueError(f'Region type "{type}" is not defined')
+
+        subaxes = self._get_subaxes((start, end))
+        for ax in subaxes:
+            ax.add_artist(copy(artist))
+
+    # TODO: implement draw_track_label
+    def draw_track_label(self):
+        pass
+
+    def draw_text(self, x: int, y: int, text: str, **kwargs):
+        """Draw text at a specific location. x-coordinate is genomic, y-coordinate is w/ respect to tracks (0-indexed).
+        Ex: x=20000, y=2 will center text on track 2 at position 20,000."""
+        # TODO: make this use Axes.annotate instead
+        # we can't know how much horizontal space text will take up ahead of time
+        # so text is plotted using BrokenAxes' big_ax, since it spans the entire x-axis
+        big_ax = self._bax.big_ax
+        subaxes = self._get_subaxes(x)[0]  # grab coord transform from correct subaxes
+        big_ax.text(x, y, text, transform=subaxes.transData, **kwargs)
+
+    def draw_orf(self, orf: 'ORF', track: int):
+        """Plot a single orf in the given track."""
+        orf_start = orf.first.coord
+        orf_end = orf.last.coord
+        if self.strand == '-':
+            orf_start, orf_end = orf_end, orf_start
+        # plot intron line
+        self.draw_region(
+            track,
+            start = orf_start,
+            end = orf_end,
+            type = 'line',
+            linewidth = 1.5,
+            color = 'k',
+            linestyle = '--',
+            dashes = (1, 1.2),
+            zorder = 1.5
+        )
+
+        # TODO: plot thin UTRs and thick CDS
+        # render thin exon blocks
+        for exon in orf.exons:
+            color = get_orf_color(orf)
+            alpha_val = ABS_FRAME_ALPHA[exon.abs_frm] if self.opts.show_abs_frame else 1.0
+            self.draw_region(
+                track,
+                start = exon.start,
+                end = exon.end,
+                type = 'rect',
+                edgecolor = color,
+                facecolor = color,
+                zorder = 1.5
+            )
+            
+            # add subtle splice (delta) amounts, if option turned on
+            # first, make sure the exon contains a (coding) cds object
+            if exon.cds:
+                # TODO: pull subtle splice detection code out into this method?
+                delta_start, delta_end = retrieve_subtle_splice_amounts(exon.cds)
+                if self.strand == '+':
+                    start, end = exon.start, exon.end
+                    align_start, align_end = 'right', 'left'
+                else:
+                    start, end = exon.end, exon.start
+                    align_start, align_end = 'left', 'right'
+                if delta_start:
+                    self.draw_text(exon.start, track-0.1, delta_start, va='bottom', ha=align_start, size='x-small')
+                if delta_end:
+                    self.draw_text(exon.end, track-0.1, delta_end, va='bottom', ha=align_end, size='x-small')
+
+    def draw(self):
+        """Plot all orfs."""
+        
+        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), -2*self.opts.max_track_width),), wspace=0)
+
+        # process orfs to get ready for plotting
+        # compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj, self.orfs, self.opts.intron_spacing)
+        find_and_set_subtle_splicing_status(self.orfs, self.opts.subtle_threshold)
+        
+        for i, orf in enumerate(self.orfs):
+            self.draw_orf(orf, i)
+        
+        # hide y axis spine and replace tick labels with ORF ids
+        left_subaxes = self._bax.axs[0]
+        left_subaxes.spines['left'].set_visible(False)
+        left_subaxes.set_yticks(list(range(len(self.orfs))))
+        left_subaxes.set_yticklabels([orf.name for orf in self.orfs])
+        
+        # rotate x axis tick labels for better readability
+        for subaxes in self._bax.axs:
+            subaxes.xaxis.set_major_formatter('{x:.0f}')
+            for label in subaxes.get_xticklabels():
+                label.set_va('top')
+                label.set_rotation(90)
+                label.set_size(8)
+    
+    def draw_frameshifts(self, hatch_color = 'w') -> List['PairwiseAlignmentGroup']:
+        """Identify and plot frameshifted regions in each ORF with respect to the first ORF.
+        Returns list of PairwiseAlignmentGroups between anchor ORF and each of the other ORFs.
+        Frameshifted regions are shown using diagonal hatching."""
+
+        anchor_orf = self.orfs[0]
+        other_orfs = self.orfs[1:]
+
+        orf_pairs = [[anchor_orf, other] for other in other_orfs]
+        aln_grps = isocreatealign.create_and_map_splice_based_align_obj(orf_pairs)
+        for other_track, comparison in enumerate(aln_grps, start=1):
+            isocreatefeat.create_and_map_frame_objects(comparison)
+
+            # manually extract subblock coordinates from FrameResidue chain
+            for (frame, exons), group in groupby(comparison.frmf.chain, key=attrgetter('cat', 'res.exons')):
+                # skip subblocks that are not frameshifted
+                # skip FrameResidues that are located at exon junctions
+                if int(frame) == 1 or len(exons) > 1:
+                    continue
+                frmrs = list(group)
+                subblock_start = frmrs[0].res.codon[0].coord
+                subblock_end = frmrs[-1].res.codon[2].coord
+                if self.strand == '-':
+                    subblock_start, subblock_end = subblock_end, subblock_start
+                self.draw_region(
+                    track = other_track,
+                    start = subblock_start,
+                    end = subblock_end,
+                    type = 'rect',
+                    facecolor = 'none',
+                    edgecolor = hatch_color,
+                    linewidth = 0.0,
+                    zorder = 1.5,
+                    hatch = REL_FRAME_STYLE[int(frame)]
+                )
+        return aln_grps
+
+
+
+
+############################ older methods ############################
+
+
 
 
 def isoform_display_name(s):
@@ -58,12 +362,17 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
     header_line = line # save y-axis position of header, to go back and write partners
     line -= spacing/2.0
 
+    # initialize dict mapping each orf to list of plotted rectangles
+    rect_dict = {orf.name: [] for orf in orfs_to_plot}
+
     # workhorse loop to plot orfs and features
-    for orf in sort_orfs_by_plot_order(orfs_to_plot):
+    # for orf in sort_orfs_by_plot_order(orfs_to_plot):
+    for orf in orfs_to_plot:
         orf_name = retrieve_orf_name(orf)
         orfid = retrieve_orfid_if_exists(orf)
         label = orf_name
-        ax.text(sp[0], line, isoform_display_name(label), va='center') # write-out orfname
+        # label = isoform_display_name(orf_name)
+        ax.text(sp[0], line, label, va='center') # write-out orfname
         intron_start, intron_end, intron_line = get_intron_plot_coordinates(orf, comp, line, height)
         ax.add_line(mlines.Line2D([intron_start, intron_end], [intron_line, intron_line], lw=1.5, color='k', ls='--', dashes=(1,1.2), zorder=1))
         max_x = update_figure_range(max_x, intron_end)
@@ -88,10 +397,12 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
             if exon.cds:
                 x, y, blength, bheight = get_exon_plot_coordinates(exon.cds, comp, height, line, cds=True)
                 ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc='w', zorder=3, joinstyle='round')) # base layer so 'alpha' diff for 3 diff frm isn't show-through
-                ax.add_patch(mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=4, joinstyle='round', alpha=alpha_val))
+                exon_rect = mpatches.Rectangle([x, y], blength, bheight, lw=1, ec='k', fc=col, zorder=4, joinstyle='round', alpha=alpha_val)
+                ax.add_patch(exon_rect)
+                rect_dict[orf.name].append(exon_rect)
             max_x = update_figure_range(max_x, (x+blength))
             # render features (domains or isrs)
-            # TODO - debug, now that I redesigned features, exon doesn't have 'maps'
+            # TODO: - debug, now that I redesigned features, exon doesn't have 'maps'
             # for m in exon.maps:
             #     fx, flen = get_feature_ranges(m, comp)
             #     if m.feat.cat == 'isr': # isrs as hatch marks
@@ -102,24 +413,35 @@ def render_iso_image(orfs_to_plot, ax=None, mode='all', dname='output_isoimages'
         line -= spacing
     line += spacing
 
-    ax.axis('off')
     ax.axis('image')
     max_y = line - spacing
     max_x = max_x + abs(sp[0]) # adjust for sp[0] plotted
 
+    return rect_dict
 
-def grab_gen_objs_from_orfs(orfs):
+
+def render_pair_align_image(align_group):
+    """Render iso-image for a pairwise alignment of ORFs.
+    """
+
+    # TODO: instead of modifying exon rects, draw new rects over segments of exons w/ rel frameshift
+    rect_dict = render_iso_image([align_group.anchor_orf, align_group.other_orf])
+    rects = rect_dict[align_group.other_orf.name]
+    for exon, rect in zip(align_group.other_orf.exons, rects):
+        rect.set_hatch("xx")
+
+def grab_gen_objs_from_orfs(orfs: Iterable['ORF']) -> Set['Gene']:
     return set([orf.gene for orf in orfs])
 
 
-def verify_only_one_gen_obj_represented(gen_objs):
+def verify_only_one_gen_obj_represented(gen_objs: Set['Gene']):
     """Given a group of orfs to plot, verify only one gen_obj represented."""
     if len(gen_objs) > 1:
         names = [gen_obj.name for gen_obj in gen_objs]
         raise ValueError('Found multi gen_objs: {}'.format(','.join(names)))
 
 
-def verify_all_orfs_of_same_strand(orfs):
+def verify_all_orfs_of_same_strand(orfs: Iterable['ORF']):
     strands = set([orf.strand for orf in orfs])
     if len(strands) > 1:
         random_orf_name = list(orfs)[0].gene.name
@@ -178,11 +500,11 @@ def get_lowest_coord_of_genes(gen_objs):
     Input:
     gen_objs - set of gen_objs"""
     repr_gen_obj = next(iter(gen_objs))
-    #TODO - deal with cases where overlapping gene on diff. strands (rare though)
+    #TODO: - deal with cases where overlapping gene on diff. strands (rare though)
     if repr_gen_obj.strand == '+':
         # don't trust the gen_obj start b/c sometimes combine gc and pb gene and they have different starts
         lowest_start = 100000000000000
-        #TODO - ensure it is ok that we only look at exon coords (not cds) coords to derive lowest coord
+        #TODO: - ensure it is ok that we only look at exon coords (not cds) coords to derive lowest coord
         exons = gather_exons_and_cds_of_genes(gen_objs)
         for exon in exons:
             if exon.start < lowest_start:
@@ -217,7 +539,7 @@ def adjust_exon_coords_to_make_ascending(gen_objs):
     If negative strand, convert exon absolute start/end coords to inverted coords.
     e.g. 2-5, 10-13, 20-25 will become 1-6, 13-16, 21-24
     Adjusted values saved to start_adj and end_adj"""
-    #TODO - should I add method to in this func to check all genes are same strand?, as of now it is in another place
+    #TODO: - should I add method to in this func to check all genes are same strand?, as of now it is in another place
     exons = gather_exons_and_cds_of_genes(gen_objs)
     g = list(gen_objs)[0] # repr gen_obj in set
     if g.strand == '-':
@@ -282,8 +604,8 @@ def find_and_set_subtle_splicing_status(orfs_to_plot, threshold=15):
                         if delta < en_delta:
                             en_delta = delta
         strand = orfs_to_plot[0].strand # grab strand, if neg. strand, then need to reverse st/en coords
-        if strand == '-':
-            st_delta, en_delta = en_delta, st_delta
+        # if strand == '-':
+        #     st_delta, en_delta = en_delta, st_delta
         if st_delta > threshold:
             cds.start_subtle_splice = None
         else:
@@ -298,7 +620,7 @@ def get_repr_orf(orfs_to_plot):
     return repr_orf
 
 
-def retrieve_orf_name(orf):
+def retrieve_orf_name(orf: 'ORF') -> str:
     # retrieve printable orf_name
     # 6KOC-specific trim of orf.name (to exclude unnecessary contig_acc), e.g. MAX_p4_g05.TRINITY_etc -> MAX_p4_g05
     orf_name = orf.name
@@ -307,7 +629,7 @@ def retrieve_orf_name(orf):
             orf_name = orf.name.split('.')[0]
     return orf_name
 
-def retrieve_orfid_if_exists(orf):
+def retrieve_orfid_if_exists(orf: 'ORF') -> str:
     """If exists, retrieve orfid and return as a string.  orfid only exists for
     CL_ORF objects, not GC_ORF objects.  But sometimes GC_ORF objects are input
     to make GC+CL-containing tracks.
@@ -320,8 +642,8 @@ def retrieve_orfid_if_exists(orf):
 def get_intron_plot_coordinates(orf, comp, line, height):
     # derive the intron start and end
     verify_orf_has_rel_start_end(orf)
-    intron_start = (orf.rel_start)/float(comp)
-    intron_end = (orf.rel_end - orf.rel_start)/float(comp) + intron_start
+    intron_start = (orf.rel_start)/comp
+    intron_end = (orf.rel_end - orf.rel_start)/comp + intron_start
     intron_line = line + height/2.0
     return intron_start, intron_end, intron_line
 
@@ -355,11 +677,11 @@ def get_exon_plot_coordinates(block, comp, height, line, cds=False):
     else:
         n = 2
         block_length = len(block.exon.aa_seq)
-    x = block.rel_start/float(comp)
+    x = block.rel_start/comp
     y = line
     if cds:
         y -= height/2.0
-    blength = block_length/float(comp) # block length
+    blength = block_length/comp # block length
     bheight = height * n # block height
     return x, y, blength, bheight
 
@@ -368,14 +690,13 @@ def get_orf_color(orf):
     # define orf color
     col_cats = {'GC':'steelblue', 'CL':'mediumseagreen', 'PB':'indianred',
                 '4K':'mediumpurple', '6K':'mediumpurple'}
-    try:
-        col = col_cats[orf.src]
-    except:
-        col = col_cats[orf.cat]
-    return col
+    if hasattr(orf, "src"):
+        return col_cats[orf.src]
+    else:
+        return col_cats[orf.cat]
 
 
-#TODO - make alpha values more extreme
+#TODO: - make alpha values more extreme
 def get_abs_frm_specific_alpha_values_if_option_set(exon, render_abs_frm):
     # if abs_frm option on, set alpha values at three shades based on abs. frm
     if render_abs_frm:
@@ -406,8 +727,8 @@ def retrieve_subtle_splice_amounts(exon_cds):
 
 def get_feature_ranges(m, comp):
     """Relative to the exon, get the domain ranges."""
-    fx = x - 1/float(comp) + m.exon_start/float(comp) # feature x-pos
-    flen = (m.exon_end - m.exon_start)/float(comp) # feature length
+    fx = x - 1/comp + m.exon_start/comp # feature x-pos
+    flen = (m.exon_end - m.exon_start)/comp # feature length
     return fx, flen
 
 
@@ -493,11 +814,11 @@ def verify_orf_has_rel_start_end(orf):
         raise UserWarning('orf.rel_start/end = None:', orf.name, orf.get_exon_ranges()) # found issue when both pos and neg strand orf part of gene
 
 
-#TODO - check for accuracy of the function
+#TODO: - check for accuracy of the function
 def get_mutation_coords(pos, comp, mut_adjust, line, plotted):
     """Determine mutation coordinates.  Return coord. for plotting of lollipops.
     """
-    mstart = x - 1/float(comp) + pos.ridx/float(comp)
+    mstart = x - 1/comp + pos.ridx/comp
     mline = line + mut_adjust
     mut_space = 0
     mut_space = find_nonoverlapping_height(mstart, mline, plotted)
@@ -520,7 +841,7 @@ def update_disease_acronym_dictionary(mut, dis_acro_dict):
     """Add disease info to dict. for disease legend upon final write-out.
     In the process, 'dis_acro_dict' gets updated in-place.
     """
-    dis_acro = get_disease_acronym(mut.dis) # print out acronym of disease
+    dis_acro = get_disease_acronym(mut.dis) # print(out acronym of disease)
     dis_acro_dict[dis_acro] = mut.dis # add acronym key for legend
 
 def is_orfs_to_plot_a_list_or_set(orfs_to_plot):
@@ -658,7 +979,7 @@ def print_iso_char_image(orf1, orf2, scale=30):
 
     def split_blocks(in_string):
         # split basd on contiguous char.
-        split_string = [''.join(v) for k, v in itertools.groupby(in_string)]
+        split_string = [''.join(v) for k, v in groupby(in_string)]
         return split_string
 
     def downsample_block(size, scale):
@@ -685,7 +1006,7 @@ def print_iso_char_image(orf1, orf2, scale=30):
                     second += '-'
         return first, second
 
-    # print out an intron-squeezed isoform representation
+    # print(out an intron-squeezed isoform representation)
     # start with lowest coord, ascend and set category
     i = 0 # current coordinate
     i_orf1 = 0 # current index of exon obj for orf1

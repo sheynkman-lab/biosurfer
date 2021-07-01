@@ -31,7 +31,7 @@ class FeatureFull():
     @property
     def last(self):
         """Last (most downstream) feat_res or feat_pos in the feat_obj."""
-        # TODO - return None if feat of length 1
+        # TODO: - return None if feat of length 1
         return self.chain[-1]
 
     @property
@@ -86,7 +86,7 @@ class FeatureBlock():
         # self.name -> property
         self.chain = feat_pts
         # self.featrs -> property
-        # TODO - map is missing!
+        # TODO: - map is missing!
         # self.map
 
     @property
@@ -173,7 +173,7 @@ class FeaturePosition():
 #
 #
 # class LM(Feature):
-#     # TODO- fil
+#     # TODO:- fil
 #     pass
 #
 #
@@ -290,7 +290,7 @@ class FeaturePosition():
 #                 st_idx = en_idx + 1
 #             return isr_ranges
 #
-#         #TODO - combine common elements of ORF.set_domain_exon_mappings and ORF_Group.set_isr_exon_mappings
+#         #TODO: - combine common elements of ORF.set_domain_exon_mappings and ORF_Group.set_isr_exon_mappings
 #         def set_isr_exon_mappings(orf):
 #             """For each isr, encode isr-exon mappings through a Mapping object.
 #             Note: code similar to set_domain_exon_mappings under ORF class."""

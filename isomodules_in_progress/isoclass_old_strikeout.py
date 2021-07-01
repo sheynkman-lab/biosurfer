@@ -101,7 +101,7 @@ class Exon():
         self.is_cons = None # is exon constiutive or alternative (set within context of an ogrp)
         self.rel_start = None # intron-flushed coord system, for iso-image
         self.rel_end = None # see above
-        self.maps = [] # list of mapping objects (TODO -> change to set?)
+        self.maps = [] # list of mapping objects (TODO: -> change to set?)
         self.muts = set()
         self.start_adj = 0 # *_adj attr repr. post-normalized coords before plot iso-image
         self.end_adj = 0
@@ -214,7 +214,7 @@ class Mutation_Group():
             return False
 
 
-#TODO - decide if I want to encode ref/alt_nt as revcomp for neg strands
+#TODO: - decide if I want to encode ref/alt_nt as revcomp for neg strands
 class Mutation_Pos():
     """Represents a unique Pos-to-ORF mapping."""
     def __init__(self, pos_obj, mut_obj):

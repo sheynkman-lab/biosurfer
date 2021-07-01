@@ -17,9 +17,13 @@ class Alignment():
         self.other_obj = other_obj
         self.update_ref_to_this_aln_in_objs()
 
-    @property
-    def grp(self):
-        return self.alnf.grp
+    # @property
+    # def grp(self):
+    #     return self.alnf.grp
+    
+    # @grp.setter
+    # def grp(self, grp):
+    #     self.alnf.grp = grp
 
     def __repr__(self):
         # previously, had the isoalign obj. name
@@ -107,7 +111,7 @@ class AlignmentFull(Alignment):
         aa1 = ''.join([alnr.res1.aa for alnr in self.chain])
         aa2 = ''.join([alnr.res2.aa for alnr in self.chain])
         frm2 = ''.join([alnr.res2.rfrm for alnr in self.chain])
-        frm2 = frm2.replace('1', ' ').replace('-', ' ').replace('*', ' ')
+        # frm2 = frm2.replace('1', ' ').replace('-', ' ').replace('*', ' ')
         aln_chain = ''.join([alnr.alnpb.cat for alnr in self.chain])
         ostr = ('{gene} {strand}\n{orf1:16s} AA:{aa1}\n{orf2:16s} AA:{aa2}\n'
                 '                 FM:{frm2}\n'
@@ -153,6 +157,7 @@ class AlignmentProteinBlock(Alignment):
     def __init__(self, cat, alnf, alnbs):
         self.cat = cat  # aln type, see notes above
         self.alnf = alnf  # ref. to the full align (length of orf)
+        self.grp = self.alnf.grp
         # self.first -> property
         # self.last -> property
         self.blocks = alnbs
@@ -175,7 +180,7 @@ class AlignmentProteinBlock(Alignment):
 
     @property
     def subblocks(self):
-        # TODO - check
+        # TODO: - check
         alnsbs = []
         for alnb in self.blocks:
             for alnsb in alnb.subblocks:
@@ -207,14 +212,13 @@ class AlignmentProteinBlock(Alignment):
     def aa2(self):
         return ''.join([res.aa for res in self.res_chain2])
 
-    @property
     def __repr__(self):
-        # TODO
-        pass
+        # FIXME:
+        return '<AlignmentProteinBlock>'
 
     def update_references_to_parent_and_child_objects(self):
         # set lower rand upper references
-        # TODO - check if works, transferred from isocreatealign
+        # TODO: - check if works, transferred from isocreatealign
         self.alnf.protblocks.append(self)
         for alnb in self.blocks:
             alnb.alnpb = self
@@ -263,7 +267,7 @@ class AlignmentBlock(Alignment):
 
     def update_references_to_parent_and_child_objects(self):
         # set lower and upper references
-        # TODO - check if works, transferred from isocreatealign
+        # TODO: - check if works, transferred from isocreatealign
         self.alnf.blocks.append(self)
         for alnr in self.chain:
             alnr.alnb = self
@@ -280,6 +284,7 @@ class AlignmentSubblock(Alignment):
         # self.other_cds -> property
         # self.cds2 -> property, syn. of other_cds
         self.alnf = alnf
+        self.grp = self.alnf.grp
         self.alnpb = None  # updated upon isoalign creation
         self.alnb = None  # update with mother alignment block
         # self.first -> property
@@ -333,7 +338,7 @@ class AlignmentSubblock(Alignment):
 
     def update_references_to_parent_and_child_objects(self):
         """Grab the alnb associated with this alnsb and link up refs."""
-        # TODO - check for correctness
+        # TODO: - check for correctness
         alnb = self.get_alnb_mapped_to_alnr_chain(self.chain)
         self.alnb = alnb
         alnb.subblocks.append(self)
@@ -351,9 +356,9 @@ class AlignmentSubblock(Alignment):
             mapped_alnb.add(alnr.alnb)
         if len(mapped_alnb) > 1:
             pass
-            # print 'error - aln subblock maps to 2+ aln block ' + str(alnr.alnf)
+            # print('error - aln subblock maps to 2+ aln block ' + str(alnr.alnf))
         if len(mapped_alnb) == 0:
-            print 'no mapped alnb from alnr of an alnsb ' + str(alnr.alnf)
+            print('no mapped alnb from alnr of an alnsb ' + str(alnr.alnf))
         return list(mapped_alnb)[0]
 
 
@@ -369,6 +374,7 @@ class AlignmentResidue(Alignment):
         # self.other_res -> property
         # self.res2 -> property, syn of other_res
         self.alnf = alnf
+        self.grp = self.alnf.grp
         self.alnpb = None  # updated during isoalign creation
         self.alnb = None  # see above
         self.alnsb = None  # see above
@@ -376,7 +382,7 @@ class AlignmentResidue(Alignment):
 
     @property
     def idx(self):
-        # TODO - test
+        # TODO: - test
         return self.alnf.chain.index(self) + 1
 
     @property

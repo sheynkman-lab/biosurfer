@@ -23,7 +23,7 @@ class Group():
 
     @property
     def full(self):
-        # TODO - fill in
+        # TODO: - fill in
         pass
 
     def update_ref_to_this_grp_in_obj(self):
@@ -54,7 +54,7 @@ class ORFGroup(Group):
 
     @property
     def other_orfs(self):
-        # TODO - test
+        # TODO: - test
         return [orf for orf in self.orfs if orf is not self.repr_orf]
 
     def enter(self):

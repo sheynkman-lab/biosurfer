@@ -196,7 +196,7 @@ class AlignmentResidue(Alignment):
 
     @property
     def idx(self):
-        # TODO - test
+        # TODO: - test
         return self.alnf.chain.index(self) + 1
 
     @property
@@ -219,7 +219,7 @@ class AlignmentResidue(Alignment):
 ###############################################################################
 # Functions for finding aa splice alignments
 def print_splice_aligned_aa_chains(pair, display='aa_default', show_rfrm=False, abacus=False):
-    """Given two orf_obj, print out genome-coord-based nt/aa alignment (i.e.
+    """Given two orf_obj, print(out genome-coord-based nt/aa alignment (i.e.)
     AA splice alignment).
         Input:
             pair - list of two orf_obj
@@ -435,7 +435,7 @@ def return_full_display(pair, all_coords, orf1_coords, orf2_coords, chains):
     aa1 = get_aa_codon_centered_chain_string(all_coords, orf1_coords)
     aa2 = get_aa_codon_centered_chain_string(all_coords, orf2_coords)
 
-    # TODO - complete tests
+    # TODO: - complete tests
     # test_nt_feature_str_same_length_as_orf(afrm1, orf1_coords)
     test_nt_feature_str_same_length_as_orf(nt1, orf1_coords)
     test_nt_feature_str_same_length_as_orf(nt2, orf2_coords)
@@ -472,7 +472,7 @@ def get_abs_nt_frm_string(all_coords, orf_coords):
         ostr += char
     return ostr
 
-# TODO - complete tests
+# TODO: - complete tests
 def test_nt_feature_str_same_length_as_orf(fstr, coords):
     """Ensure that string representation of nt-related features has correct
        number of elements (matched length of orf).
@@ -521,7 +521,7 @@ def get_nt_chain_string(all_coords, orf_coords):
                 else:
                     char = pos_obj.nt
             else:
-                print 'NoneType pos_obj in ' + pos_obj.orf.name
+                print('NoneType pos_obj in ' + pos_obj.orf.name)
         if not char:
             char = '-'
         ostr += char

@@ -159,7 +159,7 @@ def write_gene_pickles_to_dir(gen_dict, dname, verbose=False):
        Input:
           gen_dict - name -> gen_obj dictionary
           dname - output directory (gen_obj will be ind. pickles)
-          verbose - option to print out gen_obj being dumped, set to 'v'
+          verbose - option to print(out gen_obj being dumped, set to 'v')
     """
     make_dir_if_not_exist(os.path.join(dname))
     for name, gen_obj in gen_dict.items():

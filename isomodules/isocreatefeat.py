@@ -8,7 +8,7 @@
 # ==============================================================================
 
 from collections import defaultdict
-from isomodules import isofeature
+from . import isofeature
 import itertools
 from itertools import groupby
 
@@ -44,7 +44,7 @@ def create_and_map_domain(orf, domain_info):
       Return (optional):
        featf (domain object)
     """
-    # TODO - issue is that if this is run twice on same orf,
+    # TODO: - issue is that if this is run twice on same orf,
     #        multiple identically-named domains will map to orf
     pfam, name, cat, eval, start, end = domain_info
     featf = isofeature.DomainFull(orf, cat, pfam, name, eval)

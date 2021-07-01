@@ -58,11 +58,11 @@ def get_lowest_coord_of_genes(gen_objs):
     Input:
     gen_objs - set of gen_objs"""
     repr_gen_obj = next(iter(gen_objs))
-    #TODO - deal with cases where overlapping gene on diff. strands (rare though)
+    #TODO: - deal with cases where overlapping gene on diff. strands (rare though)
     if repr_gen_obj.strand == '+':
         # don't trust the gen_obj start b/c sometimes combine gc and pb gene and they have different starts
         lowest_start = 100000000000000
-        #TODO - ensure it is ok that we only look at exon coords (not cds) coords to derive lowest coord
+        #TODO: - ensure it is ok that we only look at exon coords (not cds) coords to derive lowest coord
         exons = gather_exons_and_cds_of_genes(gen_objs)
         for exon in exons:
             if exon.start < lowest_start:
@@ -109,7 +109,7 @@ def adjust_exon_coords_to_make_ascending(gen_objs):
     If negative strand, convert exon absolute start/end coords to inverted coords.
     e.g. 2-5, 10-13, 20-25 will become 1-6, 13-16, 21-24
     Adjusted values saved to start_adj and end_adj"""
-    #TODO - should I add method to in this func to check all genes are same strand?, as of now it is in another place
+    #TODO: - should I add method to in this func to check all genes are same strand?, as of now it is in another place
     exons = gather_exons_and_cds_of_genes(gen_objs)
     g = list(gen_objs)[0] # repr gen_obj in set
     if g.strand == '-':
@@ -265,7 +265,7 @@ def verify_all_orfs_of_same_strand(gen_objs):
     # ensure all strands of same direction, otherwise throw error
     repr_gen_obj = list(gen_objs)[0]
     if not all_genes_with_same_strand(gen_objs):
-        print 'iso-image renderer given two orfs of different strand, did not render: ' + repr_gen_obj.name
+        print('iso-image renderer given two orfs of different strand, did not render: ' + repr_gen_obj.name)
         # raise UserWarning('gen_obj set input to render isoimage of different strand' + repr_gen_obj.name)
 
 
@@ -334,7 +334,7 @@ def get_orf_color(orf):
     return col
 
 
-#TODO - make alpha values more extreme
+#TODO: - make alpha values more extreme
 def get_abs_frm_specific_alpha_values_if_option_set(exon, render_abs_frm):
     # if abs_frm option on, set alpha values at three shades based on abs. frm
     if render_abs_frm:
@@ -370,7 +370,7 @@ def get_feature_ranges(m, comp):
     return fx, flen
 
 
-#TODO - check for accuracy of the function
+#TODO: - check for accuracy of the function
 def get_mutation_coords(pos, comp, mut_adjust, line, plotted):
     """Determine mutation coordinates.  Return coord. for plotting of lollipops.
     """
@@ -397,7 +397,7 @@ def update_disease_acronym_dictionary(mut, dis_acro_dict):
     """Add disease info to dict. for disease legend upon final write-out.
     In the process, 'dis_acro_dict' gets updated in-place.
     """
-    dis_acro = get_disease_acronym(mut.dis) # print out acronym of disease
+    dis_acro = get_disease_acronym(mut.dis) # print(out acronym of disease)
     dis_acro_dict[dis_acro] = mut.dis # add acronym key for legend
 
 def is_orfs_to_plot_a_list_or_set(orfs_to_plot):
@@ -560,7 +560,7 @@ def render_iso_image(orfs_to_plot, mode='all', dname='x_isoimages',
     gen_objs = grab_gen_objs_from_orfs(orfs_to_plot) # all gen_objs into a set
     verify_all_orfs_of_same_strand(gen_objs)
     compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_objs, orfs_to_plot, intron_spacing)
-    #TODO - fix bug to report the subtle splice for the smallest delta
+    #TODO: - fix bug to report the subtle splice for the smallest delta
     find_and_set_subtle_splicing_status(orfs_to_plot, subtle_threshold) # determine if subtle splicing exists
 
     # determine right extremes of orfs, to determine position to start plotting colonies
@@ -580,7 +580,7 @@ def render_iso_image(orfs_to_plot, mode='all', dname='x_isoimages',
     header_line = line # save y-axis position of header, to go back and write partners
     line -= spacing/2.0
 
-    # if isoform_matrix object passed in, print partner labels
+    # if isoform_matrix object passed in, print(partner labels)
     # partner labels sorted by orfid, but genename is rendered
     # keep track of the 'anchor gene' (the gene on DB side that is the base
     # for the isoform matrix)
@@ -660,7 +660,7 @@ def render_iso_image(orfs_to_plot, mode='all', dname='x_isoimages',
             # render mutations
             if has_muts:
                 for pos in exon.chain:
-                    # if pos.muts: #TODO - check if this can be deleted
+                    # if pos.muts: #TODO: - check if this can be deleted
                     for mut in pos.muts:
                         mstart, mline, mut_space = get_mutation_coords(pos, mut_adjust, line, plotted)
                         col = get_mut_color(mut)
@@ -745,7 +745,7 @@ def print_iso_char_image(orf1, orf2, scale=30):
                     second += '-'
         return first, second
 
-    # print out an intron-squeezed isoform representation
+    # print(out an intron-squeezed isoform representation)
     # start with lowest coord, ascend and set category
     i = 0 # current coordinate
     i_orf1 = 0 # current index of exon obj for orf1
@@ -781,5 +781,5 @@ def print_iso_char_image(orf1, orf2, scale=30):
         size = downsample_block(len(block), scale)
         shrunk_blocks.append(cat*size)
     first, second = convert_blocks_to_iso_chains(blocks, scale)
-    print first
-    print second
+    print(first)
+    print(second)

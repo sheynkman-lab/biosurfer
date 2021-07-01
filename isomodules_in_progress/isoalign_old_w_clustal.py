@@ -89,7 +89,7 @@ def get_full_aln_chain_info_and_anchor_other_orfs(symbol, pair, aln_data):
         anchor_orf, other_orf = pair[1], pair[0]
         info = aln_data[acc2]
     else:
-        print 'error {} {} {} not in aln_data'.format(symbol, pair[0], pair[1])
+        print('error {} {} {} not in aln_data'.format(symbol, pair[0], pair[1]))
     return info, anchor_orf, other_orf
 
 
@@ -123,11 +123,11 @@ def num_res_in_orf_mismatches_res_in_aln(anchor_orf, aas1, other_orf, aas2):
     other_aln_len = get_number_of_aas_in_aln_track(aas2)
     if anchor_len != anchor_aln_len:
         pass
-        # print 'Mis. len:{} {}-{}'.format(anchor_orf, anchor_len, anchor_aln_len)
+        # print('Mis. len:{} {}-{}'.format(anchor_orf, anchor_len, anchor_aln_len))
         return True
     elif other_len != other_aln_len:
         pass
-        # print 'Mis. len:{} {}-{}'.format(other_orf, other_len, other_aln_len)
+        # print('Mis. len:{} {}-{}'.format(other_orf, other_len, other_aln_len))
         return True
     else:
         return False
@@ -198,7 +198,7 @@ def get_cds_mapped_to_alnr_chain(alnr_chain, rank):
         mapped_cds = [cds for cds in mapped_cds if cds.name != '-']
         if len(mapped_cds) > 1:
             pass
-            # print 'error - aln subblock maps to 2+ CDS ' + alnr.name
+            # print('error - aln subblock maps to 2+ CDS ' + alnr.name)
     if len(mapped_cds) == 0:
         return None
     return list(mapped_cds)[0]
@@ -213,7 +213,7 @@ def get_alnb_mapped_to_alnr_chain(alnr_chain):
         mapped_alnb.add(alnr.alnb)
     if len(mapped_alnb) > 1:
         pass
-        # print 'error - aln subblock maps to 2+ aln block ' + str(alnr.alnf)
+        # print('error - aln subblock maps to 2+ aln block ' + str(alnr.alnf))
     if len(mapped_alnb) == 0:
-        print 'no mapped alnb from alnr of an alnsb ' + str(alnr.alnf)
+        print('no mapped alnb from alnr of an alnsb ' + str(alnr.alnf))
     return list(mapped_alnb)[0]

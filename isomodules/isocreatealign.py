@@ -7,10 +7,10 @@
 # python_version  :2.6.6
 # ==============================================================================
 
-from isomodules import isoclass
+from . import isoclass
 from collections import Counter
-from isomodules import isoalign
-from isomodules import isogroup
+from . import isoalign
+from . import isogroup
 import itertools
 from itertools import groupby
 import re
@@ -93,7 +93,7 @@ def create_and_map_splice_based_align_obj(orf_pairs, abacus=True):
             # grab correpsonding alnb_objs
             start, end = i, i + len(block_string)
             i = end
-            # TODO - 200607 had nonASCII character, check code below
+            # TODO: - 200607 had nonASCII character, check code below
             alnbs = alnf.blocks[start: end]
             # temporary alnpb to find if same residue
             alnpb = isoalign.AlignmentProteinBlock(cat, alnf, alnbs)
@@ -131,6 +131,7 @@ def set_coords(pair, elected_abacus_option):
     """
     for orf in pair:
         for res in orf.res_chain:
+            # TODO: - can we move 'coord_v2' attr into the Position class?
             res.p1.coord_v2 = res.p1.coord
             res.p2.coord_v2 = res.p2.coord
             res.p3.coord_v2 = res.p3.coord
@@ -360,7 +361,7 @@ def set_rfrm_of_pos_in_orf(all_coords, orf1_coords, orf2_coords, pair):
             other_pos.rfrm = '*'
 
 def calc_rfrm(anchor_frm, other_frm):
-    if anchor_frm == other_frm:
+    if anchor_frm == other_frm and anchor_frm != None:
         return 1
     elif (anchor_frm, other_frm) in ((0, 2), (1, 0), (2, 1)):
         return 2
@@ -529,7 +530,7 @@ def get_alnb_mapped_to_alnr_chain(alnr_chain):
         mapped_alnb.add(alnr.alnb)
     if len(mapped_alnb) > 1:
         pass
-        # print 'error - aln subblock maps to 2+ aln block ' + str(alnr.alnf)
+        # print('error - aln subblock maps to 2+ aln block ' + str(alnr.alnf))
     if len(mapped_alnb) == 0:
         print('no mapped alnb from alnr of an alnsb ' + str(alnr.alnf))
     return list(mapped_alnb)[0]

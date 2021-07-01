@@ -71,7 +71,7 @@ def are_orfs_same_cds_intron_chain(orf1, orf2):
 
 
 
-#TODO - still need to test if this is correct code
+#TODO: - still need to test if this is correct code
 def are_orfs_at_length_match(orf1, orf2):
     """Determine if orfs align from head to tail with only single nt mismatches.
     If match is 95%+ identical with alignment from head to tail, considered a
@@ -186,7 +186,7 @@ def compare_sequence_pair(first, second):
 
 
 
-#TODO - test method
+#TODO: - test method
 def are_orfs_same_intron_chain(orf1, orf2):
     """Determine if two orf_obj have same set of intron coords.
        orf1, orf2 - two orf_objs
