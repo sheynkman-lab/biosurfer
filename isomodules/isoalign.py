@@ -108,18 +108,28 @@ class AlignmentFull(Alignment):
     @property
     def full(self):
         """String representation of the orf-orf splice-based alignment."""
+        cds1 = ''.join([str(alnr.res1.cds.ord)[0:1] for alnr in self.chain])
         aa1 = ''.join([alnr.res1.aa for alnr in self.chain])
         aa2 = ''.join([alnr.res2.aa for alnr in self.chain])
+        cds2 = ''.join([str(alnr.res2.cds.ord)[0:1] for alnr in self.chain])
         frm2 = ''.join([alnr.res2.rfrm for alnr in self.chain])
-        # frm2 = frm2.replace('1', ' ').replace('-', ' ').replace('*', ' ')
-        aln_chain = ''.join([alnr.alnpb.cat for alnr in self.chain])
-        ostr = ('{gene} {strand}\n{orf1:16s} AA:{aa1}\n{orf2:16s} AA:{aa2}\n'
-                '                 FM:{frm2}\n'
-                '                 CT:{aln}')
-        ostr = ostr.format(gene=self.orf1.gene.name, strand=self.orf1.strand,
-                           orf1=self.orf1.name, aa1=aa1, orf2=self.orf2.name,
-                           aa2=aa2, frm2=frm2, aln=aln_chain)
-        return ostr
+        alnp_chain = ''.join([alnr.alnpb.cat for alnr in self.chain])
+        alnb_chain = ''.join([alnr.alnb.cat for alnr in self.chain])
+        if alnp_chain != alnb_chain:
+            ostr = ('{gene} {strand}\n{orf1:16s} AA:{aa1}\n'
+                    '               CDS1:{cds1}\n'
+                    '{orf2:16s} AA:{aa2}\n'
+                    '               CDS2:{cds2}\n'
+                    '                 FM:{frm2}\n'
+                    '               BCAT:{aln}\n'
+                    '               PCAT:{alnp}')
+            ostr = ostr.format(gene=self.orf1.gene.name, strand=self.orf1.strand,
+                            orf1=self.orf1.name, aa1=aa1, orf2=self.orf2.name,
+                            aa2=aa2, frm2=frm2, aln=alnb_chain, alnp=alnp_chain,
+                            cds1=cds1, cds2=cds2)
+            return ostr
+        else:
+            return ''
 
     @property
     def match_block_chain(self):
