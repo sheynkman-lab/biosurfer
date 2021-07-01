@@ -21,6 +21,7 @@ __pycache__/
 
 # Omit
 *.pdf
+*.txt
 
 # Distribution / packaging
 .Python
