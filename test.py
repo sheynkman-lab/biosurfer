@@ -77,6 +77,8 @@ except IOError:
 #         print(junc.up_exon.first.res)
 
 #%%
+broken = ('GCDH', 'TIMM50')  # FIXME: trying to create Frame object for alignments raises IndexError
+
 sblocks_dict = {
     'anchor_orf': [],
     'other_orf': [],
@@ -99,8 +101,7 @@ pblocks_dict = {
     'other_last_res': []
 }
 
-broken = ('GCDH', 'TIMM50')  # FIXME: trying to create Frame object for alignments raises IndexError
-for gene_name in ['HMG20B', 'GCDH']:
+for gene_name in genes:
     
     gene = gd[gene_name]
     orfs = sorted(gene, key=lambda orf: (orf is not gene.repr_orf, orf.name))
@@ -120,17 +121,47 @@ for gene_name in ['HMG20B', 'GCDH']:
         for i, block in enumerate(aln_grp.alnf.protblocks):
             if block.cat == 'M':
                 continue
-            first_res, last_res = block.first, block.last
-            
-            annotation = []
-            if block.cat == 'I':
-                pass
 
+            annotation = []
+            first_alnr, last_alnr = block.first, block.last
+            prev_block, prev_exon_anchor, prev_exon_other = None, None, None
+            next_block, next_exon_anchor, next_exon_other = None, None, None
+            
+            if block.cat == 'I':
+                first_exon = first_alnr.res2.exon
+                last_exon = last_alnr.res2.exon
+                if i > 0:
+                    prev_block = aln_grp.alnf.protblocks[i-1]
+                    prev_exon_anchor = prev_block.last.res1.exon
+                    prev_exon_other = prev_block.last.res2.exon
+                if i+1 < len(aln_grp.alnf.protblocks):
+                    next_block = aln_grp.alnf.protblocks[i+1]
+                    next_exon_anchor = next_block.first.res1.exon
+                    next_exon_other = next_block.first.res2.exon
+
+                prev_exon_is_extended = prev_exon_other is first_exon
+                last_exon_is_extended = next_exon_other is last_exon
+                if prev_exon_is_extended and last_exon_is_extended:
+                    if prev_exon_other is next_exon_other:
+                        annotation.append(f'retained intron(s) between exons {prev_exon_anchor.ord} and {next_exon_anchor.ord}')
+                    else:
+                        pass
+                elif prev_exon_is_extended and not last_exon_is_extended:
+                    annotation.append(f'exon {prev_exon_anchor.ord} extended by alternate splice donor')
+                elif not prev_exon_is_extended and last_exon_is_extended:
+                    annotation.append(f'exon {next_exon_anchor.ord} extended by alternate splice acceptor')
+                elif prev_block is None:
+                    annotation.append('alternative TSS or 5\' UTR')
+                elif next_block is None:
+                    annotation.append('alternative polyA or 3\' UTR')
+                else:
+                    annotation.append(f'clean insertion or cassette exons between exons {prev_exon_anchor.ord} and {next_exon_anchor.ord}')
             elif block.cat == 'D':
-                first_exon = first_res.res1.exon
-                last_exon = last_res.res1.exon
-                first_exon_is_truncated = not first_res.res1.is_at_cds_edge
-                last_exon_is_truncated = not last_res.res1.is_at_cds_edge
+                first_exon = first_alnr.res1.exon
+                last_exon = last_alnr.res1.exon
+
+                first_exon_is_truncated = not first_alnr.res1.is_at_cds_edge
+                last_exon_is_truncated = not last_alnr.res1.is_at_cds_edge
                 
                 if first_exon_is_truncated and last_exon_is_truncated:
                     annotation.append(f'exon {first_exon.ord} truncated')
@@ -150,10 +181,10 @@ for gene_name in ['HMG20B', 'GCDH']:
 
             pblocks_dict['anchor_orf'].append(anchor)
             pblocks_dict['other_orf'].append(other)
-            pblocks_dict['anchor_first_res'].append(first_res.res1.idx)
-            pblocks_dict['anchor_last_res'].append(last_res.res1.idx)
-            pblocks_dict['other_first_res'].append(first_res.res2.idx)
-            pblocks_dict['other_last_res'].append(last_res.res2.idx)
+            pblocks_dict['anchor_first_res'].append(first_alnr.res1.idx)
+            pblocks_dict['anchor_last_res'].append(last_alnr.res1.idx)
+            pblocks_dict['other_first_res'].append(first_alnr.res2.idx)
+            pblocks_dict['other_last_res'].append(last_alnr.res2.idx)
             pblocks_dict['category'].append(block.cat)
             pblocks_dict['annotation'].append(', '.join(annotation))
         
@@ -172,7 +203,6 @@ for gene_name in ['HMG20B', 'GCDH']:
             sblocks_dict['annotation'].append(None)
 
     plt.show()
-
 
 #%%
 

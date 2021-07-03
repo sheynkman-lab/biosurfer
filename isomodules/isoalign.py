@@ -111,7 +111,7 @@ class AlignmentFull(Alignment):
         cds1 = ''.join([str(alnr.res1.cds.ord)[0:1] for alnr in self.chain])
         aa1 = ''.join([alnr.res1.aa for alnr in self.chain])
         aa2 = ''.join([alnr.res2.aa for alnr in self.chain])
-        cds2 = ''.join([str(alnr.res2.cds.ord)[0:1] for alnr in self.chain])
+        cds2 = ''.join([str(alnr.res2.cds.ord)[-1] for alnr in self.chain])
         frm2 = ''.join([alnr.res2.rfrm for alnr in self.chain])
         alnp_chain = ''.join([alnr.alnpb.cat for alnr in self.chain])
         alnb_chain = ''.join([alnr.alnb.cat for alnr in self.chain])
