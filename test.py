@@ -94,11 +94,16 @@ except IOError:
         pickle.dump(gd, f)
 
 assert set(genes) <= gd.keys()
+aln_grp_dict = dict()
 
 #%%
-aln_grp_dict = dict()
-broken = set()  # FIXME: trying to create Frame object for alignments raises IndexError
+for gene_name in genes:
+    gene = gd[gene_name]
+    orfs = sorted(gene, key=lambda orf: (orf is not gene.repr_orf, orf.name))
+    aln_grp_dict[gene_name] = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
 
+# %%
+broken = set()  # FIXME: trying to create Frame object for alignments raises IndexError
 force_plotting = False
 
 for gene_name in genes:
@@ -112,11 +117,10 @@ for gene_name in genes:
         isoplot.draw()
 
         try:
-            aln_grps = isoplot.draw_frameshifts()
+            isoplot.draw_frameshifts(aln_grps=aln_grp_dict[gene_name])
         except IndexError:
             broken.add(gene_name)
-            aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
-        
+
         fig.set_size_inches(9, 0.5*len(isoplot.orfs))
         plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300)
         plt.close(fig)

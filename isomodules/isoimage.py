@@ -6,6 +6,7 @@ import math
 from operator import attrgetter
 from itertools import groupby
 from .helpers import IntegerInterval as Interval
+from .helpers import lighten_color
 from portion import IntervalDict
 from enum import Enum
 
@@ -216,13 +217,16 @@ class IsoformPlot:
         # render thin exon blocks
         for exon in orf.exons:
             color = get_orf_color(orf)
+            # lighten every 5th exon in anchor isoform for easier visual navigation
+            if track == 0 and exon.ord % 5 == 0:
+                color = lighten_color(color, 0.25)
             alpha_val = ABS_FRAME_ALPHA[exon.abs_frm] if self.opts.show_abs_frame else 1.0
             self.draw_region(
                 track,
                 start = exon.start,
                 end = exon.end,
                 type = 'rect',
-                edgecolor = color,
+                edgecolor = 'k',
                 facecolor = color,
                 zorder = 1.5
             )
@@ -269,16 +273,16 @@ class IsoformPlot:
                 label.set_rotation(90)
                 label.set_size(8)
     
-    def draw_frameshifts(self, hatch_color = 'w') -> List['PairwiseAlignmentGroup']:
+    def draw_frameshifts(self, aln_grps: List['PairwiseAlignmentGroup'] = None, hatch_color = 'w') -> List['PairwiseAlignmentGroup']:
         """Identify and plot frameshifted regions in each ORF with respect to the first ORF.
         Returns list of PairwiseAlignmentGroups between anchor ORF and each of the other ORFs.
         Frameshifted regions are shown using diagonal hatching."""
+        if aln_grps is None:
+            anchor_orf = self.orfs[0]
+            other_orfs = self.orfs[1:]
 
-        anchor_orf = self.orfs[0]
-        other_orfs = self.orfs[1:]
-
-        orf_pairs = [[anchor_orf, other] for other in other_orfs]
-        aln_grps = isocreatealign.create_and_map_splice_based_align_obj(orf_pairs)
+            orf_pairs = [[anchor_orf, other] for other in other_orfs]
+            aln_grps = isocreatealign.create_and_map_splice_based_align_obj(orf_pairs)
         for other_track, comparison in enumerate(aln_grps, start=1):
             isocreatefeat.create_and_map_frame_objects(comparison)
 
