@@ -255,5 +255,6 @@ pblocks = pd.DataFrame(pblocks_dict)
 # sblocks = pd.DataFrame(sblocks_dict)
 display(pblocks)
 # display(sblocks)
+pblocks.to_csv('./data/chr19_annotations.csv', sep='\t', index=False)
 
 # %%
