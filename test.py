@@ -3,6 +3,7 @@ from IPython.display import display
 import os
 import pandas as pd
 import pickle
+from operator import attrgetter
 from importlib import reload
 from isomodules import isocreate
 from isomodules import isocreatealign
@@ -95,19 +96,46 @@ except IOError:
 assert set(genes) <= gd.keys()
 
 #%%
+aln_grp_dict = dict()
 broken = set()  # FIXME: trying to create Frame object for alignments raises IndexError
 
-sblocks_dict = {
-    'anchor_orf': [],
-    'other_orf': [],
-    'category': [],
-    'annotation': [],
-    'anchor_first_res': [],
-    'anchor_last_res': [],
-    'other_first_res': [],
-    'other_last_res': []
-}
+force_plotting = False
 
+for gene_name in genes:
+    gene = gd[gene_name]
+    orfs = sorted(gene, key=lambda orf: (orf is not gene.repr_orf, orf.name))
+
+    fig_path = os.path.join('./data/plots', f'{gene_name}_isoforms.png')
+    if force_plotting or not os.path.isfile(fig_path):    
+        fig = plt.figure()
+        isoplot = isoimage.IsoformPlot(orfs, intron_spacing=30, track_spacing=1.5)
+        isoplot.draw()
+
+        try:
+            aln_grps = isoplot.draw_frameshifts()
+        except IndexError:
+            broken.add(gene_name)
+            aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
+        
+        fig.set_size_inches(9, 0.5*len(isoplot.orfs))
+        plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300)
+        plt.close(fig)
+    else:
+        aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
+
+    aln_grp_dict[gene_name] = aln_grps
+
+#%%
+# sblocks_dict = {
+#     'anchor_orf': [],
+#     'other_orf': [],
+#     'category': [],
+#     'annotation': [],
+#     'anchor_first_res': [],
+#     'anchor_last_res': [],
+#     'other_first_res': [],
+#     'other_last_res': []
+# }
 pblocks_dict = {
     'anchor_orf': [],
     'other_orf': [],
@@ -119,23 +147,7 @@ pblocks_dict = {
     'other_last_res': []
 }
 
-for gene_name in genes:
-    
-    gene = gd[gene_name]
-    orfs = sorted(gene, key=lambda orf: (orf is not gene.repr_orf, orf.name))
-
-    fig = plt.figure()
-    isoplot = isoimage.IsoformPlot(orfs, intron_spacing=30, track_spacing=1.5)
-    isoplot.draw()
-
-    try:
-        aln_grps = isoplot.draw_frameshifts()
-    except IndexError:
-        broken.add(gene_name)
-        aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
-
-    fig.set_size_inches(9, 0.5*len(isoplot.orfs))
-
+for gene_name, aln_grps in aln_grp_dict.items():
     for aln_grp in aln_grps:
         anchor = repr(aln_grp.anchor_orf)
         other = repr(aln_grp.other_orf)
@@ -144,61 +156,73 @@ for gene_name in genes:
                 continue
 
             annotation = []
+            # "first" and "last" refer to exons associated with the pblock itself
+            # "prev" and "next" refer to exons associated with the neighboring pblocks, which are type M (match)
             first_alnr, last_alnr = block.first, block.last
             prev_block, prev_exon_anchor, prev_exon_other = None, None, None
             next_block, next_exon_anchor, next_exon_other = None, None, None
-            
+            nterm_affected = i == 0
+            cterm_affected = i+1 == len(aln_grp.alnf.protblocks)
+            if not nterm_affected:
+                prev_block = aln_grp.alnf.protblocks[i-1]
+                prev_exon_anchor = prev_block.last.res1.exon
+                prev_exon_other = prev_block.last.res2.exon
+            if not cterm_affected:
+                next_block = aln_grp.alnf.protblocks[i+1]
+                next_exon_anchor = next_block.first.res1.exon
+                next_exon_other = next_block.first.res2.exon
+
             if block.cat == 'I':
-                first_exon = first_alnr.res2.exon
-                last_exon = last_alnr.res2.exon
-                if i > 0:
-                    prev_block = aln_grp.alnf.protblocks[i-1]
-                    prev_exon_anchor = prev_block.last.res1.exon
-                    prev_exon_other = prev_block.last.res2.exon
-                if i+1 < len(aln_grp.alnf.protblocks):
-                    next_block = aln_grp.alnf.protblocks[i+1]
-                    next_exon_anchor = next_block.first.res1.exon
-                    next_exon_other = next_block.first.res2.exon
+                first_exon = max(first_alnr.res2.exons, key=attrgetter('ord'))
+                last_exon = min(last_alnr.res2.exons, key=attrgetter('ord'))
 
-                prev_exon_is_extended = prev_exon_other is first_exon
-                last_exon_is_extended = next_exon_other is last_exon
-                if prev_exon_is_extended and last_exon_is_extended:
+                if not nterm_affected and not cterm_affected:
                     if prev_exon_other is next_exon_other:
-                        annotation.append(f'retained intron(s) between exons {prev_exon_anchor.ord} and {next_exon_anchor.ord}')
+                        annotation.append(f'retained intron between exons {prev_exon_anchor.ord} and {next_exon_anchor.ord}')
                     else:
-                        pass
-                elif prev_exon_is_extended and not last_exon_is_extended:
-                    annotation.append(f'exon {prev_exon_anchor.ord} extended by alternate splice donor')
-                elif not prev_exon_is_extended and last_exon_is_extended:
-                    annotation.append(f'exon {next_exon_anchor.ord} extended by alternate splice acceptor')
-                elif prev_block is None:
-                    annotation.append('alternative TSS or 5\' UTR')
-                elif next_block is None:
-                    annotation.append('alternative polyA or 3\' UTR')
+                        number_of_cassette_exons = last_exon.ord - first_exon.ord + 1
+                        if prev_exon_other is first_exon:
+                            annotation.append(f'exon {prev_exon_anchor.ord} extended by alternative splice donor')
+                            number_of_cassette_exons -= 1
+                        if next_exon_other is last_exon:
+                            annotation.append(f'exon {next_exon_anchor.ord} extended by alternative splice acceptor')
+                            number_of_cassette_exons -= 1
+                        if number_of_cassette_exons > 0:
+                            annotation.append(f'{number_of_cassette_exons} cassette exons inserted between exons {prev_exon_anchor.ord}-{next_exon_anchor.ord}')
                 else:
-                    annotation.append(f'clean insertion or cassette exons between exons {prev_exon_anchor.ord} and {next_exon_anchor.ord}')
+                    if nterm_affected:
+                        annotation.append('<N-terminal event>')
+                    if cterm_affected:
+                        annotation.append('<C-terminal event>')
+                    
             elif block.cat == 'D':
-                first_exon = first_alnr.res1.exon
-                last_exon = last_alnr.res1.exon
+                first_exon = max(first_alnr.res1.exons, key=attrgetter('ord'))
+                last_exon = min(last_alnr.res1.exons, key=attrgetter('ord'))
 
-                first_exon_is_truncated = not first_alnr.res1.is_at_cds_edge
-                last_exon_is_truncated = not last_alnr.res1.is_at_cds_edge
-                
-                if first_exon_is_truncated and last_exon_is_truncated:
-                    annotation.append(f'exon {first_exon.ord} truncated')
-                    annotation.append(f'exons {first_exon.ord+1}-{last_exon.ord-1} not spliced in')
-                    annotation.append(f'exon {last_exon.ord} truncated')
-                elif first_exon_is_truncated and not last_exon_is_truncated:
-                    annotation.append(f'exon {first_exon.ord} truncated')
-                    annotation.append(f'exons {first_exon.ord+1}-{last_exon.ord} not spliced in')
-                elif not first_exon_is_truncated and last_exon_is_truncated:
-                    annotation.append(f'exons {first_exon.ord}-{last_exon.ord-1} not spliced in')
-                    annotation.append(f'exon {last_exon.ord} truncated')
+                if not nterm_affected and not cterm_affected:
+                    if prev_exon_anchor is next_exon_anchor:
+                        annotation.append(f'intronized region in exon {prev_exon_anchor.ord}')
+                    else:
+                        first_cassette_exon_ord = first_exon.ord
+                        last_cassette_exon_ord = last_exon.ord
+                        if prev_exon_anchor is first_exon:
+                            annotation.append(f'exon {prev_exon_anchor.ord} truncated by alternative splice donor')
+                            first_cassette_exon_ord += 1
+                        if next_exon_anchor is last_exon:
+                            annotation.append(f'exon {next_exon_anchor.ord} truncated by alternative splice acceptor')
+                            last_cassette_exon_ord -= 1
+                        if first_cassette_exon_ord == last_cassette_exon_ord:
+                            annotation.append(f'exon {first_cassette_exon_ord} skipped')
+                        elif first_cassette_exon_ord < last_cassette_exon_ord:
+                            annotation.append(f'exons {first_cassette_exon_ord}-{last_cassette_exon_ord} skipped')
                 else:
-                    annotation.append(f'exons {first_exon.ord}-{last_exon.ord} not spliced in')
+                    if nterm_affected:
+                        annotation.append('<N-terminal event>')
+                    if cterm_affected:
+                        annotation.append('<C-terminal event>')                
                 
             elif block.cat == 'S':
-                pass
+                annotation.append('¯\_(ツ)_/¯')
 
             pblocks_dict['anchor_orf'].append(anchor)
             pblocks_dict['other_orf'].append(other)
@@ -207,35 +231,25 @@ for gene_name in genes:
             pblocks_dict['other_first_res'].append(first_alnr.res2.idx)
             pblocks_dict['other_last_res'].append(last_alnr.res2.idx)
             pblocks_dict['category'].append(block.cat)
-            pblocks_dict['annotation'].append(', '.join(annotation))
+            pblocks_dict['annotation'].append(', \n'.join(annotation))
         
-        for block in aln_grp.alnf.blocks:
-            if block.cat == 'M':
-                continue
-            anchor_res = (block.first.res1.idx, block.last.res1.idx)
-            other_res = (block.first.res2.idx, block.last.res2.idx)
-            sblocks_dict['anchor_orf'].append(anchor)
-            sblocks_dict['other_orf'].append(other)
-            sblocks_dict['anchor_first_res'].append(anchor_res[0])
-            sblocks_dict['anchor_last_res'].append(anchor_res[1])
-            sblocks_dict['other_first_res'].append(other_res[0])
-            sblocks_dict['other_last_res'].append(other_res[1])
-            sblocks_dict['category'].append(block.cat)
-            sblocks_dict['annotation'].append(None)
-
-    plt.show()
-
-#%%
+        # for block in aln_grp.alnf.blocks:
+        #     if block.cat == 'M':
+        #         continue
+        #     anchor_res = (block.first.res1.idx, block.last.res1.idx)
+        #     other_res = (block.first.res2.idx, block.last.res2.idx)
+        #     sblocks_dict['anchor_orf'].append(anchor)
+        #     sblocks_dict['other_orf'].append(other)
+        #     sblocks_dict['anchor_first_res'].append(anchor_res[0])
+        #     sblocks_dict['anchor_last_res'].append(anchor_res[1])
+        #     sblocks_dict['other_first_res'].append(other_res[0])
+        #     sblocks_dict['other_last_res'].append(other_res[1])
+        #     sblocks_dict['category'].append(block.cat)
+        #     sblocks_dict['annotation'].append(None)
 
 pblocks = pd.DataFrame(pblocks_dict)
-sblocks = pd.DataFrame(sblocks_dict)
+# sblocks = pd.DataFrame(sblocks_dict)
 display(pblocks)
 # display(sblocks)
 
-# # %%
-# for gene_name in broken:
-#     gene = gd[gene_name]
-#     aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[gene.repr_orf, orf] for orf in gene.other_orfs])
-#     for aln_grp in aln_grps:
-#         isocreatefeat.create_and_map_frame_objects(aln_grp)
 # %%
