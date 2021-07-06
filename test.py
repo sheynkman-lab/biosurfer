@@ -37,11 +37,35 @@ path_transcripts_fa = os.path.join(data_dir, 'gencode.v38.pc_transcripts.fa')
 # path_transcripts_fa = os.path.join(data_dir, 'gencode.v38.pc_transcripts.fa')
 # path_hg38_fa = os.path.join(data_dir, 'GRCh38.primary_assembly.genome.fa')
 
-genes = ('HMG20B', 'DMAC2', 'APOE', 'KLF2', 'TIMM50', 'HRC', 'GCDH')
-temp_file_path = f'data/gene_dict_{"_".join(sorted(genes))}.p'
+genes = (
+    'ACSBG2',
+    'APOE',
+    'ARHGEF1',
+    'ARMC6',
+    'ATP1A3',
+    'CACTIN',
+    'CEACAM5',
+    'CLASRP',
+    'CYP2B6',
+    'CYP2S1',
+    'DMAC2',
+    'ETV2',
+    'GCDH',
+    'HMG20B',
+    'HNRNPUL1',
+    'ICAM4',
+    'KLF2',
+    'KLK3',
+    'LSR',
+    'MBOAT7',
+    'NOSIP',
+    'OSCAR',
+    'SELENOW',
+    'TIMM50',
+)
+temp_file_path = data_dir + f'gene_dict_{"_".join(sorted(genes))}.p'
 
 try:
-    # raise IOError()
     with open(temp_file_path, 'rb') as f:
         gd = pickle.load(f)
         print("loaded dict from pickle file")
@@ -68,16 +92,10 @@ except IOError:
     with open(temp_file_path, 'wb') as f:
         pickle.dump(gd, f)
 
+assert set(genes) <= gd.keys()
 
 #%%
-
-# for junc in goi.repr_orf.juncs:
-#     print(junc.up_exon, junc, junc.dn_exon)
-#     if junc.len > 1000:
-#         print(junc.up_exon.first.res)
-
-#%%
-broken = ('GCDH', 'TIMM50')  # FIXME: trying to create Frame object for alignments raises IndexError
+broken = set()  # FIXME: trying to create Frame object for alignments raises IndexError
 
 sblocks_dict = {
     'anchor_orf': [],
@@ -110,10 +128,13 @@ for gene_name in genes:
     isoplot = isoimage.IsoformPlot(orfs, intron_spacing=30, track_spacing=1.5)
     isoplot.draw()
 
-    if gene_name in broken:
-        aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
-    else:
+    try:
         aln_grps = isoplot.draw_frameshifts()
+    except IndexError:
+        broken.add(gene_name)
+        aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
+
+    fig.set_size_inches(9, 0.5*len(isoplot.orfs))
 
     for aln_grp in aln_grps:
         anchor = repr(aln_grp.anchor_orf)
@@ -206,15 +227,15 @@ for gene_name in genes:
 
 #%%
 
-pblocks = pd.DataFrame(pblocks_dict).drop_duplicates()  #FIXME: why are there duplicate protblocks?
+pblocks = pd.DataFrame(pblocks_dict)
 sblocks = pd.DataFrame(sblocks_dict)
 display(pblocks)
 # display(sblocks)
 
-# %%
-for gene_name in broken:
-    gene = gd[gene_name]
-    aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[gene.repr_orf, orf] for orf in gene.other_orfs])
-    for aln_grp in aln_grps:
-        isocreatefeat.create_and_map_frame_objects(aln_grp)
+# # %%
+# for gene_name in broken:
+#     gene = gd[gene_name]
+#     aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[gene.repr_orf, orf] for orf in gene.other_orfs])
+#     for aln_grp in aln_grps:
+#         isocreatefeat.create_and_map_frame_objects(aln_grp)
 # %%
