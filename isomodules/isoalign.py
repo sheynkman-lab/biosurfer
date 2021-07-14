@@ -108,7 +108,7 @@ class AlignmentFull(Alignment):
     @property
     def full(self):
         """String representation of the orf-orf splice-based alignment."""
-        cds1 = ''.join([str(alnr.res1.cds.ord)[0:1] for alnr in self.chain])
+        cds1 = ''.join([str(alnr.res1.cds.ord)[-1] for alnr in self.chain])
         aa1 = ''.join([alnr.res1.aa for alnr in self.chain])
         aa2 = ''.join([alnr.res2.aa for alnr in self.chain])
         cds2 = ''.join([str(alnr.res2.cds.ord)[-1] for alnr in self.chain])
