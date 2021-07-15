@@ -31,7 +31,7 @@ class Gene(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String)
-    chormosome_id = ForeignKey('chromosome.id')
+    chormosome_id = Column(Integer,ForeignKey('chromosome.id'))
     strand = Column(String)
     transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name')
     chromosome = relationship('Chromosome', back_populates='genes')
@@ -44,7 +44,7 @@ transcript_exon_association_table = Table('transcript_exon', Base.metadata,
 )
 
 class Transcript(Base):
-    __tablename__ = 'orf'
+    __tablename__ = 'transcript'
     id = Column(Integer, primary_key=True)
     name = Column(String)
     gene_id = Column(Integer, ForeignKey('gene.id'))
@@ -54,7 +54,7 @@ class Transcript(Base):
         'Exon',
         order_by='Exon.start', 
         secondary=transcript_exon_association_table,
-        back_populates='orf')
+        back_populates='transcripts')
     orf = relationship('ORF', back_populates='transcript', uselist=False)
     def __repr__(self) -> str:
         return self.name
@@ -81,7 +81,7 @@ class ORF(Base):
     __tablename__ = 'orf'
     id = Column(Integer, primary_key=True)
     name = Column(String)
-    transcript_id = Column(Integer, ForeignKey('gene.id'))
+    transcript_id = Column(Integer, ForeignKey('transcript.id'))
 
     transcript = relationship('Transcript', back_populates='orf')
     cds = relationship(

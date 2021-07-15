@@ -4,7 +4,7 @@
 # from gene import Gene
 # pretend that ORF is all exons
 # currently very simple gtf with transcript and exon features only
-from models import Gene, ORF, Exon, session, Base, engine
+from models import Gene, Transcript, Exon, session, Base, engine
 def read_gtf_line(line: str) -> list:
     """Read and parse a single gtf line
 
@@ -47,11 +47,11 @@ def load_data_from_gtf(gtf_file: str) -> None:
                     gene.strand = strand
                     genes[attributes['gene_id']] = gene
                     session.add(gene)
-                orf = ORF()
-                orf.name = attributes['transcript_id']
-                genes[attributes['gene_id']].orfs.append(orf)
-                transcripts[attributes['transcript_id']] = orf
-                session.add(orf)
+                transcript = Transcript()
+                transcript.name = attributes['transcript_id']
+                genes[attributes['gene_id']].transcripts.append(transcript)
+                transcripts[attributes['transcript_id']] = transcript
+                session.add(transcript)
                 
             elif feature == 'exon':
                 if (chromosome, start, stop) in exons.keys():
@@ -60,7 +60,7 @@ def load_data_from_gtf(gtf_file: str) -> None:
                     exon = Exon()
                     exon.start = start
                     exon.stop = stop
-                exon.orfs.append(transcripts[attributes['transcript_id']])
+                exon.transcripts.append(transcripts[attributes['transcript_id']])
                 session.add(exon)
                 exons[(chromosome, start, stop)] = exon
     session.commit() #Attempt to commit all the records
