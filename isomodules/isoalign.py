@@ -178,6 +178,10 @@ class AlignmentProteinBlock(Alignment):
         Alignment.__init__(self, None, None)  # no direct anchor/other object
 
     @property
+    def ord(self):
+        return self.alnf.protblocks.index(self) + 1
+
+    @property
     def first(self):
         return self.chain[0]
 

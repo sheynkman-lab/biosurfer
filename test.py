@@ -124,137 +124,102 @@ for gene_name in genes:
         fig.set_size_inches(9, 0.5*len(isoplot.orfs))
         plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300)
         plt.close(fig)
-    else:
-        aln_grps = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
-
-    aln_grp_dict[gene_name] = aln_grps
 
 #%%
-# sblocks_dict = {
-#     'anchor_orf': [],
-#     'other_orf': [],
-#     'category': [],
-#     'annotation': [],
-#     'anchor_first_res': [],
-#     'anchor_last_res': [],
-#     'other_first_res': [],
-#     'other_last_res': []
-# }
-pblocks_dict = {
-    'anchor_orf': [],
-    'other_orf': [],
-    'category': [],
-    'annotation': [],
-    'anchor_first_res': [],
-    'anchor_last_res': [],
-    'other_first_res': [],
-    'other_last_res': []
-}
+annotations_records = []
 
 for gene_name, aln_grps in aln_grp_dict.items():
     for aln_grp in aln_grps:
         anchor = repr(aln_grp.anchor_orf)
         other = repr(aln_grp.other_orf)
-        for i, block in enumerate(aln_grp.alnf.protblocks):
-            if block.cat == 'M':
-                continue
 
-            annotation = []
-            # "first" and "last" refer to exons associated with the pblock itself
-            # "prev" and "next" refer to exons associated with the neighboring pblocks, which are type M (match)
-            first_alnr, last_alnr = block.first, block.last
-            prev_block, prev_exon_anchor, prev_exon_other = None, None, None
-            next_block, next_exon_anchor, next_exon_other = None, None, None
-            nterm_affected = i == 0
-            cterm_affected = i+1 == len(aln_grp.alnf.protblocks)
-            if not nterm_affected:
-                prev_block = aln_grp.alnf.protblocks[i-1]
-                prev_exon_anchor = prev_block.last.res1.exon
-                prev_exon_other = prev_block.last.res2.exon
-            if not cterm_affected:
-                next_block = aln_grp.alnf.protblocks[i+1]
-                next_exon_anchor = next_block.first.res1.exon
-                next_exon_other = next_block.first.res2.exon
+        m_or_f_tblocks = (tblock for tblock in aln_grp.alnf.blocks if tblock.cat in {'M', 'F'})
+        prev_m_or_f_tblock, next_m_or_f_tblock = None, next(m_or_f_tblocks, None)
+        annotation = []
+        for i, tblock in enumerate(aln_grp.alnf.blocks):
+            pblock = tblock.alnpb
+            first_alnr, last_alnr = tblock.first, tblock.last
 
-            if block.cat == 'I':
+            if tblock.cat in {'M', 'F'}:
+                prev_m_or_f_tblock = next_m_or_f_tblock
+                next_m_or_f_tblock = next(m_or_f_tblocks, None)
+                if tblock.cat == 'M':
+                    continue
+                first_exon = max(first_alnr.res1.exons, key=attrgetter('ord'))
+                last_exon = min(last_alnr.res1.exons, key=attrgetter('ord'))
+                if first_exon is last_exon:
+                    annotation.append(f'exon {first_exon.ord} frameshifted')
+                else:
+                    annotation.append(f'exons {first_exon.ord}-{last_exon.ord} frameshifted')
+            
+            prev_tblock, next_tblock = None, None
+            if i > 0:
+                prev_tblock = aln_grp.alnf.blocks[i-1]
+            if i+1 < len(aln_grp.alnf.blocks):
+                next_tblock = aln_grp.alnf.blocks[i+1]
+            
+            if prev_m_or_f_tblock is not None:
+                prev_m_or_f_exon_anchor = prev_m_or_f_tblock.last.res1.exon
+                prev_m_or_f_exon_other = prev_m_or_f_tblock.last.res2.exon
+            if next_m_or_f_tblock is not None:
+                next_m_or_f_exon_anchor = next_m_or_f_tblock.first.res1.exon
+                next_m_or_f_exon_other = next_m_or_f_tblock.first.res2.exon
+
+            nterminal = pblock.ord == 1
+            cterminal = pblock.ord == len(aln_grp.alnf.protblocks)
+
+            if tblock.cat == 'I':
                 first_exon = max(first_alnr.res2.exons, key=attrgetter('ord'))
                 last_exon = min(last_alnr.res2.exons, key=attrgetter('ord'))
 
-                if not nterm_affected and not cterm_affected:
-                    if prev_exon_other is next_exon_other:
-                        annotation.append(f'retained intron between exons {prev_exon_anchor.ord} and {next_exon_anchor.ord}')
-                    else:
-                        number_of_cassette_exons = last_exon.ord - first_exon.ord + 1
-                        if prev_exon_other is first_exon:
-                            annotation.append(f'exon {prev_exon_anchor.ord} extended by alternative splice donor')
-                            number_of_cassette_exons -= 1
-                        if next_exon_other is last_exon:
-                            annotation.append(f'exon {next_exon_anchor.ord} extended by alternative splice acceptor')
-                            number_of_cassette_exons -= 1
-                        if number_of_cassette_exons > 0:
-                            annotation.append(f'{number_of_cassette_exons} cassette exons inserted between exons {prev_exon_anchor.ord}-{next_exon_anchor.ord}')
+                if prev_m_or_f_exon_other is next_m_or_f_exon_other:
+                    annotation.append(f'retained intron between exons {prev_m_or_f_exon_anchor.ord} and {next_m_or_f_exon_anchor.ord}')
                 else:
-                    if nterm_affected:
-                        annotation.append('<N-terminal event>')
-                    if cterm_affected:
-                        annotation.append('<C-terminal event>')
-                    
-            elif block.cat == 'D':
+                    number_of_cassette_exons = last_exon.ord - first_exon.ord + 1
+                    if prev_m_or_f_exon_other is first_exon:
+                        annotation.append(f'exon {prev_m_or_f_exon_anchor.ord} extended by alternative splice donor')
+                        number_of_cassette_exons -= 1
+                    if next_m_or_f_exon_other is last_exon:
+                        annotation.append(f'exon {next_m_or_f_exon_anchor.ord} extended by alternative splice acceptor')
+                        number_of_cassette_exons -= 1
+                    if number_of_cassette_exons > 0:
+                        annotation.append(f'{number_of_cassette_exons} cassette exon{"s" if number_of_cassette_exons > 1 else ""} inserted between exons {prev_m_or_f_exon_anchor.ord}-{next_m_or_f_exon_anchor.ord}')
+                
+            if tblock.cat == 'D':
                 first_exon = max(first_alnr.res1.exons, key=attrgetter('ord'))
                 last_exon = min(last_alnr.res1.exons, key=attrgetter('ord'))
 
-                if not nterm_affected and not cterm_affected:
-                    if prev_exon_anchor is next_exon_anchor:
-                        annotation.append(f'intronized region in exon {prev_exon_anchor.ord}')
-                    else:
-                        first_cassette_exon_ord = first_exon.ord
-                        last_cassette_exon_ord = last_exon.ord
-                        if prev_exon_anchor is first_exon:
-                            annotation.append(f'exon {prev_exon_anchor.ord} truncated by alternative splice donor')
-                            first_cassette_exon_ord += 1
-                        if next_exon_anchor is last_exon:
-                            annotation.append(f'exon {next_exon_anchor.ord} truncated by alternative splice acceptor')
-                            last_cassette_exon_ord -= 1
-                        if first_cassette_exon_ord == last_cassette_exon_ord:
-                            annotation.append(f'exon {first_cassette_exon_ord} skipped')
-                        elif first_cassette_exon_ord < last_cassette_exon_ord:
-                            annotation.append(f'exons {first_cassette_exon_ord}-{last_cassette_exon_ord} skipped')
+                if prev_m_or_f_exon_anchor is next_m_or_f_exon_anchor:
+                    annotation.append(f'intronized region in exon {prev_m_or_f_exon_anchor.ord}')
                 else:
-                    if nterm_affected:
-                        annotation.append('<N-terminal event>')
-                    if cterm_affected:
-                        annotation.append('<C-terminal event>')                
+                    first_cassette_exon_ord = first_exon.ord
+                    last_cassette_exon_ord = last_exon.ord
+                    if prev_m_or_f_exon_anchor is first_exon:
+                        annotation.append(f'exon {prev_m_or_f_exon_anchor.ord} truncated by alternative splice donor')
+                        first_cassette_exon_ord += 1
+                    if next_m_or_f_exon_anchor is last_exon:
+                        annotation.append(f'exon {next_m_or_f_exon_anchor.ord} truncated by alternative splice acceptor')
+                        last_cassette_exon_ord -= 1
+                    if first_cassette_exon_ord == last_cassette_exon_ord:
+                        annotation.append(f'exon {first_cassette_exon_ord} skipped')
+                    elif first_cassette_exon_ord < last_cassette_exon_ord:
+                        annotation.append(f'exons {first_cassette_exon_ord}-{last_cassette_exon_ord} skipped')
                 
-            elif block.cat == 'S':
-                annotation.append('¯\_(ツ)_/¯')
+            if next_tblock is None or next_tblock.alnpb is not pblock:
+                if nterminal:
+                    annotation.append('<N-terminal event>')
+                if cterminal:
+                    annotation.append('<C-terminal event>')
+                record = (anchor, other, pblock.cat, ', \n'.join(annotation))
+                annotations_records.append(record)
+                annotation = []
+            
 
-            pblocks_dict['anchor_orf'].append(anchor)
-            pblocks_dict['other_orf'].append(other)
-            pblocks_dict['anchor_first_res'].append(first_alnr.res1.idx)
-            pblocks_dict['anchor_last_res'].append(last_alnr.res1.idx)
-            pblocks_dict['other_first_res'].append(first_alnr.res2.idx)
-            pblocks_dict['other_last_res'].append(last_alnr.res2.idx)
-            pblocks_dict['category'].append(block.cat)
-            pblocks_dict['annotation'].append(', \n'.join(annotation))
-        
-        # for block in aln_grp.alnf.blocks:
-        #     if block.cat == 'M':
-        #         continue
-        #     anchor_res = (block.first.res1.idx, block.last.res1.idx)
-        #     other_res = (block.first.res2.idx, block.last.res2.idx)
-        #     sblocks_dict['anchor_orf'].append(anchor)
-        #     sblocks_dict['other_orf'].append(other)
-        #     sblocks_dict['anchor_first_res'].append(anchor_res[0])
-        #     sblocks_dict['anchor_last_res'].append(anchor_res[1])
-        #     sblocks_dict['other_first_res'].append(other_res[0])
-        #     sblocks_dict['other_last_res'].append(other_res[1])
-        #     sblocks_dict['category'].append(block.cat)
-        #     sblocks_dict['annotation'].append(None)
 
-pblocks = pd.DataFrame(pblocks_dict)
+annotations = pd.DataFrame.from_records(annotations_records, columns=['anchor orf', 'other orf', 'category', 'annotation'])
 # sblocks = pd.DataFrame(sblocks_dict)
-display(pblocks)
+display(annotations)
 # display(sblocks)
-pblocks.to_csv('./data/chr19_annotations.csv', sep='\t', index=False)
+annotations.to_csv('./data/chr19_annotations.tsv', sep='\t', index=False)
 
 # %%
