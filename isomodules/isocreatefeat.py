@@ -1,19 +1,12 @@
-#!/usr/bin/env python
-# title           :isocreate.py
-# description     :Functions to create features mapped to isoforms.
-# author          :Gloria Sheynkman
-# date            :June 17th, 2019
-# version         :1
-# python_version  :2.6.6
-# ==============================================================================
+# create features mapped to isoforms 
 
 from collections import defaultdict
 from . import isofeature
 import itertools
 from itertools import groupby
 
-# create and map generic feature to iso_obj
-# note - similar function below with "domain" flavor
+# *****************************************************************************
+# create and map (generic) features to iso_obj
 def create_and_map_feature(orf, start, end, ftype, desc=None):
     """Given an anchor orf and a range on that orf (start and end AA), create
        a hierarchical feat_obj mapping (featf, featsbs, and featrs).
@@ -32,7 +25,7 @@ def create_and_map_feature(orf, start, end, ftype, desc=None):
 
 
 # *****************************************************************************
-# create and map features to iso_obj
+# create and map domains to iso_obj 
 def create_and_map_domain(orf, domain_info):
     """Given an orf and info. on a domain mapped to its AAs, create a
        hierarchical feat_obj mapping.
@@ -44,8 +37,6 @@ def create_and_map_domain(orf, domain_info):
       Return (optional):
        featf (domain object)
     """
-    # TODO: - issue is that if this is run twice on same orf,
-    #        multiple identically-named domains will map to orf
     pfam, name, cat, eval, start, end = domain_info
     featf = isofeature.DomainFull(orf, cat, pfam, name, eval)
     domain_ress = orf.res_chain[int(start) - 1 : int(end)]
@@ -54,7 +45,7 @@ def create_and_map_domain(orf, domain_info):
         featf.chain.append(featr)
     featr_groupings = find_groups_of_featr_in_subblocks(featf.chain)
     for (cds_ord, cds), featrs in sorted(featr_groupings.items()):
-        featsb = isofeature.FeatureSubblock(featf, cds, featrs)
+        isofeature.DomainSubblock(featf, cds, featrs)
     return featf
 
 def find_groups_of_featr_in_subblocks(featrs):
