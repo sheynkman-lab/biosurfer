@@ -170,17 +170,17 @@ for gene_name, aln_grps in aln_grp_dict.items():
             else:
                 next_m_or_f_exon_anchor, next_m_or_f_exon_other = None, None
 
-            nterminal = pblock.ord == 1
-            cterminal = pblock.ord == len(aln_grp.alnf.protblocks)
-
             if tblock.cat == 'I':
                 first_exon = max(first_alnr.res2.exons, key=attrgetter('ord'))
                 last_exon = min(last_alnr.res2.exons, key=attrgetter('ord'))
+                nterminal = first_exon.up_exon is None
+                cterminal = last_exon.dn_exon is None
 
-                if prev_m_or_f_exon_other is None:
-                    pass
-                elif next_m_or_f_exon_other is None:
-                    pass
+                if nterminal or cterminal:
+                    if nterminal:
+                        annotation.append('alternate N-terminus')
+                    if cterminal:
+                        annotation.append('alternate C-terminus')
                 elif prev_m_or_f_exon_other is next_m_or_f_exon_other:
                     annotation.append(f'retained intron between exons {prev_m_or_f_exon_anchor.ord} and {next_m_or_f_exon_anchor.ord}')
                 else:
@@ -197,11 +197,14 @@ for gene_name, aln_grps in aln_grp_dict.items():
             if tblock.cat == 'D':
                 first_exon = max(first_alnr.res1.exons, key=attrgetter('ord'))
                 last_exon = min(last_alnr.res1.exons, key=attrgetter('ord'))
+                nterminal = first_exon.up_exon is None
+                cterminal = last_exon.dn_exon is None
 
-                if prev_m_or_f_exon_anchor is None:
-                    pass
-                elif next_m_or_f_exon_anchor is None:
-                    pass
+                if nterminal or cterminal:
+                    if nterminal:
+                        annotation.append(f'alternate N-terminus')
+                    if cterminal:
+                        annotation.append(f'alternate C-terminus')
                 elif prev_m_or_f_exon_anchor is next_m_or_f_exon_anchor:
                     annotation.append(f'intronized region in exon {prev_m_or_f_exon_anchor.ord}')
                 else:
@@ -219,10 +222,6 @@ for gene_name, aln_grps in aln_grp_dict.items():
                         annotation.append(f'exons {first_cassette_exon_ord}-{last_cassette_exon_ord} skipped')
                 
             if next_tblock is None or next_tblock.alnpb is not pblock:
-                if nterminal:
-                    annotation.append('<N-terminal event>')
-                if cterminal:
-                    annotation.append('<C-terminal event>')
                 record = (anchor, other, pblock.cat, ', \n'.join(annotation))
                 annotations_records.append(record)
                 annotation = []
