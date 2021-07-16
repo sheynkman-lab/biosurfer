@@ -176,11 +176,11 @@ for gene_name, aln_grps in aln_grp_dict.items():
                 nterminal = first_exon.up_exon is None
                 cterminal = last_exon.dn_exon is None
 
-                if nterminal or cterminal:
+                if prev_m_or_f_exon_other is None or next_m_or_f_exon_other is None:
                     if nterminal:
-                        annotation.append('alternate N-terminus')
+                        annotation.append('<N-terminal event>')
                     if cterminal:
-                        annotation.append('alternate C-terminus')
+                        annotation.append('<C-terminal event')
                 elif prev_m_or_f_exon_other is next_m_or_f_exon_other:
                     annotation.append(f'retained intron between exons {prev_m_or_f_exon_anchor.ord} and {next_m_or_f_exon_anchor.ord}')
                 else:
@@ -200,11 +200,11 @@ for gene_name, aln_grps in aln_grp_dict.items():
                 nterminal = first_exon.up_exon is None
                 cterminal = last_exon.dn_exon is None
 
-                if nterminal or cterminal:
+                if prev_m_or_f_exon_anchor is None or next_m_or_f_exon_anchor is None:
                     if nterminal:
-                        annotation.append(f'alternate N-terminus')
+                        annotation.append(f'<N-terminal event>')
                     if cterminal:
-                        annotation.append(f'alternate C-terminus')
+                        annotation.append(f'<C-terminal event>')
                 elif prev_m_or_f_exon_anchor is next_m_or_f_exon_anchor:
                     annotation.append(f'intronized region in exon {prev_m_or_f_exon_anchor.ord}')
                 else:
