@@ -61,27 +61,3 @@ def extract_splicesite_neg_strand(genome_dict, chrom, exon1_coords, exon2_coords
 	return left_ss + right_ss
 
 
-
-def genome_seq_to_dict(path_to_genome_fasta):
-	"""Input abs. path to genome fasta, output dict. of canonical (chr1-22, X, Y) chroms.
-
-	Input:
-	path_to_genome_fasta - absolute path to the genome fasta, assume canonical chr. only
-
-	Output:
-	dictionary of chromosome sequences (chr1->seq)
-	"""
-
-	d = {}
-	for block in open(path_to_genome_fasta).read().split(">")[1:]:
-		lines = block.split('\n')
-		chrom = lines[0].strip().split()[0]
-		seq = ''.join(lines[1:])
-		if chrom.startswith('chr'):
-			d[chrom] = seq
-	return d
-
-
-def reverse_complement(dna):
-    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
-    return ''.join([complement[base] for base in dna[::-1]])

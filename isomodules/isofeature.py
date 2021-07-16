@@ -1,6 +1,8 @@
-# module with class of features
+# module with class of features, as well as their subclasses (domain, frame, isoform-specific region)
+# feature subclasses - domain, frame, isoform-specific region, 
 
-
+# *****************************************************************************
+# general feature object
 class Feature():
     """Abstract class that holds methods in common across feat_objs.
 
@@ -37,10 +39,9 @@ class FeatureFull(Feature):
 
        Note - All feat_obj can point to a grp that holds at least two orfs.
     """
-    def __init__(self, orf, ftype, desc=None):
+    def __init__(self, orf, ftype):
         self.featf = self  # need for retrieving grp, for grp-dep. feat
         self.ftype = ftype  # e.g., dom, frm, isr
-        self.desc = desc # more information about the feat. type
         self.grp = None
         self.blocks = []  # optional
         self.subblocks = []
@@ -209,17 +210,16 @@ class FeatureResidue(Feature):
 
 
 
-
-
-
+# *****************************************************************************
+# domain object
 class DomainFull(FeatureFull):
     """Represents a domain mapped to an ORF"""
-    def __init__(self, orf, cat, acc, desc, eval, stat='direct'):
+    def __init__(self, orf, cat, acc, desc, eval, source='direct'):
         self.cat = cat  # categories of feature (e.g. dom: dbd, reg)
         self.acc = acc  # e.g., pfam accession, linear motif acc, ptm accession
         self.desc = desc  # e.g., pfam name
         self.eval = float(eval) # -1 if non-existent
-        self.stat = stat # direct (mapped domain) or transferred (from aln_obj)
+        self.source = source # direct (mapped domain) or transferred (from aln_obj)
         FeatureFull.__init__(self, orf, 'dom')
 
     @property
@@ -234,7 +234,7 @@ class DomainFull(FeatureFull):
         domain_chain = ''.join(['X' if res.dom else '-' for res in chain])
         cds_chain = ''.join(['|' if res.is_at_cds_edge else str(res.cds.ord) for res in chain])
         seq_chain = ''.join([res.aa for res in chain])
-        ostr = '{:16s}{}\n{:16s}{}\n{:16s}{}'.format(self.desc, domain_chain,
+        ostr = '{:16s}{}\n{:16s}{}\n{:16s}{}\n'.format(self.desc, domain_chain,
                                                      'CDS ord.', cds_chain,
                                                      'AA sequence', seq_chain)
         return ostr
@@ -279,8 +279,8 @@ class DomainResidue(FeatureResidue):
 
 
 
-
-
+# *****************************************************************************
+# translational frame object 
 class FrameFull(FeatureFull):
     """Represents the relative frame for an orf from alignment of two orfs.
        Note - assumes that this object is created immeidately after the
