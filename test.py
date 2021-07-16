@@ -161,9 +161,14 @@ for gene_name, aln_grps in aln_grp_dict.items():
             if prev_m_or_f_tblock is not None:
                 prev_m_or_f_exon_anchor = prev_m_or_f_tblock.last.res1.exon
                 prev_m_or_f_exon_other = prev_m_or_f_tblock.last.res2.exon
+            else:
+                prev_m_or_f_exon_anchor, prev_m_or_f_exon_other = None, None
+            
             if next_m_or_f_tblock is not None:
                 next_m_or_f_exon_anchor = next_m_or_f_tblock.first.res1.exon
                 next_m_or_f_exon_other = next_m_or_f_tblock.first.res2.exon
+            else:
+                next_m_or_f_exon_anchor, next_m_or_f_exon_other = None, None
 
             nterminal = pblock.ord == 1
             cterminal = pblock.ord == len(aln_grp.alnf.protblocks)
@@ -172,7 +177,11 @@ for gene_name, aln_grps in aln_grp_dict.items():
                 first_exon = max(first_alnr.res2.exons, key=attrgetter('ord'))
                 last_exon = min(last_alnr.res2.exons, key=attrgetter('ord'))
 
-                if prev_m_or_f_exon_other is next_m_or_f_exon_other:
+                if prev_m_or_f_exon_other is None:
+                    pass
+                elif next_m_or_f_exon_other is None:
+                    pass
+                elif prev_m_or_f_exon_other is next_m_or_f_exon_other:
                     annotation.append(f'retained intron between exons {prev_m_or_f_exon_anchor.ord} and {next_m_or_f_exon_anchor.ord}')
                 else:
                     number_of_cassette_exons = last_exon.ord - first_exon.ord + 1
@@ -189,7 +198,11 @@ for gene_name, aln_grps in aln_grp_dict.items():
                 first_exon = max(first_alnr.res1.exons, key=attrgetter('ord'))
                 last_exon = min(last_alnr.res1.exons, key=attrgetter('ord'))
 
-                if prev_m_or_f_exon_anchor is next_m_or_f_exon_anchor:
+                if prev_m_or_f_exon_anchor is None:
+                    pass
+                elif next_m_or_f_exon_anchor is None:
+                    pass
+                elif prev_m_or_f_exon_anchor is next_m_or_f_exon_anchor:
                     annotation.append(f'intronized region in exon {prev_m_or_f_exon_anchor.ord}')
                 else:
                     first_cassette_exon_ord = first_exon.ord
