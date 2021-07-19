@@ -104,14 +104,14 @@ def create_and_map_splice_based_align_obj(orf_pairs, abacus=True):
             new_full_block_string += new_block_string
         new_split_blocks = split_blockstring_w_repeating_Ms(new_full_block_string)
         # second, find 'protein-centric' blocks, make and link 'pblock' alnpb_obj
-        i = 0
-        for block_string in new_split_blocks:
-            cat = get_the_category_of_the_block(block_string)
-            # grab correpsonding alnb_objs
-            start, end = i, i + len(block_string)
-            i = end
-            alnbs = alnf.blocks[start: end]
-            alnpb = isoalign.AlignmentProteinBlock(cat, alnf, alnbs)
+        # i = 0
+        # for block_string in new_split_blocks:
+        #     cat = get_the_category_of_the_block(block_string)
+        #     # grab correpsonding alnb_objs
+        #     start, end = i, i + len(block_string)
+        #     i = end
+        #     alnbs = alnf.blocks[start: end]
+        #     alnpb = isoalign.AlignmentProteinBlock(cat, alnf, alnbs)
 
         # define and create 'subblock' aln_objs
         # note - functions below also used for clustal-based alignment
