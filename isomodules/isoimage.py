@@ -6,6 +6,7 @@ import math
 from operator import attrgetter
 from itertools import groupby
 from .helpers import IntegerInterval as Interval
+from .helpers import lighten_color
 from portion import IntervalDict
 from enum import Enum
 
@@ -183,7 +184,7 @@ class IsoformPlot:
     def draw_track_label(self):
         pass
 
-    def draw_text(self, x: int, y: int, text: str, **kwargs):
+    def draw_text(self, x: int, y: float, text: str, **kwargs):
         """Draw text at a specific location. x-coordinate is genomic, y-coordinate is w/ respect to tracks (0-indexed).
         Ex: x=20000, y=2 will center text on track 2 at position 20,000."""
         # TODO: make this use Axes.annotate instead
@@ -197,8 +198,10 @@ class IsoformPlot:
         """Plot a single orf in the given track."""
         orf_start = orf.first.coord
         orf_end = orf.last.coord
+        align_start, align_end = 'right', 'left'
         if self.strand == '-':
             orf_start, orf_end = orf_end, orf_start
+            align_start, align_end = align_end, align_start
         # plot intron line
         self.draw_region(
             track,
@@ -206,9 +209,7 @@ class IsoformPlot:
             end = orf_end,
             type = 'line',
             linewidth = 1.5,
-            color = 'k',
-            linestyle = '--',
-            dashes = (1, 1.2),
+            color = 'gray',
             zorder = 1.5
         )
 
@@ -216,13 +217,16 @@ class IsoformPlot:
         # render thin exon blocks
         for exon in orf.exons:
             color = get_orf_color(orf)
+            # label every 5th exon in anchor isoform for easier navigation
+            if track == 0 and exon.ord % 5 == 0:
+                self.draw_text((exon.start + exon.end)//2, track - self.opts.max_track_width, f'E{exon.ord}', ha='center', va='baseline')
             alpha_val = ABS_FRAME_ALPHA[exon.abs_frm] if self.opts.show_abs_frame else 1.0
             self.draw_region(
                 track,
                 start = exon.start,
                 end = exon.end,
                 type = 'rect',
-                edgecolor = color,
+                edgecolor = 'k',
                 facecolor = color,
                 zorder = 1.5
             )
@@ -232,21 +236,20 @@ class IsoformPlot:
             if exon.cds:
                 # TODO: pull subtle splice detection code out into this method?
                 delta_start, delta_end = retrieve_subtle_splice_amounts(exon.cds)
-                if self.strand == '+':
-                    start, end = exon.start, exon.end
-                    align_start, align_end = 'right', 'left'
-                else:
-                    start, end = exon.end, exon.start
-                    align_start, align_end = 'left', 'right'
                 if delta_start:
                     self.draw_text(exon.start, track-0.1, delta_start, va='bottom', ha=align_start, size='x-small')
                 if delta_end:
                     self.draw_text(exon.end, track-0.1, delta_end, va='bottom', ha=align_end, size='x-small')
+            
+        if hasattr(orf, 'cds_start_nf') and orf.cds_start_nf:
+            self.draw_text(orf.first.coord, track, '! ', ha='right', va='center', weight='bold', color='r')
+        if hasattr(orf, 'cds_end_nf') and orf.cds_end_nf:
+            self.draw_text(orf.last.coord, track, ' !', ha='left', va='center', weight='bold', color='r')
 
     def draw(self):
         """Plot all orfs."""
         
-        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), -2*self.opts.max_track_width),), wspace=0)
+        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.orfs), -2*self.opts.max_track_width),), wspace=0, d=0.008)
 
         # process orfs to get ready for plotting
         # compress_introns_and_set_relative_orf_exon_and_cds_coords(gen_obj, self.orfs, self.opts.intron_spacing)
@@ -254,6 +257,13 @@ class IsoformPlot:
         
         for i, orf in enumerate(self.orfs):
             self.draw_orf(orf, i)
+        
+        # set title
+        gene = self.orfs[0].gene
+        start, end = gene.start, gene.end
+        if gene.strand == '-':
+            start, end = end, start
+        self._bax.set_title(f'{gene.chrom}:{start}-{end}')
         
         # hide y axis spine and replace tick labels with ORF ids
         left_subaxes = self._bax.axs[0]
@@ -269,16 +279,16 @@ class IsoformPlot:
                 label.set_rotation(90)
                 label.set_size(8)
     
-    def draw_frameshifts(self, hatch_color = 'w') -> List['PairwiseAlignmentGroup']:
+    def draw_frameshifts(self, aln_grps: List['PairwiseAlignmentGroup'] = None, hatch_color = 'w') -> List['PairwiseAlignmentGroup']:
         """Identify and plot frameshifted regions in each ORF with respect to the first ORF.
         Returns list of PairwiseAlignmentGroups between anchor ORF and each of the other ORFs.
         Frameshifted regions are shown using diagonal hatching."""
+        if aln_grps is None:
+            anchor_orf = self.orfs[0]
+            other_orfs = self.orfs[1:]
 
-        anchor_orf = self.orfs[0]
-        other_orfs = self.orfs[1:]
-
-        orf_pairs = [[anchor_orf, other] for other in other_orfs]
-        aln_grps = isocreatealign.create_and_map_splice_based_align_obj(orf_pairs)
+            orf_pairs = [[anchor_orf, other] for other in other_orfs]
+            aln_grps = isocreatealign.create_and_map_splice_based_align_obj(orf_pairs)
         for other_track, comparison in enumerate(aln_grps, start=1):
             isocreatefeat.create_and_map_frame_objects(comparison)
 
