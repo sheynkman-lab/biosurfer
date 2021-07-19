@@ -97,18 +97,22 @@ assert set(genes) <= gd.keys()
 aln_grp_dict = dict()
 
 #%%
-for gene_name in genes:
-    gene = gd[gene_name]
-    orfs = sorted(gene, key=lambda orf: (orf is not gene.repr_orf, orf.name))
+def is_complete(orf):
+    start_nf = hasattr(orf, 'cds_start_nf') and orf.cds_start_nf
+    end_nf = hasattr(orf, 'cds_end_nf') and orf.cds_end_nf
+    return not start_nf and not end_nf
+
+complete_orfs = {gene_name: sorted(filter(is_complete, gene), key=lambda orf: (orf is not gene.repr_orf, orf.name)) for gene_name, gene in gd.items()}
+for gene_name, orfs in complete_orfs.items():
     aln_grp_dict[gene_name] = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
 
 # %%
 broken = set()  # FIXME: trying to create Frame object for alignments raises IndexError
-force_plotting = True
+force_plotting = False
 
 for gene_name in genes:
     gene = gd[gene_name]
-    orfs = sorted(gene, key=lambda orf: (orf is not gene.repr_orf, orf.name))
+    orfs = complete_orfs[gene_name]
 
     fig_path = os.path.join('./data/plots', f'{gene_name}_isoforms.png')
     if force_plotting or not os.path.isfile(fig_path):    
