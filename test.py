@@ -104,7 +104,7 @@ for gene_name in genes:
 
 # %%
 broken = set()  # FIXME: trying to create Frame object for alignments raises IndexError
-force_plotting = False
+force_plotting = True
 
 for gene_name in genes:
     gene = gd[gene_name]
@@ -122,7 +122,7 @@ for gene_name in genes:
             broken.add(gene_name)
 
         fig.set_size_inches(9, 0.5*len(isoplot.orfs))
-        plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300)
+        plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
         plt.close(fig)
 
 #%%
@@ -130,8 +130,8 @@ annotations_records = []
 
 for gene_name, aln_grps in aln_grp_dict.items():
     for aln_grp in aln_grps:
-        anchor = repr(aln_grp.anchor_orf)
-        other = repr(aln_grp.other_orf)
+        anchor = aln_grp.anchor_orf
+        other = aln_grp.other_orf
 
         m_or_f_tblocks = (tblock for tblock in aln_grp.alnf.blocks if tblock.cat in {'M', 'F'})
         prev_m_or_f_tblock, next_m_or_f_tblock = None, next(m_or_f_tblocks, None)
@@ -178,9 +178,15 @@ for gene_name, aln_grps in aln_grp_dict.items():
 
                 if prev_m_or_f_exon_other is None or next_m_or_f_exon_other is None:
                     if nterminal:
-                        annotation.append('<N-terminal event>')
+                        if hasattr(other, 'cds_start_nf') and other.cds_start_nf:
+                            annotation.append('N-terminus not found')
+                        else:
+                            annotation.append('<N-terminal event>')
                     if cterminal:
-                        annotation.append('<C-terminal event')
+                        if hasattr(other, 'cds_end_nf') and other.cds_end_nf:
+                            annotation.append('C-terminus not found')
+                        else:
+                            annotation.append('<C-terminal event>')
                 elif prev_m_or_f_exon_other is next_m_or_f_exon_other:
                     annotation.append(f'retained intron between exons {prev_m_or_f_exon_anchor.ord} and {next_m_or_f_exon_anchor.ord}')
                 else:
@@ -204,9 +210,15 @@ for gene_name, aln_grps in aln_grp_dict.items():
 
                 if prev_m_or_f_exon_anchor is None or next_m_or_f_exon_anchor is None:
                     if nterminal:
-                        annotation.append(f'<N-terminal event>')
+                        if hasattr(other, 'cds_start_nf') and other.cds_start_nf:
+                            annotation.append('N-terminus not found')
+                        else:
+                            annotation.append('<N-terminal event>')
                     if cterminal:
-                        annotation.append(f'<C-terminal event>')
+                        if hasattr(other, 'cds_end_nf') and other.cds_end_nf:
+                            annotation.append('C-terminus not found')
+                        else:
+                            annotation.append('<C-terminal event>')
                 elif prev_m_or_f_exon_anchor is next_m_or_f_exon_anchor:
                     annotation.append(f'intronized region in exon {prev_m_or_f_exon_anchor.ord}')
                 else:
@@ -224,7 +236,7 @@ for gene_name, aln_grps in aln_grp_dict.items():
                         annotation.append(f'exons {first_skipped_exon_ord}-{last_skipped_exon_ord} skipped')
                 
             if next_tblock is None or next_tblock.alnpb is not pblock:
-                record = (anchor, other, pblock.cat, ', \n'.join(annotation))
+                record = (repr(anchor), repr(other), pblock.cat, ', \n'.join(annotation))
                 annotations_records.append(record)
                 annotation = []
             
