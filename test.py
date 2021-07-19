@@ -184,15 +184,17 @@ for gene_name, aln_grps in aln_grp_dict.items():
                 elif prev_m_or_f_exon_other is next_m_or_f_exon_other:
                     annotation.append(f'retained intron between exons {prev_m_or_f_exon_anchor.ord} and {next_m_or_f_exon_anchor.ord}')
                 else:
-                    number_of_cassette_exons = last_exon.ord - first_exon.ord + 1
+                    number_of_included_exons = last_exon.ord - first_exon.ord + 1
                     if prev_m_or_f_exon_other is first_exon:
                         annotation.append(f'exon {prev_m_or_f_exon_anchor.ord} extended by alternative splice donor')
-                        number_of_cassette_exons -= 1
+                        number_of_included_exons -= 1
                     if next_m_or_f_exon_other is last_exon:
                         annotation.append(f'exon {next_m_or_f_exon_anchor.ord} extended by alternative splice acceptor')
-                        number_of_cassette_exons -= 1
-                    if number_of_cassette_exons > 0:
-                        annotation.append(f'{number_of_cassette_exons} cassette exon{"s" if number_of_cassette_exons > 1 else ""} inserted between exons {prev_m_or_f_exon_anchor.ord}-{next_m_or_f_exon_anchor.ord}')
+                        number_of_included_exons -= 1
+                    if number_of_included_exons == 1:
+                        annotation.append(f'exon included between exons {prev_m_or_f_exon_anchor.ord}-{next_m_or_f_exon_anchor.ord}')
+                    elif number_of_included_exons > 1:
+                        annotation.append(f'{number_of_included_exons} exons included between exons {prev_m_or_f_exon_anchor.ord}-{next_m_or_f_exon_anchor.ord}')
                 
             if tblock.cat == 'D':
                 first_exon = max(first_alnr.res1.exons, key=attrgetter('ord'))
@@ -208,18 +210,18 @@ for gene_name, aln_grps in aln_grp_dict.items():
                 elif prev_m_or_f_exon_anchor is next_m_or_f_exon_anchor:
                     annotation.append(f'intronized region in exon {prev_m_or_f_exon_anchor.ord}')
                 else:
-                    first_cassette_exon_ord = first_exon.ord
-                    last_cassette_exon_ord = last_exon.ord
+                    first_skipped_exon_ord = first_exon.ord
+                    last_skipped_exon_ord = last_exon.ord
                     if prev_m_or_f_exon_anchor is first_exon:
-                        annotation.append(f'exon {prev_m_or_f_exon_anchor.ord} truncated by alternative splice donor')
-                        first_cassette_exon_ord += 1
+                        annotation.append(f'exon {prev_m_or_f_exon_anchor.ord} shortened by alternative splice donor')
+                        first_skipped_exon_ord += 1
                     if next_m_or_f_exon_anchor is last_exon:
-                        annotation.append(f'exon {next_m_or_f_exon_anchor.ord} truncated by alternative splice acceptor')
-                        last_cassette_exon_ord -= 1
-                    if first_cassette_exon_ord == last_cassette_exon_ord:
-                        annotation.append(f'exon {first_cassette_exon_ord} skipped')
-                    elif first_cassette_exon_ord < last_cassette_exon_ord:
-                        annotation.append(f'exons {first_cassette_exon_ord}-{last_cassette_exon_ord} skipped')
+                        annotation.append(f'exon {next_m_or_f_exon_anchor.ord} shortened by alternative splice acceptor')
+                        last_skipped_exon_ord -= 1
+                    if first_skipped_exon_ord == last_skipped_exon_ord:
+                        annotation.append(f'exon {first_skipped_exon_ord} skipped')
+                    elif first_skipped_exon_ord < last_skipped_exon_ord:
+                        annotation.append(f'exons {first_skipped_exon_ord}-{last_skipped_exon_ord} skipped')
                 
             if next_tblock is None or next_tblock.alnpb is not pblock:
                 record = (anchor, other, pblock.cat, ', \n'.join(annotation))
