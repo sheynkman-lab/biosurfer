@@ -32,3 +32,11 @@ with open(os.path.join(odir, 'appris_principle_transcript_names.tsv'), 'w') as o
 #%%
 
 
+
+
+
+
+
+
+
+#%%

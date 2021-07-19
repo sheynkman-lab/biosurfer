@@ -1,11 +1,4 @@
-#!/usr/bin/env python
-#title           :isofunc.py
-#description     :Helper functions for isoform-related processing.
-#author          :Gloria Sheynkman
-#date            :May 7th, 2019
-#version         :1
-#python_version  :2.6.6
-#==============================================================================
+# helper functions for isoform-related processing
 
 from collections import defaultdict
 import pickle
