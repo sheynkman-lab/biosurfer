@@ -9,15 +9,11 @@
 
 import warnings
 import itertools
-from collections import defaultdict, Counter
+from collections import defaultdict
 
 from Bio.Seq import Seq
 
 from . import isoclass
-from . import isofeature
-from . import isomap
-from . import isoalign
-from . import isogroup
 
 
 # *****************************************************************************
