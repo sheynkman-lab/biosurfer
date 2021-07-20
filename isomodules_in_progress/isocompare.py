@@ -1,4 +1,5 @@
 # functions for comparing gene/isoform structures and overlap
+# isoforms can be similar via exon coordinates, intron/junction chains, or sequence similarity
 
 
 

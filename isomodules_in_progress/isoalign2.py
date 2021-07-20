@@ -1,12 +1,5 @@
-#!/usr/bin/env python
-# title           :isoalign.py
 # description     :Classes that represent alignments between iso. objects.
 #                  Also, functions to compute and print-out aa splice alignments.
-# author          :Gloria Sheynkman
-# date            :May 22nd, 2019
-# version         :1
-# python_version  :2.7.15
-# ==============================================================================
 
 from collections import Counter
 

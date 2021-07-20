@@ -1,47 +1,14 @@
 # classes that represent abstractions of isoform-related objects
 
-import math
-import re
-import itertools
 from Bio.Seq import Seq
-from enum import Enum
-from collections import Counter
-
-
 
 class Gene():
     def __init__(self, name, chrom, strand, start=0, end=0, ensg=None):
         self.muts = set()
-        self.mat_grps = set() # set of isoform matrix groups (set of ORFs with PPI data)
-        self.iso_grps = set() # set of same-seq or same-struc-grouped isoforms
-
 class ORF():
     def __init__(self, cat, plot_ord, name, gene, start, end):
-        self.rel_start = None
-        self.rel_end = None
-        self.feats = [] # list of features (domains for now)
-        self.isrs = [] # list of isrs (only within context of an ogrp)
         self.muts = set()
         self.mgrps = set() # lists all orf-mapped mutation groups
-        self.expr = None # holds a sub_dict of tiss expression
-        self.intron_chain = [] #TODO: add code to fill intron_chain values
-        self.frac_abund = {} # fractional abundance (depends on orf_grp membership)
-        self.alt_regions = {} # list of ranges on orf corr. to alt regions (depends on orf_grp)
-        self.dbd_len = None # cumul. length of HMM-mapped DBDs
-
-
-    def are_exons_same_coord(exon1, exon2):
-        # determine if two exons are the same coordinate
-        # exon will be same if the absolute start/end coordinates are equal
-        # assume that exons input are from the same gene, and thus have same chrom
-        exon1_st = exon1.chain[0].coord # exon1 start coord
-        exon2_st = exon2.chain[0].coord # exon2 start coord
-        exon1_en = exon1.chain[-1].coord # exon1 end coord
-        exon2_en = exon2.chain[-1].coord # exon2 end coord
-        if exon1_st == exon2_st and exon1_en == exon2_en:
-            return True
-        else:
-            return False
 
     def derive_and_return_rel_exon_ranges(self):
         """Return a list of lists that show 1-base relative exon ranges.
@@ -55,17 +22,6 @@ class ORF():
             rel_pair = [coord - lowest_coord + 1 for coord in pair]
             rel_ranges.append(rel_pair)
         return rel_ranges
-
-    def get_adj_exon_ranges(self):
-        """In isoimage module, exon coords for grp of orfs adjusted before plotting.
-        Here, plot those coords for trbl purposes.
-        '*_adj' = coordinate adjusted for relative plotting scale
-        """
-        ranges = []
-        for exon in self.exons:
-            pair = [exon.start_adj, exon.end_adj]
-            ranges.append(pair)
-        return ranges
 
     def get_intron_chain(self):
         """Return list of pairs of intron coords (up to dn direction)."""
@@ -96,49 +52,13 @@ class ORF():
 
 class Exon():
     def __init__(self, ordinal, start, end, orf, gene):
-        self.ord = ordinal # gc-assigned 'exon_number' i.e. ordinal
-        # TODO: pull out ogrp-context attr, like 'is_cons' into wrapper class
-        self.is_cons = None # is exon constiutive or alternative (set within context of an ogrp)
-        self.rel_start = None # intron-flushed coord system, for iso-image
-        self.rel_end = None # see above
-        self.maps = [] # list of mapping objects (TODO: -> change to set?)
         self.muts = set()
-        self.start_adj = 0 # *_adj attr repr. post-normalized coords before plot iso-image
-        self.end_adj = 0
-        self.cat = None # alternative, constitutive, or partial
-        self.start_alt = 0
-        self.end_alt = 0
-
 
 
 class Pos():
     def __init__(self, coord, idx, ridx, nt, frm, exon, orf, gene):
-        self.fs = None # fs=fraction spliced, holds Frac_Splice object
-        self.cat = None
         self.muts = set() # list of mut objs. mapping to Pos, used to check if muts exist
         self.mgrps = set() # set of mgrps, each mgrp being composite of pos, mpos, res, mres
-
-    def __hash__(self):
-        """Need to redefine hash func. if redefining __eq__."""
-        return id(self)
-
-    def __lt__(self, other):
-        return self.idx < other.idx
-
-    def __le__(self, other):
-        return self.idx <= other.idx
-
-    def __eq__(self, other):
-        return self.idx == other.idx
-
-    def __ne__(self, other):
-        return self.idx != other.idx
-
-    def __gt__(self, other):
-        return self.idx > other.idx
-
-    def __ge__(self, other):
-        return self.idx >= other.idx
 
     def add_mut_and_spawn_and_link_mgrp(self, mut_obj):
         self.muts.add(mut_obj)

@@ -12,12 +12,9 @@ from isomodules import isocreatefeat
 from isomodules import isoclass
 from isomodules import isofunc
 from isomodules import isofeature
-from isomodules import isomap
 from isomodules import isoimage
 from isomodules import isogroup
 from isomodules import isoalign
-from isomodules import isowrangle
-from isomodules import isocompare
 from bx.intervals.intersection import Interval, IntervalTree
 
 data_dir = './data'
