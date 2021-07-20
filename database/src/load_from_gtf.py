@@ -4,7 +4,9 @@
 # from gene import Gene
 # pretend that ORF is all exons
 # currently very simple gtf with transcript and exon features only
-from models import Gene, Transcript, Exon, session, Base, engine
+from models import Chromosome, Gene, Transcript, Exon
+from database import db_session, Base, engine
+from sqlalchemy import select
 def read_gtf_line(line: str) -> list:
     """Read and parse a single gtf line
 
@@ -37,21 +39,32 @@ def load_data_from_gtf(gtf_file: str) -> None:
     genes = {}
     transcripts = {}
     exons = {}
+    chromosomes = {}
     with open(gtf_file) as gtf:
         for line in gtf:
-            chromosome, source, feature, start, stop, score, strand, phase, attributes = read_gtf_line(line)
-            if feature == 'transcript':
-                if attributes['gene_id'] not in genes.keys():
-                    gene = Gene()
-                    gene.name = attributes['gene_id']
-                    gene.strand = strand
-                    genes[attributes['gene_id']] = gene
-                    session.add(gene)
+            chr, source, feature, start, stop, score, strand, phase, attributes = read_gtf_line(line)
+            if feature == 'gene':
+                if chr not in chromosomes.keys():
+                  chromosome = Chromosome()
+                  chromosome.name = chr
+                  chromosomes[chr] = chromosome
+                else:
+                    chromosome = chromosomes[chr]
+
+                gene = Gene()
+                gene.name = attributes['gene_id']
+                gene.strand = strand
+                genes[attributes['gene_id']] = gene
+                db_session.add(gene)
+
+                chromosome.genes.append(gene)
+                db_session.add(chromosome)
+            elif feature == 'transcript':
                 transcript = Transcript()
                 transcript.name = attributes['transcript_id']
                 genes[attributes['gene_id']].transcripts.append(transcript)
                 transcripts[attributes['transcript_id']] = transcript
-                session.add(transcript)
+                db_session.add(transcript)
                 
             elif feature == 'exon':
                 if (chromosome, start, stop) in exons.keys():
@@ -61,13 +74,31 @@ def load_data_from_gtf(gtf_file: str) -> None:
                     exon.start = start
                     exon.stop = stop
                 exon.transcripts.append(transcripts[attributes['transcript_id']])
-                session.add(exon)
+                db_session.add(exon)
                 exons[(chromosome, start, stop)] = exon
-    session.commit() #Attempt to commit all the records
+    db_session.commit() #Attempt to commit all the records
     
 
 
-
-load_data_from_gtf('/Users/bj8th/Documents/Sheynkman-Lab/Data/test/jurkat_chr22_corrected.gtf')
-
+import time
+start = time.time()
+load_data_from_gtf('/Users/bj8th/Documents/Sheynkman-Lab/Data/test/gencode.v35.annotation.chr22.gtf')
+end = time.time()
+print(f"Time to load gtf file\t{end - start}")
 # %%
+# statement = select(Transcript)
+# result = db_session.execute(statement).all()
+# transcript = result.pop()[0]
+
+# print(transcript.name)
+# print(transcript.exons)
+# print(transcript.gene)
+# print(transcript.gene.chromosome.name)
+# print(transcript.gene.transcripts)
+# print(transcript.length)
+# # print(transcript.gene.chromosome.genes)
+# # %%
+# exon = transcript.exons[0]
+# exon.length
+# exon.gene
+# # %%

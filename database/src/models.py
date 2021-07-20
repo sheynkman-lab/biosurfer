@@ -2,28 +2,28 @@
 from sqlalchemy import create_engine
 from sqlalchemy import Table
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum, CHAR
+from sqlalchemy.ext import hybrid
 from sqlalchemy.orm import declarative_base, relation
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import sessionmaker
 import enum
+import numpy as np
+from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
+from database import Base
 
-# create an engine
-engine = create_engine('sqlite:///:memory:', echo=False)
-# create a configured "Session" class
-Session = sessionmaker(bind=engine)
-# create a Session
-session = Session()
-Base = declarative_base()
 
-class Strand(enum.Enum):
-    plus = '+'
-    minus = '-'
+# class Strand(enum.Enum):
+#     plus = '+'
+#     minus = '-'
 
 class Chromosome(Base):
     __tablename__ = 'chromosome'
     id = Column(Integer, primary_key=True)
     name = Column(String)
     genes = relationship('Gene', back_populates='chromosome')
+
+    def __repr__(self) -> str:
+        return self.name
 
 
 class Gene(Base):
@@ -56,8 +56,39 @@ class Transcript(Base):
         secondary=transcript_exon_association_table,
         back_populates='transcripts')
     orf = relationship('ORF', back_populates='transcript', uselist=False)
+
     def __repr__(self) -> str:
         return self.name
+
+    @hybrid_property
+    def start(self):
+        start = np.inf
+        for exon in self.exons:
+            if exon.start < start:
+                start = exon.start
+        return start
+    
+    @hybrid_property
+    def length(self):
+        length = sum([exon.length for exon in self.exons])
+        return length
+    
+    @hybrid_property
+    def sequence(self):
+        sequence = [exon.sequence for exon in self.exons]
+        sequence = ''.join(sequence)
+        return sequence
+
+    
+    @hybrid_property
+    def chromosome(self):
+        return self.gene.chromosome
+    
+
+
+exon_nucleotide_table = Table('exon_nucleotide',  Base.metadata,
+    Column('exon_id', Integer, ForeignKey('exon.id')),
+    Column('nucleotide_id', Integer, ForeignKey('nucleotide.id')))
 
 class Exon(Base):
     __tablename__ = 'exon'
@@ -69,13 +100,52 @@ class Exon(Base):
         'Transcript', 
         secondary=transcript_exon_association_table, 
         back_populates='exons')
+    
+    nucleotides = relationship(
+        'Nucleotide',
+        order_by='Nucleotide.coordinate',
+        secondary=exon_nucleotide_table,
+        back_populates='exons')
     def __repr__(self) -> str:
         return f'{self.start}-{self.stop}'
+    
+    @hybrid_property
+    def length(self):
+        return self.stop - self.start + 1
+    
+    @hybrid_property
+    def gene(self):
+        if len(self.transcripts)>0:
+            return self.transcripts[0].gene
+        return None
+    
+    @hybrid_property
+    def chromosome(self):
+        return self.gene.chromosome
+    
+    @hybrid_property
+    def sequence(self):
+        seq = [nuc.nucleotide for nuc in self.nucleotides]
+        seq = ''.join(seq)
+        return seq
 
 orf_cds_association_table = Table('orf_cds', Base.metadata,
     Column('orf_id', Integer, ForeignKey('orf.id')),
     Column('cds_id', Integer, ForeignKey('cds.id'))
 )
+
+class Nucleotide(Base):
+    __tablename__ = 'nucleotide'
+    id = Column(Integer, primary_key=True)
+    coordinate = Column(Integer)
+    nucleotide = Column(CHAR)
+    exons = relationship(
+        'Exon', 
+        secondary=exon_nucleotide_table, 
+        back_populates='nucleotides')
+
+    def __repr__(self) -> str:
+        return self.nucleotide
 
 class ORF(Base):
     __tablename__ = 'orf'
