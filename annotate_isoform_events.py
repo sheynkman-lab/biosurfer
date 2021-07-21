@@ -1,22 +1,17 @@
 # %%
-from IPython.display import display
 import os
-import pandas as pd
 import pickle
 from operator import attrgetter
-from importlib import reload
-from isomodules import isocreate
-from isomodules import isocreatealign
-from isomodules import isocreatefeat
-from isomodules import isoclass
-from isomodules import isofeature
-from isomodules import isoimage
-from isomodules import isogroup
-from isomodules import isoalign
+from warnings import filterwarnings
 
 import matplotlib.pyplot as plt
+import pandas as pd
+from IPython.display import display
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-from warnings import filterwarnings
+
+from isomodules import (helpers, isoalign, isoclass, isocreate, isocreatealign,
+                        isocreatefeat, isofeature, isogroup, isoimage)
+
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
 # data_dir = '/home/redox/sheynkman-lab/gencode'
@@ -69,17 +64,17 @@ try:
 except IOError:
     print("loading dict from gtf and fasta files")
     # load data
-    orf_seqs = isofunc.gc_fasta_to_orf_seq_dict(path_transcripts_fa)
-    chr_dict = isofunc.load_hg38(path_chr_fa)
-    # hg38_dict = isofunc.load_hg38(path_hg38_fa)
-    # domains = isofunc.load_domain_mappings(path_pfam_gc, path_pfam_names)
-    # aln_data = isofunc.load_clustal_alignments(path_gc_aln)
-    # aln_blocks = isofunc.load_alignment_block_calls(aln_data, path_gc_aln_blocks)
-    # tf_sachi, tf_gloria, tf_lambert = isofunc.load_tf_list(path_tf_list_sachi,
+    orf_seqs = helpers.gc_fasta_to_orf_seq_dict(path_transcripts_fa)
+    chr_dict = helpers.load_hg38(path_chr_fa)
+    # hg38_dict = helpers.load_hg38(path_hg38_fa)
+    # domains = helpers.load_domain_mappings(path_pfam_gc, path_pfam_names)
+    # aln_data = helpers.load_clustal_alignments(path_gc_aln)
+    # aln_blocks = helpers.load_alignment_block_calls(aln_data, path_gc_aln_blocks)
+    # tf_sachi, tf_gloria, tf_lambert = helpers.load_tf_list(path_tf_list_sachi,
     #                                      path_tf_list_gloria, path_tf_list_lambert)
-    # tfs = isofunc.load_man_correct_gc30_tf_genenames(path_gc_corr_tf_list)
-    # appris_orfs = isofunc.load_appris_principle_isonames(path_appris)
-    # isoacc_map = isofunc.load_6k_isoacc_map(path_isoacc)
+    # tfs = helpers.load_man_correct_gc30_tf_genenames(path_gc_corr_tf_list)
+    # appris_orfs = helpers.load_appris_principle_isonames(path_appris)
+    # isoacc_map = helpers.load_6k_isoacc_map(path_isoacc)
 
     gd = isocreate.init_gen_obj_gc(path_chr_gtf, gene_list=genes)
     gd = isocreate.create_and_link_seq_related_obj(gd, orf_seqs)
@@ -92,15 +87,16 @@ except IOError:
 assert set(genes) <= gd.keys()
 aln_grp_dict = dict()
 
-#%%
+# %%
 def is_complete(orf):
     start_nf = hasattr(orf, 'cds_start_nf') and orf.cds_start_nf
     end_nf = hasattr(orf, 'cds_end_nf') and orf.cds_end_nf
     return not start_nf and not end_nf
 
-complete_orfs = {gene_name: sorted(filter(is_complete, gene), key=lambda orf: (orf is not gene.repr_orf, orf.name)) for gene_name, gene in gd.items()}
+complete_orfs = {gene_name: sorted(filter(is_complete, gene), key=lambda orf: (orf is not gene.repr_orf, orf.name)) for gene_name, gene in sorted(gd.items())}
 for gene_name, orfs in complete_orfs.items():
     aln_grp_dict[gene_name] = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
+    # aln_grp_dict[gene_name] = [isocreatealign.get_splice_aware_isoform_alignment(orfs[0], other_orf) for other_orf in orfs[1:]]
 
 # %%
 broken = set()  # FIXME: trying to create Frame object for alignments raises IndexError
@@ -246,6 +242,6 @@ annotations = pd.DataFrame.from_records(annotations_records, columns=['anchor or
 # sblocks = pd.DataFrame(sblocks_dict)
 display(annotations)
 # display(sblocks)
-annotations.to_csv('./data/chr19_annotations.tsv', sep='\t', index=False)
+# annotations.to_csv('./data/chr19_annotations.tsv', sep='\t', index=False)
 
 # %%

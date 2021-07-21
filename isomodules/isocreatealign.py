@@ -7,16 +7,174 @@
 # python_version  :2.6.6
 # ==============================================================================
 
-from . import isoclass
-from collections import Counter
-from . import isoalign
-from . import isogroup
 import itertools
-from itertools import groupby
 import re
+from collections import Counter
+from copy import copy
+from itertools import groupby
+
+from . import isoalign, isoclass, isogroup
 
 
 # *****************************************************************************
+def get_splice_aware_isoform_alignment(anchor_orf, other_orf):
+    strand = anchor_orf.strand
+    if other_orf.strand != strand:
+        raise ValueError(f'{anchor_orf} and {other_orf} are from different strands')
+
+    # create dict mapping the first Position in each codon to the corresponding Residue
+    p1_pos_to_res = {res.p1: res for orf in (anchor_orf, other_orf) for res in orf.res_chain}
+
+    # create dict mapping each Position to its true coordinate
+    pos_to_coord = {p: p.coord for orf in (anchor_orf, other_orf) for res in orf.res_chain for p in res.codon}
+
+    # create dict mapping each Position to its abacused coordinate
+    pos_to_coord2 = copy(pos_to_coord)
+    for orf in (anchor_orf, other_orf):
+        for res in orf.res_chain:
+            if strand == '+':
+                if (res.p1.coord + 3) < res.p2.coord:
+                    pos_to_coord2[res.p1] = res.p2.coord - 1
+                elif (res.p2.coord + 3) < res.p3.coord:
+                    pos_to_coord2[res.p3] = res.p2.coord + 1
+            elif strand == '-':
+                if (res.p1.coord - res.p2.coord) != 1:
+                    pos_to_coord2[res.p1] = res.p2.coord + 1
+                elif (res.p2.coord - res.p3.coord) != 1:
+                    pos_to_coord2[res.p3] = res.p2.coord - 1
+
+    # create dicts mapping coordinates to corresponding Positions in anchor and other
+    coord_to_anchor_pos = {pos_to_coord[pos]: pos for pos in anchor_orf.chain if pos.res}
+    coord_to_other_pos = {pos_to_coord[pos]: pos for pos in other_orf.chain if pos.res}
+    coord2_to_anchor_pos = {pos_to_coord2[pos]: pos for pos in anchor_orf.chain if pos.res}
+    coord2_to_other_pos = {pos_to_coord2[pos]: pos for pos in other_orf.chain if pos.res}
+
+    all_coords = sorted(set(coord2_to_anchor_pos) | set(coord2_to_other_pos))
+    if strand == '-':
+        all_coords.reverse()
+
+    # helper function
+    def get_overlapping_residue(res, coord_to_pos):
+        res_coords = [pos.coord for pos in res.codon]
+        other_res_candidates = Counter(coord_to_pos[coord].res for coord in res_coords if coord in coord_to_pos)
+        for other_res, count in other_res_candidates.most_common():
+            if count > 1:
+                return other_res
+        return None
+
+    # create chain of AA alignments
+    anchor_chain, other_chain = [], []
+    coord = all_coords[0]
+    while coord != all_coords[-1]:
+        if coord in coord2_to_anchor_pos:
+            posA = coord2_to_anchor_pos[coord]
+            coord2_to_posB = coord2_to_other_pos
+            coord_to_posB = coord_to_other_pos
+            chainA, chainB = anchor_chain, other_chain
+        elif coord in coord2_to_other_pos:
+            posA = coord2_to_other_pos[coord]
+            coord2_to_posB = coord_to_anchor_pos
+            coord_to_posB = coord_to_anchor_pos
+            chainA, chainB = other_chain, anchor_chain
+        else:
+            raise RuntimeError(f'coord {coord} not found')
+        
+        if posA in p1_pos_to_res:
+            resA = p1_pos_to_res[posA]
+            # find overlapping residue in orf B
+            # try using abacused coords first, then true coords
+            resB = get_overlapping_residue(resA, coord2_to_posB)
+            if resB is None:
+                resB = get_overlapping_residue(resA, coord_to_posB)
+            # if both resA and resB exist, then "snap" coord to the p1 coord of whichever res is further downstream
+            if all([resA, resB]):
+                if strand == '+':
+                    coord = max(pos_to_coord2[resA.p1], pos_to_coord2[resB.p1])
+                elif strand == '-':
+                    coord = min(pos_to_coord2[resA.p1], pos_to_coord2[resB.p1])
+            chainA.append(resA)
+            chainB.append(resB if resB else isoclass.EmptyResidue(isoclass.EmptyCDS()))
+
+        if strand == '+':
+            new_coord = coord + 1
+            while new_coord not in all_coords:
+                new_coord += 1
+        elif strand == '-':
+            new_coord = coord - 1
+            while new_coord not in all_coords:
+                new_coord -= 1
+        coord = new_coord
+    
+    set_rfrm_of_pos_in_orf(all_coords, coord2_to_anchor_pos, coord2_to_other_pos, (anchor_orf, other_orf))
+    set_rfrm_of_res_in_chain({0: anchor_chain, 1: other_chain})  # TODO: change method signature
+
+    # make a grp_obj of the two orfs
+    grp = isogroup.PairwiseAlignmentGroup(anchor_orf, other_orf)
+    # instantiate the 'full' alignment (between orfs)
+    alnf = isoalign.AlignmentFull(grp, anchor_orf, other_orf)
+    grp.alnf = alnf
+
+    for anchor_res, other_res in zip(anchor_chain, other_chain):
+        match = get_the_match_type_of_the_two_residues(anchor_res, other_res)
+        # create a residue-level alignment
+        aln_obj = isoalign.AlignmentResidue(alnf, match, anchor_res, other_res)
+        alnf.chain.append(aln_obj)
+    
+    # make and link 'block' alnb_objs
+    ranges = get_ranges_of_contiguous_blocks_w_same_match_type(alnf.chain)
+    for match_cat, start, end in ranges:
+        alnr_chain = alnf.chain[start: end]
+        alnb = isoalign.AlignmentBlock(match_cat, alnf, alnr_chain)
+    
+    # find 'protein-centric' blocks, make and link 'pblock' alnpb_obj
+    # alnf.blocks represent splice-based effects
+    #  For example: IDMDMFID
+    # alnf.pblocks represent protein-based effects
+    #  For example: SMDMS (drived from e.g. above)
+    # ---
+    # first, run through and pinpoint cases where subst. is actually
+    # a match (e.g. MA--V, --MAV)
+    # output new blocks e.g. IDMDM -> MMMDM -> ['MMM', 'D', 'M']
+    # note - mismatch at exon edge included as part of ins (I) and del (D)
+    full_block_string, split_blocks = merge_blocks_based_on_protein_effect(alnf)
+    i = 0
+    new_full_block_string = ''
+    for block_string in split_blocks:
+        cat = get_the_category_of_the_block(block_string)
+        # grab correpsonding alnb_objs
+        start, end = i, i + len(block_string)
+        i = end
+        # TODO: - 200607 had nonASCII character, check code below
+        alnbs = alnf.blocks[start: end]
+        # temporary alnpb to find if same residue
+        alnpb = isoalign.AlignmentProteinBlock(cat, alnf, alnbs)
+        if cat == 'S' and alnpb.aa1 == alnpb.aa2:
+            new_block_string = 'M' * len(block_string)
+        else:
+            new_block_string = block_string
+        new_full_block_string += new_block_string
+    new_split_blocks = split_blockstring_w_repeating_Ms(new_full_block_string)
+    # second, find 'protein-centric' blocks, make and link 'pblock' alnpb_obj
+    # i = 0
+    # for block_string in new_split_blocks:
+    #     cat = get_the_category_of_the_block(block_string)
+    #     # grab correpsonding alnb_objs
+    #     start, end = i, i + len(block_string)
+    #     i = end
+    #     alnbs = alnf.blocks[start: end]
+    #     alnpb = isoalign.AlignmentProteinBlock(cat, alnf, alnbs)
+
+    # define and create 'subblock' aln_objs
+    # note - functions below also used for clustal-based alignment
+    subblock_ranges = determine_subblock_ranges(alnf.chain)
+    for start, end in subblock_ranges:
+        alnsb_chain = get_subset_of_alnr_based_on_range(alnf, start, end)
+        cds1 = get_cds_mapped_to_alnr_chain(alnsb_chain, 1)
+        cds2 = get_cds_mapped_to_alnr_chain(alnsb_chain, 2)
+        alnsb = isoalign.AlignmentSubblock(alnf, cds1, cds2, alnsb_chain)
+    return grp
+
+
 # create and map alignemnts between orfs, based on genome align
 def create_and_map_splice_based_align_obj(orf_pairs, abacus=True):
     """Based on genome-centric align, create aln_obj for res/cds/orf.
