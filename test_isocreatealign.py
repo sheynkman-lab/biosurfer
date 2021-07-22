@@ -49,7 +49,7 @@ genes = (
     'MBOAT7',
     'NOSIP',
     'OSCAR',
-    'SELENOW',
+    # 'SELENOW',
     'TIMM50',
 )
 
@@ -86,7 +86,7 @@ def get_gene_dictionary(gene_list):
     return gd
 
 gd = get_gene_dictionary(genes)
-aln_grp_dict = dict()
+aln_grp_dict, aln_grp_dict2 = dict(), dict()
 
 # %%
 def is_complete(orf):
@@ -96,12 +96,20 @@ def is_complete(orf):
 
 print('filtering out incomplete isoforms')
 complete_orfs = {gene_name: sorted(filter(is_complete, gene), key=lambda orf: (orf is not gene.repr_orf, orf.name)) for gene_name, gene in sorted(gd.items())}
-print('creating alignment objects')
+
+print('creating alignment objects with new code')
 for gene_name, orfs in complete_orfs.items():
-    print(f'\t{gene_name}')
-    # aln_grp_dict[gene_name] = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
-    aln_grp_dict[gene_name] = [isocreatealign.get_splice_aware_isoform_alignment(orfs[0], other_orf) for other_orf in orfs[1:]]
+    print(f'\t{gene_name}...')
+    aln_grp_dict2[gene_name] = [isocreatealign.get_splice_aware_isoform_alignment(orfs[0], other_orf) for other_orf in orfs[1:]]
+
+print('creating alignment objects with old code')
+for gene_name, orfs in complete_orfs.items():
+    print(f'\t{gene_name}...')
+    aln_grp_dict[gene_name] = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
 
 # %%
-with open('data/sample_alignment_repr_2.txt', 'w') as f:
+with open('data/sample_alignment_repr.txt', 'w') as f:
     f.write('\n'.join(aln_grp.alnf.full for aln_grps in aln_grp_dict.values() for aln_grp in aln_grps))
+
+with open('data/sample_alignment_repr_2.txt', 'w') as f:
+    f.write('\n'.join(aln_grp.alnf.full for aln_grps in aln_grp_dict2.values() for aln_grp in aln_grps))

@@ -29,19 +29,24 @@ def get_splice_aware_isoform_alignment(anchor_orf, other_orf):
     pos_to_coord = {p: p.coord for orf in (anchor_orf, other_orf) for res in orf.res_chain for p in res.codon}
 
     # create dict mapping each Position to its abacused coordinate
+    # create list of all coordinates occupied by first Positions of codons
     pos_to_coord2 = copy(pos_to_coord)
+    p1_coord2s = []
     for orf in (anchor_orf, other_orf):
         for res in orf.res_chain:
             if strand == '+':
                 if (res.p1.coord + 3) < res.p2.coord:
                     pos_to_coord2[res.p1] = res.p2.coord - 1
-                elif (res.p2.coord + 3) < res.p3.coord:
+                p1_coord2s.append(pos_to_coord2[res.p1])
+                if (res.p2.coord + 3) < res.p3.coord:
                     pos_to_coord2[res.p3] = res.p2.coord + 1
             elif strand == '-':
                 if (res.p1.coord - res.p2.coord) != 1:
                     pos_to_coord2[res.p1] = res.p2.coord + 1
-                elif (res.p2.coord - res.p3.coord) != 1:
+                p1_coord2s.append(pos_to_coord2[res.p1])
+                if (res.p2.coord - res.p3.coord) != 1:
                     pos_to_coord2[res.p3] = res.p2.coord - 1
+    p1_coord2s.sort(reverse=strand == '-')
 
     # create dicts mapping coordinates to corresponding Positions in anchor and other
     coord_to_anchor_pos = {pos_to_coord[pos]: pos for pos in anchor_orf.chain if pos.res}
@@ -49,9 +54,10 @@ def get_splice_aware_isoform_alignment(anchor_orf, other_orf):
     coord2_to_anchor_pos = {pos_to_coord2[pos]: pos for pos in anchor_orf.chain if pos.res}
     coord2_to_other_pos = {pos_to_coord2[pos]: pos for pos in other_orf.chain if pos.res}
 
-    all_coords = sorted(set(coord2_to_anchor_pos) | set(coord2_to_other_pos))
+    # create list of all coordinates spanned by the orfs
+    all_coord2s = sorted(set(coord2_to_anchor_pos) | set(coord2_to_other_pos))
     if strand == '-':
-        all_coords.reverse()
+        all_coord2s.reverse()
 
     # helper function
     def get_overlapping_residue(res, coord_to_pos):
@@ -64,22 +70,24 @@ def get_splice_aware_isoform_alignment(anchor_orf, other_orf):
 
     # create chain of AA alignments
     anchor_chain, other_chain = [], []
-    coord = all_coords[0]
-    while coord != all_coords[-1]:
-        if coord in coord2_to_anchor_pos:
+    coord = p1_coord2s[0]
+    done = False
+    while not done:
+        done = coord == p1_coord2s[-1]
+
+        posA = None
+        if coord in coord2_to_anchor_pos and coord2_to_anchor_pos[coord] in p1_pos_to_res:
             posA = coord2_to_anchor_pos[coord]
             coord2_to_posB = coord2_to_other_pos
             coord_to_posB = coord_to_other_pos
             chainA, chainB = anchor_chain, other_chain
-        elif coord in coord2_to_other_pos:
+        elif coord in coord2_to_other_pos and coord2_to_other_pos[coord] in p1_pos_to_res:
             posA = coord2_to_other_pos[coord]
             coord2_to_posB = coord_to_anchor_pos
             coord_to_posB = coord_to_anchor_pos
             chainA, chainB = other_chain, anchor_chain
-        else:
-            raise RuntimeError(f'coord {coord} not found')
         
-        if posA in p1_pos_to_res:
+        if posA:
             resA = p1_pos_to_res[posA]
             # find overlapping residue in orf B
             # try using abacused coords first, then true coords
@@ -95,17 +103,18 @@ def get_splice_aware_isoform_alignment(anchor_orf, other_orf):
             chainA.append(resA)
             chainB.append(resB if resB else isoclass.EmptyResidue(isoclass.EmptyCDS()))
 
-        if strand == '+':
-            new_coord = coord + 1
-            while new_coord not in all_coords:
-                new_coord += 1
-        elif strand == '-':
-            new_coord = coord - 1
-            while new_coord not in all_coords:
-                new_coord -= 1
-        coord = new_coord
+        if not done:
+            if strand == '+':
+                new_coord = coord + 1
+                while new_coord not in p1_coord2s:
+                    new_coord += 1
+            elif strand == '-':
+                new_coord = coord - 1
+                while new_coord not in p1_coord2s:
+                    new_coord -= 1
+            coord = new_coord
     
-    set_rfrm_of_pos_in_orf(all_coords, coord2_to_anchor_pos, coord2_to_other_pos, (anchor_orf, other_orf))
+    set_rfrm_of_pos_in_orf(all_coord2s, coord2_to_anchor_pos, coord2_to_other_pos, (anchor_orf, other_orf))
     set_rfrm_of_res_in_chain({0: anchor_chain, 1: other_chain})  # TODO: change method signature
 
     # make a grp_obj of the two orfs
