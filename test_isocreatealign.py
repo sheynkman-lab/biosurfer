@@ -100,7 +100,7 @@ complete_orfs = {gene_name: sorted(filter(is_complete, gene), key=lambda orf: (o
 print('creating alignment objects with new code')
 for gene_name, orfs in complete_orfs.items():
     print(f'\t{gene_name}...')
-    aln_grp_dict2[gene_name] = [isocreatealign.get_splice_aware_isoform_alignment(orfs[0], other_orf) for other_orf in orfs[1:]]
+    aln_grp_dict2[gene_name] = [isocreatealign.make_splice_aware_isoform_alignment(orfs[0], other_orf) for other_orf in orfs[1:]]
 
 print('creating alignment objects with old code')
 for gene_name, orfs in complete_orfs.items():

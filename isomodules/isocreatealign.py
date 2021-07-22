@@ -17,11 +17,18 @@ from . import isoalign, isoclass, isogroup
 
 
 # *****************************************************************************
-def get_splice_aware_isoform_alignment(anchor_orf, other_orf):
+def make_splice_aware_isoform_alignment(anchor_orf, other_orf):
     strand = anchor_orf.strand
     if other_orf.strand != strand:
         raise ValueError(f'{anchor_orf} and {other_orf} are from different strands')
 
+    p1_coord2s, p1_pos_to_res, coord2_to_anchor_pos, coord2_to_other_pos, coord_to_anchor_pos, coord_to_other_pos, pos_to_coord2, all_coord2s = make_coord_pos_res_dicts(anchor_orf, other_orf, strand)
+    anchor_chain, other_chain = make_alignment_chains(strand, p1_coord2s, p1_pos_to_res, coord2_to_anchor_pos, coord2_to_other_pos, coord_to_anchor_pos, coord_to_other_pos, pos_to_coord2)
+    set_rfrm_of_pos_in_orf(all_coord2s, coord2_to_anchor_pos, coord2_to_other_pos, (anchor_orf, other_orf))
+    set_rfrm_of_res_in_chain([anchor_chain, other_chain])
+    return make_aln_grp_from_chains(anchor_orf, other_orf, anchor_chain, other_chain)
+
+def make_coord_pos_res_dicts(anchor_orf, other_orf, strand):
     # create dict mapping the first Position in each codon to the corresponding Residue
     p1_pos_to_res = {res.p1: res for orf in (anchor_orf, other_orf) for res in orf.res_chain}
 
@@ -58,7 +65,9 @@ def get_splice_aware_isoform_alignment(anchor_orf, other_orf):
     all_coord2s = sorted(set(coord2_to_anchor_pos) | set(coord2_to_other_pos))
     if strand == '-':
         all_coord2s.reverse()
+    return p1_coord2s, p1_pos_to_res, coord2_to_anchor_pos, coord2_to_other_pos, coord_to_anchor_pos, coord_to_other_pos, pos_to_coord2, all_coord2s
 
+def make_alignment_chains(strand, p1_coord2s, p1_pos_to_res, coord2_to_anchor_pos, coord2_to_other_pos, coord_to_anchor_pos, coord_to_other_pos, pos_to_coord2):
     # helper function
     def get_overlapping_residue(res, coord_to_pos):
         res_coords = [pos.coord for pos in res.codon]
@@ -86,7 +95,7 @@ def get_splice_aware_isoform_alignment(anchor_orf, other_orf):
             coord2_to_posB = coord_to_anchor_pos
             coord_to_posB = coord_to_anchor_pos
             chainA, chainB = other_chain, anchor_chain
-        
+
         if posA:
             resA = p1_pos_to_res[posA]
             # find overlapping residue in orf B
@@ -113,10 +122,9 @@ def get_splice_aware_isoform_alignment(anchor_orf, other_orf):
                 while new_coord not in p1_coord2s:
                     new_coord -= 1
             coord = new_coord
-    
-    set_rfrm_of_pos_in_orf(all_coord2s, coord2_to_anchor_pos, coord2_to_other_pos, (anchor_orf, other_orf))
-    set_rfrm_of_res_in_chain({0: anchor_chain, 1: other_chain})  # TODO: change method signature
+    return anchor_chain, other_chain
 
+def make_aln_grp_from_chains(anchor_orf, other_orf, anchor_chain, other_chain):
     # make a grp_obj of the two orfs
     grp = isogroup.PairwiseAlignmentGroup(anchor_orf, other_orf)
     # instantiate the 'full' alignment (between orfs)
@@ -128,13 +136,13 @@ def get_splice_aware_isoform_alignment(anchor_orf, other_orf):
         # create a residue-level alignment
         aln_obj = isoalign.AlignmentResidue(alnf, match, anchor_res, other_res)
         alnf.chain.append(aln_obj)
-    
+
     # make and link 'block' alnb_objs
     ranges = get_ranges_of_contiguous_blocks_w_same_match_type(alnf.chain)
     for match_cat, start, end in ranges:
         alnr_chain = alnf.chain[start: end]
         alnb = isoalign.AlignmentBlock(match_cat, alnf, alnr_chain)
-    
+
     # find 'protein-centric' blocks, make and link 'pblock' alnpb_obj
     # alnf.blocks represent splice-based effects
     #  For example: IDMDMFID
@@ -220,7 +228,7 @@ def create_and_map_splice_based_align_obj(orf_pairs, abacus=True):
         chains = make_orf_pair_aligned_aa_chain(all_coords, pair, orf1_coords,
                                                 orf2_coords)
         set_rfrm_of_pos_in_orf(all_coords, orf1_coords, orf2_coords, pair)
-        set_rfrm_of_res_in_chain(chains)
+        set_rfrm_of_res_in_chain(chains.values())
 
         # make a grp_obj of the two orfs
         grp = isogroup.PairwiseAlignmentGroup(orf1, orf2)
@@ -298,7 +306,6 @@ def set_coords(pair, elected_abacus_option):
     """
     for orf in pair:
         for res in orf.res_chain:
-            # TODO: - can we move 'coord_v2' attr into the Position class?
             res.p1.coord_v2 = res.p1.coord
             res.p2.coord_v2 = res.p2.coord
             res.p3.coord_v2 = res.p3.coord
@@ -540,7 +547,7 @@ def calc_rfrm(anchor_frm, other_frm):
 
 def set_rfrm_of_res_in_chain(chains):
     """Set temporary rfrm attribute for residues in the aa_chain."""
-    for orfname, aa_chain in chains.items():
+    for aa_chain in chains:
         for res in aa_chain:
             if res_is_not_empty(res):
                 # if rfrm is *,   then try to find non-* rfrm
