@@ -95,8 +95,8 @@ def is_complete(orf):
 
 complete_orfs = {gene_name: sorted(filter(is_complete, gene), key=lambda orf: (orf is not gene.repr_orf, orf.name)) for gene_name, gene in sorted(gd.items())}
 for gene_name, orfs in complete_orfs.items():
-    aln_grp_dict[gene_name] = isocreatealign.create_and_map_splice_based_align_obj([[orfs[0], orf] for orf in orfs[1:]])
-    # aln_grp_dict[gene_name] = [isocreatealign.get_splice_aware_isoform_alignment(orfs[0], other_orf) for other_orf in orfs[1:]]
+    print(f'\t{gene_name}...')
+    aln_grp_dict[gene_name] = [isocreatealign.make_splice_aware_isoform_alignment(orfs[0], other_orf) for other_orf in orfs[1:]]
 
 # %%
 broken = set()  # FIXME: trying to create Frame object for alignments raises IndexError
@@ -242,6 +242,6 @@ annotations = pd.DataFrame.from_records(annotations_records, columns=['anchor or
 # sblocks = pd.DataFrame(sblocks_dict)
 display(annotations)
 # display(sblocks)
-# annotations.to_csv('./data/chr19_annotations.tsv', sep='\t', index=False)
+annotations.to_csv('./data/chr19_annotations.tsv', sep='\t', index=False)
 
 # %%
