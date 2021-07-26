@@ -130,9 +130,8 @@ class Exon(Base):
     
     @hybrid_property
     def gene(self):
-        if len(self.transcripts)>0:
-            return self.transcripts[0].gene
-        return None
+        return self.transcript.gene
+        
     
     @hybrid_property
     def chromosome(self):
