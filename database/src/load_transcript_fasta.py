@@ -6,7 +6,6 @@ from models import Transcript, Exon, Nucleotide
 import time
 import logging
 def load_transcript_fasta(transcript_fasta):
-    exons = {}
     for record in SeqIO.parse(transcript_fasta, 'fasta'):
         transcript_name = record.id.split('|')[0]
         sequence = str(record.seq)
@@ -21,15 +20,6 @@ def load_transcript_fasta(transcript_fasta):
                 if exon.sequence != exon_sequence:
                     logging.info(f"updating exon {exon} in transcript {transcript}\nPrior\t{exon.sequence}\nNew\t{exon_sequence}")
                     exon.sequence = exon_sequence
-                # if ('chr22', exon.start, exon.stop) not in exons.keys():
-                #     for i in range(exon.length):
-                #         nucleotide = Nucleotide()
-                #         nucleotide.coordinate = exon.start + i
-                #         nucleotide.nucleotide = sequence[prior_length + i]
-                #         nucleotide.position = i
-                #         nucleotide.exons.append(exon)
-                #         db_session.add(nucleotide)
-                #         exons[('chr22', exon.start, exon.stop)] = exon
                 prior_length = prior_length + exon.length
             db_session.commit() #Attempt to commit all the records
         except:
@@ -45,20 +35,4 @@ end = time.time()
 
 print(f"time to load fasta\t{end - start} seconds")
 print(f"time to load fasta\t{(end - start)/60} minutes")
-# prior_length = 0
-# for exon in transcript.exons:
-#     for i in range(exon.length):
-#         nucleotide = Nucleotide()
-#         nucleotide.coordinate = exon.start + i
-#         nucleotide.nucleotide = seq[prior_length + i]
-#         nucleotide.exons.append(exon)
-#         db_session.add(nucleotide)
-#     prior_length = prior_length + exon.length
-# db_session.commit() #Attempt to commit all the records
-# print(seq)
-# print("\n\n")
-# print(exon.sequence)
-#%%
 
-
-# %%

@@ -38,10 +38,11 @@ def load_data_from_gtf(gtf_file: str) -> None:
     Base.metadata.create_all(engine)
     genes = {}
     transcripts = {}
-    exons = {}
     chromosomes = {}
     with open(gtf_file) as gtf:
         for line in gtf:
+            if line.startswith("#"): 
+                continue
             chr, source, feature, start, stop, score, strand, phase, attributes = read_gtf_line(line)
             if feature == 'gene':
                 if chr not in chromosomes.keys():
@@ -67,38 +68,18 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 db_session.add(transcript)
                 
             elif feature == 'exon':
-                if (chromosome, start, stop) in exons.keys():
-                    exon = exons[(chromosome, start, stop)]
-                else:
-                    exon = Exon()
-                    exon.start = start
-                    exon.stop = stop
-                exon.transcripts.append(transcripts[attributes['transcript_id']])
+                exon = Exon()
+                exon.start = start
+                exon.stop = stop
+                exon.transcript = transcripts[attributes['transcript_id']]
                 db_session.add(exon)
-                exons[(chromosome, start, stop)] = exon
     db_session.commit() #Attempt to commit all the records
     
 
-
+#%%
 import time
 start = time.time()
 load_data_from_gtf('/Users/bj8th/Documents/Sheynkman-Lab/Data/test/gencode.v35.annotation.chr22.gtf')
 end = time.time()
 print(f"Time to load gtf file\t{end - start}")
-# %%
-# statement = select(Transcript)
-# result = db_session.execute(statement).all()
-# transcript = result.pop()[0]
 
-# print(transcript.name)
-# print(transcript.exons)
-# print(transcript.gene)
-# print(transcript.gene.chromosome.name)
-# print(transcript.gene.transcripts)
-# print(transcript.length)
-# # print(transcript.gene.chromosome.genes)
-# # %%
-# exon = transcript.exons[0]
-# exon.length
-# exon.gene
-# # %%

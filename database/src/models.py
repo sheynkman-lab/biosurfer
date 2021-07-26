@@ -40,10 +40,6 @@ class Gene(Base):
     def __repr__(self) -> str:
         return self.name
 
-transcript_exon_association_table = Table('transcript_exon', Base.metadata,
-    Column('transcript_id', Integer, ForeignKey('transcript.id')),
-    Column('exon_id', Integer, ForeignKey('exon.id'))
-)
 
 class Transcript(Base):
     __tablename__ = 'transcript'
@@ -51,11 +47,12 @@ class Transcript(Base):
     name = Column(String)
     gene_id = Column(Integer, ForeignKey('gene.id'))
     gene = relationship('Gene', back_populates='transcripts')
+    # experiment
+    # sample
     exons = relationship(
         'Exon',
-        order_by='Exon.start', 
-        secondary=transcript_exon_association_table,
-        back_populates='transcripts')
+        order_by='Exon.start',
+        back_populates='transcript')
     # orf = relationship('ORF', back_populates='transcript', uselist=False)
 
     def __repr__(self) -> str:
@@ -93,20 +90,15 @@ class Transcript(Base):
         return nucleotides
     
 
-
-# exon_nucleotide_table = Table('exon_nucleotide',  Base.metadata,
-#     Column('exon_id', Integer, ForeignKey('exon.id')),
-#     Column('nucleotide_id', Integer, ForeignKey('nucleotide.id')))
-
 class Exon(Base):
     __tablename__ = 'exon'
     id = Column(Integer, primary_key=True)
+    transcript_id = Column(Integer, ForeignKey('transcript.id'))
     start = Column(Integer)
     stop = Column(Integer)
     sequence = Column(String, default='')
-    transcripts = relationship(
+    transcript = relationship(
         'Transcript', 
-        secondary=transcript_exon_association_table, 
         back_populates='exons')
 
     def __init__(self):
@@ -155,6 +147,7 @@ class Exon(Base):
     #     seq = [nuc.nucleotide for nuc in self.nucleotides]
     #     seq = ''.join(seq)
     #     return seq
+
 
 class Nucleotide:
     def __init__(self, exon, coordinate, position, nucleotide) -> None:
@@ -209,7 +202,7 @@ class Nucleotide:
 
 
 # class AminoAcid():
-#     def __init__(self, protein_isoform, amino_acid, position) -> None:
+#     def __init__(self, protein_isoform, amino_acid, position, nucleotides) -> None:
 #         self.amino_acid = amino_acid
 #         self.protein_isoform = protein_isoform
 #         self.position = position
