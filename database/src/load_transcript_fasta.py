@@ -10,7 +10,7 @@ def load_transcript_fasta(transcript_fasta):
         transcript_name = record.id.split('|')[0]
         sequence = str(record.seq)
         try:
-            statement = select(Transcript).filter(Transcript.name == transcript_name)
+            statement = select(Transcript).filter(Transcript.ensembl == transcript_name)
             result = db_session.execute(statement).one()
             transcript = result[0]
             prior_length = 0
@@ -30,7 +30,7 @@ def load_transcript_fasta(transcript_fasta):
 
 
 start = time.time()
-load_transcript_fasta('/Users/bj8th/Documents/Sheynkman-Lab/Data/test/gencode.v35.pc_transcripts.chr22.fa')
+load_transcript_fasta('/home/redox/sheynkman-lab/biosurfer/data/biosurfer_demo_data/gencode.v38.pc_transcripts.fa.toy')
 end = time.time()
 
 print(f"time to load fasta\t{end - start} seconds")

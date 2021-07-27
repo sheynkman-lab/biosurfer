@@ -53,7 +53,8 @@ def load_data_from_gtf(gtf_file: str) -> None:
                     chromosome = chromosomes[chr]
 
                 gene = Gene()
-                gene.name = attributes['gene_id']
+                gene.ensembl = attributes['gene_id']
+                gene.name = attributes['gene_name']
                 gene.strand = strand
                 genes[attributes['gene_id']] = gene
                 db_session.add(gene)
@@ -62,13 +63,15 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 db_session.add(chromosome)
             elif feature == 'transcript':
                 transcript = Transcript()
-                transcript.name = attributes['transcript_id']
+                transcript.ensembl = attributes['transcript_id']
+                transcript.name = attributes['transcript_name']
                 genes[attributes['gene_id']].transcripts.append(transcript)
                 transcripts[attributes['transcript_id']] = transcript
                 db_session.add(transcript)
                 
             elif feature == 'exon':
                 exon = Exon()
+                exon.ensembl = attributes['exon_id']
                 exon.start = start
                 exon.stop = stop
                 exon.transcript = transcripts[attributes['transcript_id']]
@@ -79,7 +82,9 @@ def load_data_from_gtf(gtf_file: str) -> None:
 #%%
 import time
 start = time.time()
-load_data_from_gtf('/Users/bj8th/Documents/Sheynkman-Lab/Data/test/gencode.v35.annotation.chr22.gtf')
+load_data_from_gtf('/home/redox/sheynkman-lab/biosurfer/data/biosurfer_demo_data/gencode.v38.annotation.gtf.toy')
 end = time.time()
 print(f"Time to load gtf file\t{end - start}")
 
+
+# %%

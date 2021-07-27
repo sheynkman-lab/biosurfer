@@ -32,8 +32,9 @@ class Gene(Base):
     __tablename__ = 'gene'
 
     id = Column(Integer, primary_key=True)
+    ensembl = Column(String)
     name = Column(String)
-    chormosome_id = Column(Integer,ForeignKey('chromosome.id'))
+    chromosome_id = Column(Integer,ForeignKey('chromosome.id'))
     strand = Column(String)
     transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name')
     chromosome = relationship('Chromosome', back_populates='genes')
@@ -44,6 +45,7 @@ class Gene(Base):
 class Transcript(Base):
     __tablename__ = 'transcript'
     id = Column(Integer, primary_key=True)
+    ensembl = Column(String)
     name = Column(String)
     gene_id = Column(Integer, ForeignKey('gene.id'))
     gene = relationship('Gene', back_populates='transcripts')
@@ -93,6 +95,7 @@ class Transcript(Base):
 class Exon(Base):
     __tablename__ = 'exon'
     id = Column(Integer, primary_key=True)
+    ensembl = Column(String)
     transcript_id = Column(Integer, ForeignKey('transcript.id'))
     start = Column(Integer)
     stop = Column(Integer)
