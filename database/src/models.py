@@ -32,7 +32,7 @@ class Gene(Base):
     __tablename__ = 'gene'
 
     id = Column(Integer, primary_key=True)
-    ensembl = Column(String)
+    accession = Column(String)
     name = Column(String)
     chromosome_id = Column(Integer,ForeignKey('chromosome.id'))
     strand = Column(String)
@@ -45,7 +45,7 @@ class Gene(Base):
 class Transcript(Base):
     __tablename__ = 'transcript'
     id = Column(Integer, primary_key=True)
-    ensembl = Column(String)
+    accession = Column(String)
     name = Column(String)
     gene_id = Column(Integer, ForeignKey('gene.id'))
     gene = relationship('Gene', back_populates='transcripts')
@@ -55,7 +55,11 @@ class Transcript(Base):
         'Exon',
         order_by='Exon.start',
         back_populates='transcript')
-    # orf = relationship('ORF', back_populates='transcript', uselist=False)
+    orfs = relationship(
+        'ORF',
+        order_by='ORF.start',
+        back_populates='transcript',
+        uselist=True)
 
     def __repr__(self) -> str:
         return self.name
@@ -91,15 +95,25 @@ class Transcript(Base):
             nucleotides = nucleotides + exon.nucleotides
         return nucleotides
     
+    @hybrid_property
+    def protein(self):
+        """Get the "primary" protein produced by this transcript, if it exists."""
+        pass
+    
 
 class Exon(Base):
     __tablename__ = 'exon'
     id = Column(Integer, primary_key=True)
-    ensembl = Column(String)
-    transcript_id = Column(Integer, ForeignKey('transcript.id'))
+    accession = Column(String)
+    # genomic coordinates
     start = Column(Integer)
     stop = Column(Integer)
+    # transcript coordinates
+    start_tx = Column(Integer)
+    stop_tx = Column(Integer)
     sequence = Column(String, default='')
+
+    transcript_id = Column(Integer, ForeignKey('transcript.id'))
     transcript = relationship(
         'Transcript', 
         back_populates='exons')
@@ -166,47 +180,74 @@ class Nucleotide:
         return self.exon.gene
     
 
-# class ORF(Base):
-#     __tablename__ = 'orf'
-#     id = Column(Integer, primary_key=True)
-#     start = Column(Integer)
-#     stop = Column(Integer)
-#     transcript_id = Column(Integer,ForeignKey('transcript.id'))
-#     protein_isoform_id = Column(Integer,ForeignKey('protein_isoform.id'))
-#     transcript = relationship(
-#         'Transcript', 
-#         back_populates='orfs')
+class ORF(Base):
+    __tablename__ = 'orf'
+    id = Column(Integer, primary_key=True)
+    # genomic coordinates
+    start = Column(Integer)  
+    stop = Column(Integer)  
+    # transcript coordinates
+    start_tx = Column(Integer)
+    stop_tx = Column(Integer)
 
-# class Protein(Base):
-#     __tablename__= 'protein'
-#     id = Column(Integer, primary_key=True)
-#     name = Column(String)
-#     protein_isoforms  = relationship(
-#         'ProteinIsoform', 
-#         back_populates='protein')
+    transcript_id = Column(Integer, ForeignKey('transcript.id'))
+    transcript = relationship(
+        'Transcript', 
+        back_populates='orfs'
+    )
+    protein = relationship(
+        'Protein',
+        back_populates='orf'
+    )
 
-# class ProteinIsoform(Base):
-#     __tablename__ = 'protein_isoform'
-#     id = Column(Integer, primary_key=True)
-#     protein_isoform_id = Column(Integer,ForeignKey('orf.id'))
-#     sequence = Column(String)
-#     def __init__(self):
-#             self.amino_acids = []
+    @hybrid_property
+    def sequence(self):
+        return self.transcript.sequence[self.start_tx - 1:self.stop_tx]
+    
+    # TODO: uncomment after implementing ORF.start and ORF.stop
+    # @reconstructor
+    # def init_on_load(self):
+    #     self.nucleotides = []
+    #     for i in range(len(self.sequence)):
+    #         nuc_str = self.sequence[i]
+    #         if self.strand == '-':
+    #             coord = self.stop - i
+    #         else:
+    #             coord = self.start + i
+    #         nucleotide = Nucleotide(self, coord, i, nuc_str)
+    #         self.nucleotides.append(nucleotide)
 
-#     @reconstructor
-#     def init_on_load(self):
-#         self.amino_acids = []
-#         for i in range(len(self.sequence)):
-#             residue = self.sequence[i]
-#             nucleotides = []
-#             amino_acid = AminoAcid(self, residue, i)
-#             self.amino_acids.append(amino_acid)
+
+class Protein(Base):
+    __tablename__ = 'protein'
+    id = Column(Integer, primary_key=True)
+    
+    sequence = Column(String)
+    
+    orf_id = Column(Integer, ForeignKey('orf.id'))
+    orf = relationship(
+        'ORF',
+        back_populates='protein'
+    )
+
+    def __init__(self):
+        self.amino_acids = []
+
+    @reconstructor
+    def init_on_load(self):
+        self.amino_acids = []
+        for i in range(len(self.sequence)):
+            residue = self.sequence[i]
+            nucleotides = []
+            amino_acid = AminoAcid(self, residue, i)
+            self.amino_acids.append(amino_acid)
 
 
-# class AminoAcid():
-#     def __init__(self, protein_isoform, amino_acid, position, nucleotides) -> None:
-#         self.amino_acid = amino_acid
-#         self.protein_isoform = protein_isoform
-#         self.position = position
+class AminoAcid():
+    def __init__(self, protein_isoform, amino_acid, position, nucleotides) -> None:
+        self.amino_acid = amino_acid
+        self.protein_isoform = protein_isoform
+        self.position = position  # position within protein_isoform peptide sequence
+        self.codon = (None, None, None)
 
 

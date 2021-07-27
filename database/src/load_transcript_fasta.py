@@ -10,7 +10,7 @@ def load_transcript_fasta(transcript_fasta):
         transcript_name = record.id.split('|')[0]
         sequence = str(record.seq)
         try:
-            statement = select(Transcript).filter(Transcript.ensembl == transcript_name)
+            statement = select(Transcript).filter(Transcript.accession == transcript_name)
             result = db_session.execute(statement).one()
             transcript = result[0]
             prior_length = 0

@@ -53,7 +53,7 @@ def load_data_from_gtf(gtf_file: str) -> None:
                     chromosome = chromosomes[chr]
 
                 gene = Gene()
-                gene.ensembl = attributes['gene_id']
+                gene.accession = attributes['gene_id']
                 gene.name = attributes['gene_name']
                 gene.strand = strand
                 genes[attributes['gene_id']] = gene
@@ -63,7 +63,7 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 db_session.add(chromosome)
             elif feature == 'transcript':
                 transcript = Transcript()
-                transcript.ensembl = attributes['transcript_id']
+                transcript.accession = attributes['transcript_id']
                 transcript.name = attributes['transcript_name']
                 genes[attributes['gene_id']].transcripts.append(transcript)
                 transcripts[attributes['transcript_id']] = transcript
@@ -71,7 +71,7 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 
             elif feature == 'exon':
                 exon = Exon()
-                exon.ensembl = attributes['exon_id']
+                exon.accession = attributes['exon_id']
                 exon.start = start
                 exon.stop = stop
                 exon.transcript = transcripts[attributes['transcript_id']]
