@@ -83,7 +83,6 @@ class Transcript(Base):
         sequence = ''.join(sequence)
         return sequence
 
-    
     @hybrid_property
     def chromosome(self):
         return self.gene.chromosome
@@ -98,6 +97,7 @@ class Transcript(Base):
     @hybrid_property
     def protein(self):
         """Get the "primary" protein produced by this transcript, if it exists."""
+        # TODO: implement this
         pass
     
 
@@ -150,7 +150,6 @@ class Exon(Base):
     def gene(self):
         return self.transcript.gene
         
-    
     @hybrid_property
     def chromosome(self):
         return self.gene.chromosome
@@ -167,10 +166,10 @@ class Exon(Base):
 
 
 class Nucleotide:
-    def __init__(self, exon, coordinate, position, nucleotide) -> None:
-        self.exon = exon
+    def __init__(self, parent, coordinate, position, nucleotide) -> None:
+        self.parent = parent
         self.coordinate = coordinate  # genomic coordinate
-        self.position = position  # position within exon
+        self.position = position  # position within parent
         self.nucleotide = nucleotide  # TODO: make this an Enum?
     
     def __repr__(self) -> str:
@@ -178,7 +177,9 @@ class Nucleotide:
     
     @property
     def gene(self):
-        return self.exon.gene
+        if isinstance(self.parent, Gene):
+            return self.parent
+        return self.parent.gene
     
 
 class ORF(Base):
@@ -205,18 +206,21 @@ class ORF(Base):
     def sequence(self):
         return self.transcript.sequence[self.start_tx - 1:self.stop_tx]
     
-    # TODO: uncomment after implementing ORF.start and ORF.stop
-    # @reconstructor
-    # def init_on_load(self):
-    #     self.nucleotides = []
-    #     for i in range(len(self.sequence)):
-    #         nuc_str = self.sequence[i]
-    #         if self.strand == '-':
-    #             coord = self.stop - i
-    #         else:
-    #             coord = self.start + i
-    #         nucleotide = Nucleotide(self, coord, i, nuc_str)
-    #         self.nucleotides.append(nucleotide)
+    @reconstructor
+    def init_on_load(self):
+        self.nucleotides = []
+        for i, base in enumerate(self.sequence):
+            # TODO: need to implement ORF.start and ORF.stop
+            # if self.strand == '-':
+            #     coord = self.stop - i
+            # else:
+            #     coord = self.start + i
+            nucleotide = Nucleotide(self, None, i+1, base)
+            self.nucleotides.append(nucleotide)
+    
+    @hybrid_property
+    def gene(self):
+        return self.transcript.gene
 
 
 class Protein(Base):
@@ -242,6 +246,10 @@ class Protein(Base):
             nucleotides = []
             amino_acid = AminoAcid(self, residue, i+1)
             self.amino_acids.append(amino_acid)
+    
+    @hybrid_property
+    def gene(self):
+        return self.orf.transcript.gene
 
 
 class AminoAcid():

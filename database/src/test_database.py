@@ -5,5 +5,8 @@ from sqlalchemy import select
 
 #%%
 statement = select(Protein).join(ORF).join(Transcript)
-result = db_session.execute(statement).all()
+proteins = [row[0] for row in db_session.execute(statement).all()]
+# %%
+isoform = db_session.query(Transcript).filter(Transcript.name == 'PAX5-201').one()
+
 # %%
