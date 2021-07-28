@@ -1,18 +1,19 @@
 
-from sqlalchemy import create_engine
-from sqlalchemy import Table
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum, CHAR
-from sqlalchemy.ext import hybrid
-from sqlalchemy.orm import declarative_base, relation
-from sqlalchemy.orm import relationship
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm import reconstructor
 import enum
-import numpy as np
-from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
-from database import Base
 import itertools
 
+from Bio.Seq import Seq
+import numpy as np
+from sqlalchemy import (CHAR, Column, Enum, ForeignKey, Integer, String, Table,
+                        Text, create_engine)
+from sqlalchemy.ext import hybrid
+from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
+from sqlalchemy.orm import (declarative_base, reconstructor, relation,
+                            relationship, sessionmaker)
+from warnings import warn
+
+from database import Base
+from helpers import CODON_TABLE
 
 # class Strand(enum.Enum):
 #     plus = '+'
@@ -171,6 +172,7 @@ class Nucleotide:
         self.coordinate = coordinate  # genomic coordinate
         self.position = position  # position within parent
         self.nucleotide = nucleotide  # TODO: make this an Enum?
+        self.amino_acid = None  # associated AminoAcid; filled in later
     
     def __repr__(self) -> str:
         return self.nucleotide
@@ -201,6 +203,9 @@ class ORF(Base):
         'Protein',
         back_populates='orf'
     )
+
+    def __repr__(self) -> str:
+        return f'{self.transcript}|orf:{self.start_tx}-{self.stop_tx}'
 
     @hybrid_property
     def sequence(self):
@@ -241,23 +246,45 @@ class Protein(Base):
     @reconstructor
     def init_on_load(self):
         self.amino_acids = []
-        for i in range(len(self.sequence)):
+        for i, residue in enumerate(self.sequence):
             residue = self.sequence[i]
-            nucleotides = []
             amino_acid = AminoAcid(self, residue, i+1)
             self.amino_acids.append(amino_acid)
+        if self.orf and self.orf.nucleotides:
+            self._link_aa_to_orf_nt()
     
     @hybrid_property
     def gene(self):
         return self.orf.transcript.gene
+    
+    def _link_aa_to_orf_nt(self):
+        aa_sequence = Seq(self.sequence)
+
+        nt_sequence = Seq(self.orf.sequence)
+        translation = nt_sequence.translate(to_stop=True)
+        aa_match_index = aa_sequence.find(translation)
+        if aa_match_index == -1:
+            warn(
+                f'Could not match amino acid sequence to nucleotide sequence of {self.orf}'
+            )
+            return
+        
+        nt_match_index = aa_match_index*3
+        nt_list = self.orf.nucleotides[nt_match_index:]
+        for i, aa in enumerate(self.amino_acids):
+            aa.codon = tuple(nt_list[3*i:3*i + 3])
+            for nt in aa.codon:
+                nt.amino_acid = aa
+            # tl = CODON_TABLE[''.join(nt.nucleotide for nt in aa.codon)]
+            # assert tl == aa.amino_acid, f'{aa.codon} does not translate to {aa}'
 
 
-class AminoAcid():
+class AminoAcid:
     def __init__(self, protein, amino_acid, position) -> None:
         self.amino_acid = amino_acid  # TODO: make this an Enum?
         self.protein = protein
-        self.position = position  # position within protein_isoform peptide sequence
-        self.codon = (None, None, None)
+        self.position = position  # position within protein peptide sequence
+        self.codon = (None, None, None)  # 3-tuple of associated Nucleotides; filled in later
     
     def __repr__(self) -> str:
         return f'{self.amino_acid}{self.position}'

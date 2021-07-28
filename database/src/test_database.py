@@ -4,9 +4,21 @@ from models import Gene, Transcript, Exon, ORF, Protein
 from sqlalchemy import select
 
 #%%
-statement = select(Protein).join(ORF).join(Transcript)
-proteins = [row[0] for row in db_session.execute(statement).all()]
-# %%
-isoform = db_session.query(Transcript).filter(Transcript.name == 'PAX5-201').one()
+statement = select(Protein, Transcript).join(Protein.orf)
+result = db_session.execute(statement).all()
 
+proteins = [row[Protein] for row in result]
+transcripts = [row[Transcript] for row in result]
+
+#%%
+for protein in proteins[:1]:
+    print(protein.orf)
+    for aa in protein.amino_acids:
+        if all(aa.codon):
+            print(f'\t{aa} <- {aa.codon}')
 # %%
+for transcript in transcripts[:1]:
+    print(transcript)
+    for nt in transcript.nucleotides:
+        if nt.amino_acid:
+            print(f'\t{nt} -> {nt.amino_acid}')
