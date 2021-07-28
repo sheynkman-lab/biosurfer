@@ -139,7 +139,8 @@ class Exon(Base):
     #     secondary=exon_nucleotide_table,
     #     back_populates='exons')
     def __repr__(self) -> str:
-        return f'{self.start}-{self.stop}'
+        # TODO: change to exon number
+        return f'{self.transcript}|{self.start}-{self.stop}'
     
     @hybrid_property
     def length(self):
@@ -168,9 +169,9 @@ class Exon(Base):
 class Nucleotide:
     def __init__(self, exon, coordinate, position, nucleotide) -> None:
         self.exon = exon
-        self.coordinate = coordinate
-        self.position = position
-        self.nucleotide = nucleotide
+        self.coordinate = coordinate  # genomic coordinate
+        self.position = position  # position within exon
+        self.nucleotide = nucleotide  # TODO: make this an Enum?
     
     def __repr__(self) -> str:
         return self.nucleotide
@@ -239,15 +240,16 @@ class Protein(Base):
         for i in range(len(self.sequence)):
             residue = self.sequence[i]
             nucleotides = []
-            amino_acid = AminoAcid(self, residue, i)
+            amino_acid = AminoAcid(self, residue, i+1)
             self.amino_acids.append(amino_acid)
 
 
 class AminoAcid():
-    def __init__(self, protein_isoform, amino_acid, position, nucleotides) -> None:
-        self.amino_acid = amino_acid
-        self.protein_isoform = protein_isoform
+    def __init__(self, protein, amino_acid, position) -> None:
+        self.amino_acid = amino_acid  # TODO: make this an Enum?
+        self.protein = protein
         self.position = position  # position within protein_isoform peptide sequence
         self.codon = (None, None, None)
-
-
+    
+    def __repr__(self) -> str:
+        return f'{self.amino_acid}{self.position}'
