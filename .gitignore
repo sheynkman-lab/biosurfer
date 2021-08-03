@@ -9,7 +9,6 @@
 # Local History for Visual Studio Code
 .history/
 
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -148,3 +147,4 @@ dmypy.json
 # Local data files
 data
 results
+database.sqlite3
