@@ -48,6 +48,7 @@ class Transcript(Base):
     id = Column(Integer, primary_key=True)
     accession = Column(String)
     name = Column(String)
+    type = Column(String)
     gene_id = Column(Integer, ForeignKey('gene.id'))
     gene = relationship('Gene', back_populates='transcripts')
     # experiment
@@ -61,8 +62,12 @@ class Transcript(Base):
         order_by='ORF.start',
         back_populates='transcript',
         uselist=True)
-
     # TODO: add start and stop attrs
+
+    __mapper_args__ = {
+        'polymorphic_on': type,
+        'polymorphic_identity': 'transcript'
+    }
 
     @reconstructor
     def init_on_load(self):
@@ -99,24 +104,47 @@ class Transcript(Base):
         """Get the "primary" protein produced by this transcript, if it exists."""
         # TODO: implement this
         raise NotImplementedError
+
+
+class GencodeTranscript(Transcript):
+    def __init__(self, *, accession, name, appris, start_nf, end_nf):
+        self.accession = accession
+        self.name = name
+        self.appris = appris
+        self.start_nf = start_nf
+        self.end_nf = end_nf
     
+    __mapper_args__ = {
+        'polymorphic_identity': 'gencode_transcript'
+    }
+
+    @hybrid_property
+    def basic(self):
+        return not (self.start_nf or self.end_nf)
+
 
 class Exon(Base):
     __tablename__ = 'exon'
     id = Column(Integer, primary_key=True)
     accession = Column(String)
+    type = Column(String)
     # genomic coordinates
     start = Column(Integer)
     stop = Column(Integer)
     # transcript coordinates
-    start_tx = Column(Integer)
-    stop_tx = Column(Integer)
+    transcript_start = Column(Integer)
+    transcript_stop = Column(Integer)
     sequence = Column(String, default='')
-
     transcript_id = Column(Integer, ForeignKey('transcript.id'))
     transcript = relationship(
         'Transcript', 
-        back_populates='exons')
+        back_populates='exons'
+    )
+    
+    __mapper_args__ = {
+        'polymorphic_on': type,
+        'polymorphic_identity': 'exon'
+    }
 
     # TODO: deprecate this after implementing nucleotides property
     @reconstructor
@@ -135,7 +163,7 @@ class Exon(Base):
         # TODO: change to exon number
         return f'{self.transcript}|{self.start}-{self.stop}'
     
-    # TODO: should pull slice from self.transcript.nucleotides, but Exon.start_tx and Exon.stop_tx need to be implemented first
+    # TODO: should pull slice from self.transcript.nucleotides, but Exon.transcript_start and Exon.transcript_stop need to be implemented first
     # @hybrid_property
     # def nucleotides(self):
     #     pass
@@ -163,6 +191,18 @@ class Exon(Base):
     #     return seq
 
 
+class GencodeExon(Exon):
+    def __init__(self, accession, start, stop):
+        self.accession = accession
+        self.start = start
+        self.stop = stop
+        # TODO: calculate transcript_start and transcript_stop
+    
+    __mapper_args__ = {
+        'polymorphic_identity': 'gencode_exon'
+    }
+
+
 class Nucleotide:
     def __init__(self, parent, coordinate, position, nucleotide) -> None:
         self.parent = parent
@@ -185,11 +225,12 @@ class ORF(Base):
     __tablename__ = 'orf'
     id = Column(Integer, primary_key=True)
     # genomic coordinates
+    # TODO: pull these from first and last exon
     start = Column(Integer)  
     stop = Column(Integer)  
     # transcript coordinates
-    start_tx = Column(Integer)
-    stop_tx = Column(Integer)
+    transcript_start = Column(Integer)
+    transcript_stop = Column(Integer)
 
     transcript_id = Column(Integer, ForeignKey('transcript.id'))
     transcript = relationship(
@@ -202,27 +243,15 @@ class ORF(Base):
     )
 
     def __repr__(self) -> str:
-        return f'{self.transcript}|orf:{self.start_tx}-{self.stop_tx}'
+        return f'{self.transcript}|orf:{self.transcript_start}-{self.transcript_stop}'
 
     @hybrid_property
     def sequence(self):
-        return self.transcript.sequence[self.start_tx - 1:self.stop_tx]
+        return self.transcript.sequence[self.transcript_start - 1:self.transcript_stop]
     
     @hybrid_property
     def nucleotides(self):
-        return self.transcript.nucleotides[self.start_tx - 1:self.stop_tx]
-
-    # @reconstructor
-    # def init_on_load(self):
-    #     self.nucleotides = []
-    #     for i, base in enumerate(self.sequence):
-    #         # TODO: need to implement ORF.start and ORF.stop
-    #         # if self.strand == '-':
-    #         #     coord = self.stop - i
-    #         # else:
-    #         #     coord = self.start + i
-    #         nucleotide = Nucleotide(self, None, i+1, base)
-    #         self.nucleotides.append(nucleotide)
+        return self.transcript.nucleotides[self.transcript_start - 1:self.transcript_stop]
     
     @hybrid_property
     def gene(self):

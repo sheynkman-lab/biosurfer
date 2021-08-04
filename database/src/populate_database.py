@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
 from database import Base, db_session, engine
-from models import Chromosome, Exon, Gene, Nucleotide, ORF, Protein, Transcript
+from models import (ORF, Chromosome, GencodeExon, GencodeTranscript, Gene,
+                    Protein, Transcript)
 
 
 def read_gtf_line(line: str) -> list:
@@ -61,19 +62,30 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 gene.strand = strand
                 genes[attributes['gene_id']] = gene
                 db_session.add(gene)
-
                 chromosome.genes.append(gene)
                 db_session.add(chromosome)
+
             elif feature == 'transcript':
-                transcript = Transcript()
-                transcript.accession = attributes['transcript_id']
-                transcript.name = attributes['transcript_name']
+                transcript = GencodeTranscript(
+                    accession = attributes['transcript_id'],
+                    name = attributes['transcript_name'],
+                    # TODO: implement these tags
+                    appris = None,
+                    start_nf = None,
+                    end_nf = None
+                )
+                # transcript.accession = attributes['transcript_id']
+                # transcript.name = attributes['transcript_name']
                 genes[attributes['gene_id']].transcripts.append(transcript)
                 transcripts[attributes['transcript_id']] = transcript
                 db_session.add(transcript)
                 
             elif feature == 'exon':
-                exon = Exon()
+                exon = GencodeExon(
+                    accession = attributes['exon_id'],
+                    start = start,
+                    stop = stop
+                )
                 exon.accession = attributes['exon_id']
                 exon.start = start
                 exon.stop = stop
@@ -99,7 +111,7 @@ def load_transcript_fasta(transcript_fasta):
             transcript = result[0]
 
             orf = ORF()
-            orf.start_tx, orf.stop_tx = orf_start, orf_end
+            orf.transcript_start, orf.transcript_stop = orf_start, orf_end
             orf.transcript = transcript
             # TODO: calculate genomic start and end? or get from CDS?
             db_session.add(orf)

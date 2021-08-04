@@ -4,7 +4,7 @@ from models import Gene, Transcript, Exon, ORF, Protein
 from sqlalchemy import select
 
 #%%
-statement = select(Protein, Transcript).join(Protein.orf)
+statement = select(Protein, Transcript).join(Protein.orf).join(ORF.transcript)
 result = db_session.execute(statement).all()
 
 proteins = [row[Protein] for row in result]
