@@ -19,6 +19,12 @@ for protein in proteins[:1]:
 # %%
 for transcript in transcripts[:1]:
     print(transcript)
-    for nt in transcript.nucleotides:
-        if nt.amino_acid:
-            print(f'\t{nt} -> {nt.amino_acid}')
+    # for nt in transcript.nucleotides:
+    #     if nt.amino_acid:
+    #         print(f'\t{nt} -> {nt.amino_acid}')
+    for i, exon in enumerate(transcript.exons, start=1):
+        print(f'\texon {i}')
+        for nt in exon.nucleotides:
+            if nt.amino_acid:
+                print(f'\t\t{nt} -> {nt.amino_acid}')
+# %%

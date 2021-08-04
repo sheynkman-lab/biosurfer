@@ -156,15 +156,16 @@ class Exon(Base):
     @reconstructor
     def init_on_load(self):
         # TODO: deprecate this after implementing nucleotides property
-        self.nucleotides = []
-        for i in range(len(self.sequence)):
-            nuc_str = self.sequence[i]
-            if self.strand is Strand.MINUS:
-                coord = self.stop - i
-            else:
-                coord = self.start + i
-            nucleotide = Nucleotide(self, coord, i, nuc_str)
-            self.nucleotides.append(nucleotide)
+        pass
+        # self.nucleotides = []
+        # for i in range(len(self.sequence)):
+        #     nuc_str = self.sequence[i]
+        #     if self.strand is Strand.MINUS:
+        #         coord = self.stop - i
+        #     else:
+        #         coord = self.start + i
+        #     nucleotide = Nucleotide(self, coord, i, nuc_str)
+        #     self.nucleotides.append(nucleotide)
 
     def __repr__(self) -> str:
         # TODO: change to exon number
@@ -174,10 +175,9 @@ class Exon(Base):
     def _location(self):
         return SingleInterval(self.transcript_start-1, self.transcript_stop, Strand.PLUS)
     
-    # TODO: should pull slice from self.transcript.nucleotides, but Exon.transcript_start and Exon.transcript_stop need to be implemented first
-    # @hybrid_property
-    # def nucleotides(self):
-    #     pass
+    @hybrid_property
+    def nucleotides(self):
+        return self.transcript.nucleotides[self.transcript_start:self.transcript_stop + 1]
 
     @hybrid_property
     def length(self):
