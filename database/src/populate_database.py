@@ -1,8 +1,11 @@
 #%%
 import logging
 import time
+from functools import reduce
 
 from Bio import SeqIO
+from inscripta.biocantor.location import Location
+from inscripta.biocantor.location.location_impl import SingleInterval
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
@@ -69,6 +72,7 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 transcript = GencodeTranscript(
                     accession = attributes['transcript_id'],
                     name = attributes['transcript_name'],
+                    strand = strand,
                     # TODO: implement these tags
                     appris = None,
                     start_nf = None,
@@ -84,15 +88,22 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 exon = GencodeExon(
                     accession = attributes['exon_id'],
                     start = start,
-                    stop = stop
+                    stop = stop,
+                    transcript = transcripts[attributes['transcript_id']]
                 )
-                exon.accession = attributes['exon_id']
-                exon.start = start
-                exon.stop = stop
-                exon.transcript = transcripts[attributes['transcript_id']]
                 db_session.add(exon)
     
-    # TODO: calculate exon.start_tx and exon.stop_tx for transcript in transcripts for exon in transcript
+    # calculate the coordinates of each exon relative to the sequence of its parent transcript
+    for transcript in transcripts.values():
+        exon_to_genomic_loc = [SingleInterval(exon.start - 1, exon.stop, transcript.strand) for exon in transcript.exons]
+        transcript_genomic_loc = exon_to_genomic_loc[0]
+        for exon_genomic_loc in exon_to_genomic_loc:
+            transcript_genomic_loc = transcript_genomic_loc.union(exon_genomic_loc)
+        for i, exon in enumerate(transcript.exons):
+            # TODO: is it faster to just loop through transcript's exons and count off lengths manually?
+            exon_transcript_loc = exon_to_genomic_loc[i].location_relative_to(transcript_genomic_loc)
+            exon.transcript_start = exon_transcript_loc.start + 1
+            exon.transcript_stop = exon_transcript_loc.end
 
     db_session.commit() #Attempt to commit all the records
     
@@ -150,6 +161,9 @@ def load_translation_fasta(translation_fasta):
     db_session.commit()
 
 path = '/home/redox/sheynkman-lab/biosurfer/data/biosurfer_demo_data/'
+# gtf_file = 'chr22.gtf'
+# tx_file = 'gencode.v35.pc_transcripts.chr22.fa'
+# tl_file = 'gencode.v38.pc_translations.chr22.fa'
 gtf_file = 'gencode.v38.annotation.gtf.toy'
 tx_file = 'gencode.v38.pc_transcripts.fa.toy'
 tl_file = 'gencode.v38.pc_translations.fa.toy'

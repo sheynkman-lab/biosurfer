@@ -1,23 +1,20 @@
 
 import enum
-import itertools
-
-from Bio.Seq import Seq
-import numpy as np
-from sqlalchemy import (CHAR, Column, Enum, ForeignKey, Integer, String, Table,
-                        Text, create_engine)
-from sqlalchemy.ext import hybrid
-from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
-from sqlalchemy.orm import (declarative_base, reconstructor, relation,
-                            relationship, sessionmaker)
+from itertools import islice
 from warnings import warn
 
-from database import Base
-from helpers import CODON_TABLE
+from Bio.Seq import Seq
+from inscripta.biocantor.gene.cds import CDSFrame, CDSInterval
+from inscripta.biocantor.location.location_impl import (CompoundInterval,
+                                                        SingleInterval, Strand)
+from inscripta.biocantor.parent import Parent
+from inscripta.biocantor.sequence import Alphabet, Sequence
+from sqlalchemy import CHAR, Column, Enum, ForeignKey, Integer, String
+from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
+from sqlalchemy.orm import reconstructor, relationship
 
-# class Strand(enum.Enum):
-#     PLUS = '+'
-#     MINUS = '-'
+from database import Base
+
 
 class Chromosome(Base):
     __tablename__ = 'chromosome'
@@ -36,7 +33,6 @@ class Gene(Base):
     accession = Column(String)
     name = Column(String)
     chromosome_id = Column(Integer,ForeignKey('chromosome.id'))
-    strand = Column(String)  # TODO: move this attr to Transcript
     transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name')
     chromosome = relationship('Chromosome', back_populates='genes')
     def __repr__(self) -> str:
@@ -48,6 +44,7 @@ class Transcript(Base):
     id = Column(Integer, primary_key=True)
     accession = Column(String)
     name = Column(String)
+    strand = Column(Enum(Strand))
     type = Column(String)
     gene_id = Column(Integer, ForeignKey('gene.id'))
     gene = relationship('Gene', back_populates='transcripts')
@@ -56,7 +53,8 @@ class Transcript(Base):
     exons = relationship(
         'Exon',
         order_by='Exon.start',
-        back_populates='transcript')
+        back_populates='transcript',
+        uselist=True)
     orfs = relationship(
         'ORF',
         order_by='ORF.start',
@@ -77,12 +75,20 @@ class Transcript(Base):
         return self.name
 
     @hybrid_property
-    def strand(self):
-        return self.gene.strand
+    def _location(self):
+        exon = self.exons[0]
+        loc = exon._location
+        for exon in self.exons[1:]:
+            loc = loc.union(exon._location)
+        return loc
 
     @hybrid_property
     def start(self):
         return min(exon.start for exon in self.exons)
+    
+    @hybrid_property
+    def stop(self):
+        return max(exon.stop for exon in self.exons)
     
     @hybrid_property
     def length(self):
@@ -107,9 +113,10 @@ class Transcript(Base):
 
 
 class GencodeTranscript(Transcript):
-    def __init__(self, *, accession, name, appris, start_nf, end_nf):
+    def __init__(self, *, accession, name, strand, appris, start_nf, end_nf):
         self.accession = accession
         self.name = name
+        self.strand = Strand.from_symbol(strand)
         self.appris = appris
         self.start_nf = start_nf
         self.end_nf = end_nf
@@ -146,13 +153,13 @@ class Exon(Base):
         'polymorphic_identity': 'exon'
     }
 
-    # TODO: deprecate this after implementing nucleotides property
     @reconstructor
     def init_on_load(self):
+        # TODO: deprecate this after implementing nucleotides property
         self.nucleotides = []
         for i in range(len(self.sequence)):
             nuc_str = self.sequence[i]
-            if self.strand == '-':
+            if self.strand is Strand.MINUS:
                 coord = self.stop - i
             else:
                 coord = self.start + i
@@ -162,6 +169,10 @@ class Exon(Base):
     def __repr__(self) -> str:
         # TODO: change to exon number
         return f'{self.transcript}|{self.start}-{self.stop}'
+
+    @hybrid_property
+    def _location(self):
+        return SingleInterval(self.transcript_start-1, self.transcript_stop, Strand.PLUS)
     
     # TODO: should pull slice from self.transcript.nucleotides, but Exon.transcript_start and Exon.transcript_stop need to be implemented first
     # @hybrid_property
@@ -182,7 +193,7 @@ class Exon(Base):
     
     @hybrid_property
     def strand(self):
-        return self.gene.strand
+        return self.transcript.strand
     
     # @hybrid_property
     # def sequence(self):
@@ -192,16 +203,16 @@ class Exon(Base):
 
 
 class GencodeExon(Exon):
-    def __init__(self, accession, start, stop):
-        self.accession = accession
-        self.start = start
-        self.stop = stop
-        # TODO: calculate transcript_start and transcript_stop
-    
     __mapper_args__ = {
         'polymorphic_identity': 'gencode_exon'
     }
 
+    def __init__(self, *, accession, start, stop, transcript):
+        self.accession = accession
+        self.start = start
+        self.stop = stop
+        self.transcript = transcript
+    
 
 class Nucleotide:
     def __init__(self, parent, coordinate, position, nucleotide) -> None:
@@ -256,6 +267,10 @@ class ORF(Base):
     @hybrid_property
     def gene(self):
         return self.transcript.gene
+    
+    @hybrid_property
+    def _location(self):
+        return SingleInterval(self.transcript_start-1, self.transcript_stop, Strand.PLUS)
 
 
 class Protein(Base):
