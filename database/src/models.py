@@ -1,6 +1,9 @@
 
 import enum
+from collections import Counter
 from itertools import islice
+from operator import attrgetter
+from typing import List
 from warnings import warn
 
 from Bio.Seq import Seq
@@ -11,6 +14,7 @@ from inscripta.biocantor.parent import Parent
 from inscripta.biocantor.sequence import Alphabet, Sequence
 from sqlalchemy import CHAR, Column, Enum, ForeignKey, Integer, String
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
+from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import reconstructor, relationship
 
 from database import Base
@@ -52,9 +56,11 @@ class Transcript(Base):
     # sample
     exons = relationship(
         'Exon',
-        order_by='Exon.start',
+        order_by='Exon.position',
+        collection_class=ordering_list('position', count_from=1),
         back_populates='transcript',
-        uselist=True)
+        uselist=True
+    )
     orfs = relationship(
         'ORF',
         order_by='ORF.start',
@@ -69,7 +75,7 @@ class Transcript(Base):
 
     @reconstructor
     def init_on_load(self):
-        self.nucleotides = [Nucleotide(self, None, i, nt) for i, nt in enumerate(self.sequence)]
+        self.nucleotides = [Nucleotide(self, None, i, nt) for i, nt in enumerate(self.sequence, start=1)]
     
     def __repr__(self) -> str:
         return self.name
@@ -110,6 +116,14 @@ class Transcript(Base):
         """Get the "primary" protein produced by this transcript, if it exists."""
         # TODO: implement this
         raise NotImplementedError
+    
+    @hybrid_method
+    def get_exon_containing_position(self, position: int) -> 'Exon':
+        """Given a position (1-based) within the transcript's nucleotide sequence, return the exon containing that position."""
+        for exon in self.exons:
+            if position in range(exon.transcript_start, exon.transcript_stop + 1):
+                return exon
+        raise ValueError(f'Position {position} not found in {self}')
 
 
 class GencodeTranscript(Transcript):
@@ -135,6 +149,7 @@ class Exon(Base):
     id = Column(Integer, primary_key=True)
     accession = Column(String)
     type = Column(String)
+    position = Column(Integer)  # exon ordinal within parent transcript
     # genomic coordinates
     start = Column(Integer)
     stop = Column(Integer)
@@ -154,8 +169,7 @@ class Exon(Base):
     }
 
     def __repr__(self) -> str:
-        # TODO: change to exon number
-        return f'{self.transcript}|{self.start}-{self.stop}'
+        return f'{self.transcript}|E{self.position}'
 
     @hybrid_property
     def _location(self):
@@ -214,6 +228,10 @@ class Nucleotide:
         if isinstance(self.parent, Gene):
             return self.parent
         return self.parent.gene
+    
+    @property
+    def exon(self) -> 'Exon':
+        return self.parent.get_exon_containing_position(self.position)
     
 
 class ORF(Base):
@@ -317,3 +335,12 @@ class AminoAcid:
     
     def __repr__(self) -> str:
         return f'{self.amino_acid}{self.position}'
+    
+    @property
+    def exons(self) -> List['Exon']:
+        return sorted({nt.exon for nt in self.codon}, key=attrgetter('position'))
+    
+    @property
+    def primary_exon(self) -> 'Exon':
+        exons = Counter([nt.exon for nt in self.codon])
+        return exons.most_common(1)[0][0]

@@ -1,7 +1,7 @@
 #%%
 import logging
 import time
-from functools import reduce
+from operator import attrgetter
 
 from Bio import SeqIO
 from inscripta.biocantor.location import Location
@@ -104,6 +104,7 @@ def load_data_from_gtf(gtf_file: str) -> None:
             exon_transcript_loc = exon_to_genomic_loc[i].location_relative_to(transcript_genomic_loc)
             exon.transcript_start = exon_transcript_loc.start + 1
             exon.transcript_stop = exon_transcript_loc.end
+        transcript.exons.sort(key=attrgetter('transcript_start'))
 
     db_session.commit() #Attempt to commit all the records
     
