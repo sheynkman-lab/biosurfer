@@ -161,12 +161,12 @@ def load_translation_fasta(translation_fasta):
     db_session.commit()
 
 path = '/home/redox/sheynkman-lab/biosurfer/data/biosurfer_demo_data/'
-# gtf_file = 'chr22.gtf'
-# tx_file = 'gencode.v35.pc_transcripts.chr22.fa'
-# tl_file = 'gencode.v38.pc_translations.chr22.fa'
-gtf_file = 'gencode.v38.annotation.gtf.toy'
-tx_file = 'gencode.v38.pc_transcripts.fa.toy'
-tl_file = 'gencode.v38.pc_translations.fa.toy'
+gtf_file = 'chr22.gtf'
+tx_file = 'gencode.v35.pc_transcripts.chr22.fa'
+tl_file = 'gencode.v38.pc_translations.chr22.fa'
+# gtf_file = 'gencode.v38.annotation.gtf.toy'
+# tx_file = 'gencode.v38.pc_transcripts.fa.toy'
+# tl_file = 'gencode.v38.pc_translations.fa.toy'
 
 #%%
 start = time.time()

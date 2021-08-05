@@ -153,20 +153,6 @@ class Exon(Base):
         'polymorphic_identity': 'exon'
     }
 
-    @reconstructor
-    def init_on_load(self):
-        # TODO: deprecate this after implementing nucleotides property
-        pass
-        # self.nucleotides = []
-        # for i in range(len(self.sequence)):
-        #     nuc_str = self.sequence[i]
-        #     if self.strand is Strand.MINUS:
-        #         coord = self.stop - i
-        #     else:
-        #         coord = self.start + i
-        #     nucleotide = Nucleotide(self, coord, i, nuc_str)
-        #     self.nucleotides.append(nucleotide)
-
     def __repr__(self) -> str:
         # TODO: change to exon number
         return f'{self.transcript}|{self.start}-{self.stop}'
@@ -175,10 +161,6 @@ class Exon(Base):
     def _location(self):
         return SingleInterval(self.transcript_start-1, self.transcript_stop, Strand.PLUS)
     
-    @hybrid_property
-    def nucleotides(self):
-        return self.transcript.nucleotides[self.transcript_start:self.transcript_stop + 1]
-
     @hybrid_property
     def length(self):
         return self.stop - self.start + 1
@@ -195,11 +177,13 @@ class Exon(Base):
     def strand(self):
         return self.transcript.strand
     
-    # @hybrid_property
-    # def sequence(self):
-    #     seq = [nuc.nucleotide for nuc in self.nucleotides]
-    #     seq = ''.join(seq)
-    #     return seq
+    @hybrid_property
+    def nucleotides(self):
+        return self.transcript.nucleotides[self.transcript_start - 1:self.transcript_stop]
+    
+    @hybrid_property
+    def coding_nucleotides(self):
+        return [nt for nt in self.nucleotides if nt.amino_acid]
 
 
 class GencodeExon(Exon):
