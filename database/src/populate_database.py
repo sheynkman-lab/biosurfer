@@ -4,7 +4,6 @@ import time
 from operator import attrgetter
 
 from Bio import SeqIO
-from inscripta.biocantor.location import Location
 from inscripta.biocantor.location.location_impl import SingleInterval
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
@@ -121,20 +120,17 @@ def load_transcript_fasta(transcript_fasta):
             statement = select(Transcript).filter(Transcript.accession == transcript_name)
             result = db_session.execute(statement).one()
             transcript = result[0]
+            transcript.sequence = sequence
 
             orf = ORF()
-            orf.transcript_start, orf.transcript_stop = orf_start, orf_end
             orf.transcript = transcript
-            # TODO: calculate genomic start and end? or get from CDS?
+            orf.transcript_start, orf.transcript_stop = orf_start, orf_end
+            orf.start = orf.nucleotides[0].coordinate
+            orf.stop = orf.nucleotides[-1].coordinate
+            if orf.start > orf.stop:
+                orf.start, orf.stop = orf.stop, orf.start
             db_session.add(orf)
 
-            prior_length = 0
-            for exon in transcript.exons:
-                exon_sequence = sequence[prior_length:prior_length + exon.length]
-                if exon.sequence != exon_sequence:
-                    logging.info(f"updating exon {exon} in transcript {transcript}\nPrior\t{exon.sequence}\nNew\t{exon_sequence}")
-                    exon.sequence = exon_sequence
-                prior_length = prior_length + exon.length
             db_session.commit() #Attempt to commit all the records
         except NoResultFound:
             logging.warning(f'could not get transcript {transcript_name} from database')

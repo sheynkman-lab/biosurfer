@@ -1,17 +1,11 @@
-
-import enum
 from collections import Counter
-from itertools import islice
 from operator import attrgetter
 from typing import List
 from warnings import warn
 
 from Bio.Seq import Seq
-from inscripta.biocantor.gene.cds import CDSFrame, CDSInterval
 from inscripta.biocantor.location.location_impl import (CompoundInterval,
                                                         SingleInterval, Strand)
-from inscripta.biocantor.parent import Parent
-from inscripta.biocantor.sequence import Alphabet, Sequence
 from sqlalchemy import CHAR, Column, Enum, ForeignKey, Integer, String
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
@@ -50,10 +44,9 @@ class Transcript(Base):
     name = Column(String)
     strand = Column(Enum(Strand))
     type = Column(String)
+    sequence = Column(String)
     gene_id = Column(Integer, ForeignKey('gene.id'))
     gene = relationship('Gene', back_populates='transcripts')
-    # experiment
-    # sample
     exons = relationship(
         'Exon',
         order_by='Exon.position',
@@ -73,9 +66,30 @@ class Transcript(Base):
         'polymorphic_identity': 'transcript'
     }
 
+    def __init__(self):
+        self._nucleotides = None
+
     @reconstructor
     def init_on_load(self):
-        self.nucleotides = [Nucleotide(self, None, i, nt) for i, nt in enumerate(self.sequence, start=1)]
+        self._nucleotides = None
+
+    @hybrid_property
+    def nucleotides(self):
+        if not self.sequence:
+            raise AttributeError(f'{self} has no sequence')
+        elif self._nucleotides is None:
+            assert sum(exon.stop - exon.start + 1 for exon in self.exons) == len(self.sequence)
+            self._nucleotides = []
+            i = 0
+            for exon in self.exons:
+                coords = range(exon.start, exon.stop+1)
+                if self.strand is Strand.MINUS:
+                    coords = reversed(coords)
+                for coord in coords:
+                    self._nucleotides.append(Nucleotide(self, coord, i+1, self.sequence[i]))
+                    i += 1
+        return self._nucleotides
+
     
     def __repr__(self) -> str:
         return self.name
@@ -98,14 +112,7 @@ class Transcript(Base):
     
     @hybrid_property
     def length(self):
-        length = sum([exon.length for exon in self.exons])
-        return length
-    
-    @hybrid_property
-    def sequence(self):
-        sequence = [exon.sequence for exon in self.exons]
-        sequence = ''.join(sequence)
-        return sequence
+        return len(self.sequence)
 
     @hybrid_property
     def chromosome(self):
@@ -128,6 +135,7 @@ class Transcript(Base):
 
 class GencodeTranscript(Transcript):
     def __init__(self, *, accession, name, strand, appris, start_nf, end_nf):
+        super().__init__()
         self.accession = accession
         self.name = name
         self.strand = Strand.from_symbol(strand)
@@ -156,7 +164,7 @@ class Exon(Base):
     # transcript coordinates
     transcript_start = Column(Integer)
     transcript_stop = Column(Integer)
-    sequence = Column(String, default='')
+    # sequence = Column(String, default='')
     transcript_id = Column(Integer, ForeignKey('transcript.id'))
     transcript = relationship(
         'Transcript', 
@@ -192,9 +200,13 @@ class Exon(Base):
         return self.transcript.strand
     
     @hybrid_property
+    def sequence(self):
+        return self.transcript.sequence[self.transcript_start-1:self.transcript_stop]
+
+    @hybrid_property
     def nucleotides(self):
-        return self.transcript.nucleotides[self.transcript_start - 1:self.transcript_stop]
-    
+        return self.transcript.nucleotides[self.transcript_start-1:self.transcript_stop]
+
     @hybrid_property
     def coding_nucleotides(self):
         return [nt for nt in self.nucleotides if nt.amino_acid]
@@ -221,7 +233,7 @@ class Nucleotide:
         self.amino_acid = None  # associated AminoAcid, if any
     
     def __repr__(self) -> str:
-        return self.nucleotide
+        return f'{self.parent.chromosome}:{self.coordinate}({self.parent.strand}){self.nucleotide}'
     
     @property
     def gene(self):
