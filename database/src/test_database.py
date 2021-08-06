@@ -13,7 +13,7 @@ transcripts = [row[Transcript] for row in result]
 #%%
 for protein in proteins[-1:]:
     print(protein.orf)
-    for aa in protein.amino_acids:
+    for aa in protein.residues:
         if all(aa.codon):
             print(f'\t{aa} <- {aa.codon} <- {aa.exons}')
 # %%
