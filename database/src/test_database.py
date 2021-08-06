@@ -15,7 +15,7 @@ for protein in proteins[-1:]:
     print(protein.orf)
     for aa in protein.residues:
         if all(aa.codon):
-            print(f'\t{aa} <- {"".join(nt.base.value for nt in aa.codon)} <- {aa.exons}')
+            print(f'\t{aa} <- {"".join(str(nt.base) for nt in aa.codon)} <- {aa.exons}')
 # %%
 for transcript in transcripts[-1:]:
     print(transcript)

@@ -234,7 +234,7 @@ class Nucleotide:
         self.residue = None  # associated Residue, if any
     
     def __repr__(self) -> str:
-        return f'{self.parent.chromosome}:{self.coordinate}({self.parent.strand}){self.base.value}'
+        return f'{self.parent.chromosome}:{self.coordinate}({self.parent.strand}){self.base}'
     
     @property
     def gene(self):
@@ -344,7 +344,7 @@ class Residue:
         self.codon = (None, None, None)  # 3-tuple of associated Nucleotides; filled in later
     
     def __repr__(self) -> str:
-        return f'{self.amino_acid.value}{self.position}'
+        return f'{self.amino_acid}{self.position}'
     
     @property
     def exons(self) -> List['Exon']:
