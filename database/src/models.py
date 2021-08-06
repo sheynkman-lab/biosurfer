@@ -11,6 +11,7 @@ from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import reconstructor, relationship
 
+from constants import Nucleobase, AminoAcid
 from database import Base
 
 
@@ -177,7 +178,7 @@ class Exon(Base):
     }
 
     def __repr__(self) -> str:
-        return f'{self.transcript}|E{self.position}'
+        return f'{self.transcript}:exon{self.position}'
 
     @hybrid_property
     def _location(self):
@@ -209,7 +210,7 @@ class Exon(Base):
 
     @hybrid_property
     def coding_nucleotides(self):
-        return [nt for nt in self.nucleotides if nt.amino_acid]
+        return [nt for nt in self.nucleotides if nt.residue]
 
 
 class GencodeExon(Exon):
@@ -222,18 +223,18 @@ class GencodeExon(Exon):
         self.start = start
         self.stop = stop
         self.transcript = transcript
-    
+
 
 class Nucleotide:
-    def __init__(self, parent, coordinate, position, nucleotide) -> None:
+    def __init__(self, parent, coordinate: int, position: int, base: str) -> None:
         self.parent = parent
         self.coordinate = coordinate  # genomic coordinate
         self.position = position  # position within parent
-        self.nucleotide = nucleotide  # TODO: make this an Enum?
-        self.amino_acid = None  # associated AminoAcid, if any
+        self.base = Nucleobase(base)
+        self.residue = None  # associated Residue, if any
     
     def __repr__(self) -> str:
-        return f'{self.parent.chromosome}:{self.coordinate}({self.parent.strand}){self.nucleotide}'
+        return f'{self.parent.chromosome}:{self.coordinate}({self.parent.strand}){self.base.value}'
     
     @property
     def gene(self):
@@ -268,7 +269,7 @@ class ORF(Base):
     )
 
     def __repr__(self) -> str:
-        return f'{self.transcript}|orf:{self.transcript_start}-{self.transcript_stop}'
+        return f'{self.transcript}:orf({self.transcript_start}-{self.transcript_stop})'
 
     @hybrid_property
     def sequence(self):
@@ -300,17 +301,16 @@ class Protein(Base):
     )
 
     def __init__(self):
-        self.amino_acids = []
+        self.residues = []
 
     @reconstructor
     def init_on_load(self):
-        self.amino_acids = []
-        for i, residue in enumerate(self.sequence):
-            residue = self.sequence[i]
-            amino_acid = AminoAcid(self, residue, i+1)
-            self.amino_acids.append(amino_acid)
+        self.residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence, start=1)]
         if self.orf and self.orf.nucleotides:
             self._link_aa_to_orf_nt()
+    
+    def __repr__(self):
+        return f'{self.orf.transcript}:protein'
     
     @hybrid_property
     def gene(self):
@@ -330,23 +330,21 @@ class Protein(Base):
         
         nt_match_index = aa_match_index*3
         nt_list = self.orf.nucleotides[nt_match_index:]
-        for i, aa in enumerate(self.amino_acids):
+        for i, aa in enumerate(self.residues):
             aa.codon = tuple(nt_list[3*i:3*i + 3])
             for nt in aa.codon:
-                nt.amino_acid = aa
-            # tl = CODON_TABLE[''.join(nt.nucleotide for nt in aa.codon)]
-            # assert tl == aa.amino_acid, f'{aa.codon} does not translate to {aa}'
+                nt.residue = aa
 
 
-class AminoAcid:
-    def __init__(self, protein, amino_acid, position) -> None:
-        self.amino_acid = amino_acid  # TODO: make this an Enum?
+class Residue:
+    def __init__(self, protein: 'Protein', amino_acid: str, position: int) -> None:
+        self.amino_acid = AminoAcid(amino_acid)
         self.protein = protein
         self.position = position  # position within protein peptide sequence
         self.codon = (None, None, None)  # 3-tuple of associated Nucleotides; filled in later
     
     def __repr__(self) -> str:
-        return f'{self.amino_acid}{self.position}'
+        return f'{self.amino_acid.value}{self.position}'
     
     @property
     def exons(self) -> List['Exon']:
