@@ -347,7 +347,12 @@ class Residue:
         return f'{self.amino_acid}{self.position}'
     
     @property
+    def codon_str(self) -> str:
+        return ''.join(str(nt.base) for nt in self.codon)
+
+    @property
     def exons(self) -> List['Exon']:
+        # TODO: is sorting necessary here?
         return sorted({nt.exon for nt in self.codon}, key=attrgetter('position'))
     
     @property

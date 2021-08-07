@@ -7,6 +7,7 @@ class Nucleobase(Enum):
     GUANINE = 'G'
     THYMINE = 'T'
     URACIL = 'U'
+    GAP = '-'
 
     def __str__(self):
         return self.value
@@ -56,6 +57,7 @@ class AminoAcid(Enum):
     SELENOCYSTEINE = 'U'
     SEC = 'U'    
     STOP = '*'  # included for ease of use
+    GAP = '-'
 
     def __str__(self):
         return self.value
