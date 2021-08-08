@@ -7,11 +7,14 @@ from constants import AminoAcid, ProteinLevelEvent, TranscriptLevelEvent
 from models import ORF, Exon, Nucleotide, Protein, Residue, Strand, Transcript
 
 
-def get_first_nt_adjusted_coord(res: 'Residue') -> int:
+def get_first_nt_adjusted_coord(res: 'Residue', strand: 'Strand' = Strand.PLUS) -> int:
             if len(res.exons) == 1 or res.codon[0].exon is res.codon[1].exon:
                 return res.codon[0].coordinate
-            else:  # if codon's primary exon is downstream, "abacus" the coord of the 1st nucleotide
+            # if codon's primary exon is downstream, "abacus" the coord of the 1st nucleotide
+            elif strand is Strand.PLUS:
                 return res.codon[1].coordinate - 1
+            elif strand is Strand.MINUS:
+                return res.codon[1].coordinate + 1
 
 
 class GapResidue(Residue):

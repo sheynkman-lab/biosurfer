@@ -17,7 +17,17 @@ for anchor, other in combinations(proteins, 2):
     aln = ProteinAlignment(anchor, other)
     print(repr(aln))
     for res_aln in aln.chain:
-        if res_aln.ttype in (TLE.DELETION, TLE.INSERTION):
+        if res_aln.ttype in (TLE.FRAMESHIFT, TLE.SPLIT):
+            print(f'\t{res_aln}, {res_aln.anchor.codon_str}|{res_aln.other.codon_str}')
+
+#%%
+proteins = get_gene_protein_isoforms('RBFOX2')
+
+for anchor, other in combinations(proteins, 2):
+    aln = ProteinAlignment(anchor, other)
+    print(repr(aln))
+    for res_aln in aln.chain:
+        if res_aln.ttype in (TLE.FRAMESHIFT, TLE.SPLIT):
             print(f'\t{res_aln}, {res_aln.anchor.codon_str}|{res_aln.other.codon_str}')
 
 #%%
