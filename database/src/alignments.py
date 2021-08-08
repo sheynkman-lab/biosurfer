@@ -71,11 +71,13 @@ class ProteinAlignment(Alignment):
         self.chain = []
         while anchor_stack or other_stack:
             if anchor_stack:
-                anchor_res_coord = get_first_nt_adjusted_coord(anchor_stack[0])
+                # anchor_res_coord = get_first_nt_adjusted_coord(anchor_stack[0])
+                anchor_res_coord = anchor_stack[0].codon[0].coordinate
             else:
                 anchor_res_coord = inf
             if other_stack:
-                other_res_coord = get_first_nt_adjusted_coord(other_stack[0])
+                # other_res_coord = get_first_nt_adjusted_coord(other_stack[0])
+                other_res_coord = other_stack[0].codon[0].coordinate
             else:
                 other_res_coord = inf
             if anchor.orf.transcript.strand is Strand.MINUS:
@@ -114,6 +116,14 @@ class ProteinAlignment(Alignment):
             assert res_align.anchor.protein is anchor
             assert res_align.other.protein is other
             self.chain.append(res_align)
+    
+    @property
+    def full(self):
+        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self.chain)
+        other_str = ''.join(str(res.other.amino_acid) for res in self.chain)
+        ttype_str = ''.join(str(res.ttype) for res in self.chain)
+        return anchor_str + '\n' + ttype_str + '\n' + other_str
+    
 
 
     

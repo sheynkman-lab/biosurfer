@@ -8,27 +8,36 @@ from itertools import combinations, islice
 
 def get_gene_protein_isoforms(gene_name):
     gene = db_session.execute(select(Gene).filter(Gene.name == gene_name)).one()[Gene]
-    return [transcript.orfs[0].protein for transcript in gene.transcripts]
+    return {transcript.name: transcript.orfs[0].protein for transcript in gene.transcripts}
 
 #%%
 proteins = get_gene_protein_isoforms('TANGO2')
 
-for anchor, other in combinations(proteins, 2):
-    aln = ProteinAlignment(anchor, other)
-    print(repr(aln))
-    for res_aln in aln.chain:
-        if res_aln.ttype in (TLE.FRAMESHIFT, TLE.SPLIT):
-            print(f'\t{res_aln}, {res_aln.anchor.codon_str}|{res_aln.other.codon_str}')
+
+aln = ProteinAlignment(proteins['TANGO2-201'], proteins['TANGO2-202'])
+print(repr(aln))
+print(aln.full)
 
 #%%
 proteins = get_gene_protein_isoforms('RBFOX2')
 
-for anchor, other in combinations(proteins, 2):
-    aln = ProteinAlignment(anchor, other)
-    print(repr(aln))
-    for res_aln in aln.chain:
-        if res_aln.ttype in (TLE.FRAMESHIFT, TLE.SPLIT):
-            print(f'\t{res_aln}, {res_aln.anchor.codon_str}|{res_aln.other.codon_str}')
+aln = ProteinAlignment(proteins['RBFOX2-201'], proteins['RBFOX2-202'])
+print(repr(aln))
+print(aln.full)
+
+#%%
+proteins = get_gene_protein_isoforms('MAPK12')
+
+aln = ProteinAlignment(proteins['MAPK12-201'], proteins['MAPK12-202'])
+print(repr(aln))
+print(aln.full)
+
+#%%
+proteins = get_gene_protein_isoforms('BID')
+
+aln = ProteinAlignment(proteins['BID-201'], proteins['BID-202'])
+print(repr(aln))
+print(aln.full)
 
 #%%
 for protein in proteins[-1:]:
