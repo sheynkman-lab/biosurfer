@@ -265,7 +265,8 @@ class ORF(Base):
     )
     protein = relationship(
         'Protein',
-        back_populates='orf'
+        back_populates='orf',
+        uselist=False
     )
 
     def __repr__(self) -> str:

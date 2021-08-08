@@ -24,6 +24,10 @@ class GapResidue(Residue):
         self.upstream_exon = upstream_exon
         self.downstream_exon = downstream_exon
     
+    @Residue.codon_str.getter
+    def codon_str(self):
+        return '-'
+
     @Residue.exons.getter
     def exons(self):
         return [self.upstream_exon, self.downstream_exon]
@@ -60,6 +64,7 @@ class ProteinAlignment(Alignment):
         anchor_stack = deque(anchor.residues)
         other_stack = deque(other.residues)
         anchor_res, other_res = None, None
+        anchor_gap, other_gap = None, None
         self.chain = []
         while anchor_stack or other_stack:
             if anchor_stack:
@@ -75,32 +80,34 @@ class ProteinAlignment(Alignment):
                     anchor_res_coord = -anchor_res_coord
                 if isfinite(other_res_coord):
                     other_res_coord = -other_res_coord
-
-            if abs(anchor_res_coord - other_res_coord) < 2:
+            
+            coord_diff = anchor_res_coord - other_res_coord
+            if abs(coord_diff) < 2:
+                anchor_gap, other_gap = None, None
                 anchor_res = anchor_stack.popleft()
                 other_res = other_stack.popleft()
-                res_align = ResidueAlignment(
-                    anchor_res,
-                    other_res,
-                    TranscriptLevelEvent.MATCH if anchor_res.amino_acid is other_res.amino_acid else TranscriptLevelEvent.FRAMESHIFT
-                )
+                if coord_diff != 0:
+                    event_type = TranscriptLevelEvent.FRAMESHIFT
+                elif anchor_res.amino_acid is not other_res.amino_acid:
+                    event_type = TranscriptLevelEvent.SPLIT
+                else:
+                    event_type = TranscriptLevelEvent.MATCH
+                res_align = ResidueAlignment(anchor_res, other_res, event_type)
             # TODO: set upstream and downstream exons for GapResidue
-            elif anchor_res_coord > other_res_coord:
-                gap_pos = anchor_res.position if anchor_res else 0
+            elif coord_diff > 0:
+                other_gap = None
+                if not anchor_gap:
+                    gap_pos = anchor_res.position if anchor_res else 0
+                    anchor_gap = GapResidue(anchor, gap_pos, None, None)
                 other_res = other_stack.popleft()
-                res_align = ResidueAlignment(
-                    GapResidue(anchor, gap_pos, None, None),
-                    other_res,
-                    TranscriptLevelEvent.INSERTION
-                )                
-            elif anchor_res_coord < other_res_coord:
-                gap_pos = other_res.position if other_res else 0
+                res_align = ResidueAlignment(anchor_gap, other_res, TranscriptLevelEvent.INSERTION)                
+            elif coord_diff < 0:
+                anchor_gap = None
+                if not other_gap:
+                    gap_pos = other_res.position if other_res else 0
+                    other_gap = GapResidue(other, gap_pos, None, None)
                 anchor_res = anchor_stack.popleft()
-                res_align = ResidueAlignment(
-                    anchor_res,
-                    GapResidue(other, gap_pos, None, None),
-                    TranscriptLevelEvent.DELETION
-                )
+                res_align = ResidueAlignment(anchor_res, other_gap, TranscriptLevelEvent.DELETION)
             assert res_align.anchor.protein is anchor
             assert res_align.other.protein is other
             self.chain.append(res_align)

@@ -76,4 +76,5 @@ class TranscriptLevelEvent(Enum):
     INSERTION = 'i'
     DELETION = 'd'
     FRAMESHIFT = 'f'
+    SPLIT = 's'
     OTHER = 'x'
