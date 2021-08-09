@@ -3,17 +3,40 @@ from database import db_session
 from models import Gene, Transcript, Exon, ORF, Protein
 from alignments import TranscriptBasedAlignment
 from sqlalchemy import select
-# from itertools import combinations, islice
+# from itertools import combinations
 
 def get_gene_protein_isoforms(gene_name):
     gene = db_session.execute(select(Gene).filter(Gene.name == gene_name)).one()[Gene]
-    return {transcript.name: transcript.orfs[0].protein for transcript in gene.transcripts}
+    return {transcript.name: transcript.orfs[0].protein for transcript in gene.transcripts if transcript.orfs}
 
 #%%
-proteins = get_gene_protein_isoforms('TANGO2')
-proteins.update(get_gene_protein_isoforms('RBFOX2'))
-proteins.update(get_gene_protein_isoforms('MAPK12'))
-proteins.update(get_gene_protein_isoforms('BID'))
+genes = (
+    'APOBEC3B',
+    'BID',
+    'CHEK2',
+    'EWSR1',
+    'LARGE1',
+    'MAPK12',
+    'MICAL3',
+    'MRTFA',
+    'PISD',
+    'RAC2',
+    'RBFOX2',
+    'SEPTIN5',
+    'SHANK3',
+    'SYNGR1',
+    'TANGO2',
+)
+proteins = dict()
+aln_dict = dict()
+for gene in genes:
+    try:
+        isoforms = get_gene_protein_isoforms(gene)
+        proteins.update(isoforms)
+        isoform_list = list(isoforms.values())
+        aln_dict[gene] = [TranscriptBasedAlignment(isoform_list[0], other) for other in isoform_list[1:]]
+    except Exception as e:
+        print(f'{gene}: {repr(e)}')
 
 #%%
 # example of frameshift on plus strand (f-category)
