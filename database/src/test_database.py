@@ -1,10 +1,9 @@
 #%%
 from database import db_session
 from models import Gene, Transcript, Exon, ORF, Protein
-from alignments import ProteinAlignment
-from alignments import TranscriptLevelEvent as TLE
+from alignments import TranscriptBasedAlignment
 from sqlalchemy import select
-from itertools import combinations, islice
+# from itertools import combinations, islice
 
 def get_gene_protein_isoforms(gene_name):
     gene = db_session.execute(select(Gene).filter(Gene.name == gene_name)).one()[Gene]
@@ -12,38 +11,32 @@ def get_gene_protein_isoforms(gene_name):
 
 #%%
 proteins = get_gene_protein_isoforms('TANGO2')
+proteins.update(get_gene_protein_isoforms('RBFOX2'))
+proteins.update(get_gene_protein_isoforms('MAPK12'))
+proteins.update(get_gene_protein_isoforms('BID'))
 
-
-aln = ProteinAlignment(proteins['TANGO2-201'], proteins['TANGO2-202'])
+#%%
+# example of frameshift on plus strand (f-category)
+aln = TranscriptBasedAlignment(proteins['TANGO2-201'], proteins['TANGO2-207'])
 print(repr(aln))
 print(aln.full)
 
 #%%
-proteins = get_gene_protein_isoforms('RBFOX2')
-
-aln = ProteinAlignment(proteins['RBFOX2-201'], proteins['RBFOX2-202'])
+# example of frameshift on minus strand (f-category)
+aln = TranscriptBasedAlignment(proteins['RBFOX2-201'], proteins['RBFOX2-202'])
 print(repr(aln))
 print(aln.full)
 
 #%%
-proteins = get_gene_protein_isoforms('MAPK12')
-
-aln = ProteinAlignment(proteins['MAPK12-201'], proteins['MAPK12-202'])
+# example of "edge mismatch" (e-category)
+aln = TranscriptBasedAlignment(proteins['MAPK12-201'], proteins['MAPK12-202'])
 print(repr(aln))
 print(aln.full)
 
 #%%
-proteins = get_gene_protein_isoforms('BID')
-
-aln = ProteinAlignment(proteins['BID-201'], proteins['BID-202'])
+# example of single-nt overlap between two codons (treated as separate alignment pairs)
+aln = TranscriptBasedAlignment(proteins['BID-201'], proteins['BID-202'])
 print(repr(aln))
 print(aln.full)
-
-#%%
-for protein in proteins[-1:]:
-    print(protein.orf)
-    for aa in protein.residues:
-        if all(aa.codon):
-            print(f'\t{aa} <- {aa.codon_str} <- {aa.exons}')
 
 # %%

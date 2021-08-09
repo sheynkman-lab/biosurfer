@@ -351,6 +351,7 @@ class Residue:
     def codon_str(self) -> str:
         return ''.join(str(nt.base) for nt in self.codon)
 
+    # TODO: make this a cached property?
     @property
     def exons(self) -> List['Exon']:
         # TODO: is sorting necessary here?

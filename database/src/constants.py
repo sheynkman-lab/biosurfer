@@ -1,12 +1,12 @@
 from enum import Enum
 
 
-class ShortStringEnum(Enum):
+class StringEnum(Enum):
     def __str__(self):
         return self.value
 
 
-class Nucleobase(ShortStringEnum):
+class Nucleobase(StringEnum):
     ADENINE = 'A'
     CYTOSINE = 'C'
     GUANINE = 'G'
@@ -15,7 +15,7 @@ class Nucleobase(ShortStringEnum):
     GAP = '-'
 
 
-class AminoAcid(ShortStringEnum):
+class AminoAcid(StringEnum):
     ALANINE = 'A'
     ALA = 'A'    
     ISOLEUCINE = 'I'
@@ -62,7 +62,7 @@ class AminoAcid(ShortStringEnum):
     GAP = '-'
 
 
-class ProteinLevelEvent(ShortStringEnum):
+class ProteinLevelAlignmentCategory(StringEnum):
     MATCH = 'M'
     INSERTION = 'I'
     DELETION = 'D'
@@ -70,10 +70,10 @@ class ProteinLevelEvent(ShortStringEnum):
     OTHER = 'X'
 
 
-class TranscriptLevelEvent(ShortStringEnum):
+class TranscriptLevelAlignmentCategory(StringEnum):
     MATCH = 'm'
     INSERTION = 'i'
     DELETION = 'd'
     FRAMESHIFT = 'f'
-    SPLIT = 's'
+    EDGE_MISMATCH = 'e'
     OTHER = 'x'
