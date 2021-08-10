@@ -3,6 +3,7 @@ from database import db_session
 from models import Gene, Transcript, Exon, ORF, Protein
 from alignments import TranscriptBasedAlignment
 from sqlalchemy import select
+import traceback
 # from itertools import combinations
 
 def get_gene_protein_isoforms(gene_name):
@@ -36,7 +37,8 @@ for gene in genes:
         isoform_list = list(isoforms.values())
         aln_dict[gene] = [TranscriptBasedAlignment(isoform_list[0], other) for other in isoform_list[1:]]
     except Exception as e:
-        print(f'{gene}: {repr(e)}')
+        print(f'----------------\n{gene}')
+        traceback.print_exc()
 
 #%%
 # example of frameshift on plus strand (f-category) and complex split codon alignment (x-category)

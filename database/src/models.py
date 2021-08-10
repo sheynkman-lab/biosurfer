@@ -12,6 +12,7 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import reconstructor, relationship
 
 from constants import Nucleobase, AminoAcid
+from helpers import BisectDict
 from database import Base
 
 
@@ -67,13 +68,17 @@ class Transcript(Base):
         'polymorphic_identity': 'transcript'
     }
 
-    def __init__(self):
+    def _init_inner(self):
         self._nucleotides = None
+
+    def __init__(self):
+        self._init_inner()
 
     @reconstructor
     def init_on_load(self):
-        self._nucleotides = None
-
+        self._init_inner()
+        self._exon_mapping = BisectDict((exon.transcript_stop+1, exon) for exon in self.exons)
+    
     @hybrid_property
     def nucleotides(self):
         if not self.sequence:
@@ -125,13 +130,10 @@ class Transcript(Base):
         # TODO: implement this
         raise NotImplementedError
     
-    @hybrid_method
+    # this may seem redundant, but the idea is to keep the publicly accessible method separate from the implementation details
     def get_exon_containing_position(self, position: int) -> 'Exon':
         """Given a position (1-based) within the transcript's nucleotide sequence, return the exon containing that position."""
-        for exon in self.exons:
-            if position in range(exon.transcript_start, exon.transcript_stop + 1):
-                return exon
-        raise ValueError(f'Position {position} not found in {self}')
+        return self._exon_mapping[position]
 
 
 class GencodeTranscript(Transcript):
@@ -351,7 +353,6 @@ class Residue:
     def codon_str(self) -> str:
         return ''.join(str(nt.base) for nt in self.codon)
 
-    # TODO: make this a cached property?
     @property
     def exons(self) -> List['Exon']:
         # TODO: is sorting necessary here?
