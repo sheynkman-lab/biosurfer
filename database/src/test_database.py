@@ -1,14 +1,16 @@
 #%%
-from database import db_session
-from models import Gene, Transcript, Exon, ORF, Protein
-from alignments import TranscriptBasedAlignment
-from sqlalchemy import select
 import traceback
-# from itertools import combinations
+from operator import attrgetter
+
+from sqlalchemy import select
+
+from alignments import TranscriptBasedAlignment
+from database import db_session
+from models import ORF, Exon, Gene, Protein, Transcript
 
 def get_gene_protein_isoforms(gene_name):
     gene = db_session.execute(select(Gene).filter(Gene.name == gene_name)).one()[Gene]
-    return {transcript.name: transcript.orfs[0].protein for transcript in gene.transcripts if transcript.orfs}
+    return {transcript.name: transcript.orfs[0].protein for transcript in sorted(gene.transcripts, key=attrgetter('appris')) if transcript.orfs}
 
 #%%
 genes = (

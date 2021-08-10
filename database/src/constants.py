@@ -1,9 +1,4 @@
-from enum import Enum
-
-
-class StringEnum(Enum):
-    def __str__(self):
-        return self.value
+from helpers import OrderedEnum, StringEnum
 
 
 class Nucleobase(StringEnum):
@@ -67,7 +62,7 @@ class ProteinLevelAlignmentCategory(StringEnum):
     INSERTION = 'I'
     DELETION = 'D'
     SUBSTITUTION = 'S'
-    OTHER = 'X'
+    UNKNOWN = '?'
 
 
 class TranscriptLevelAlignmentCategory(StringEnum):
@@ -78,3 +73,9 @@ class TranscriptLevelAlignmentCategory(StringEnum):
     EDGE_MISMATCH = 'e'
     COMPLEX = 'x'
     UNKNOWN = '?'
+
+
+class APPRIS(OrderedEnum):
+    PRINCIPAL = 1
+    ALTERNATIVE = 2
+    NONE = 3

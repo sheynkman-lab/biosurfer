@@ -8,6 +8,7 @@ from inscripta.biocantor.location.location_impl import SingleInterval
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
+from constants import APPRIS
 from database import Base, db_session, engine
 from models import (ORF, Chromosome, GencodeExon, GencodeTranscript, Gene,
                     Protein, Transcript)
@@ -37,8 +38,9 @@ def read_gtf_line(line: str) -> list:
     stop = int(stop)
     attributes = attributes.split(';')[:-1]
     attributes = [att.strip(' ').split(' ') for att in attributes]
-    attributes = {att[0]: att[1].strip('"') for att in attributes}
-    return [chromosome, source, feature, start, stop, score, strand, phase, attributes]
+    tags = [att[1].strip('"') for att in attributes if att[0] == 'tag']
+    attributes = {att[0]: att[1].strip('"') for att in attributes if att[0] != 'tag'}
+    return chromosome, source, feature, start, stop, score, strand, phase, attributes, tags
 
 def load_data_from_gtf(gtf_file: str) -> None:
     Base.metadata.create_all(engine)
@@ -49,7 +51,7 @@ def load_data_from_gtf(gtf_file: str) -> None:
         for line in gtf:
             if line.startswith("#"): 
                 continue
-            chr, source, feature, start, stop, score, strand, phase, attributes = read_gtf_line(line)
+            chr, source, feature, start, stop, score, strand, phase, attributes, tags = read_gtf_line(line)
             if feature == 'gene':
                 if chr not in chromosomes.keys():
                   chromosome = Chromosome()
@@ -68,17 +70,24 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 db_session.add(chromosome)
 
             elif feature == 'transcript':
+                appris = APPRIS.NONE
+                start_nf, end_nf = False, False
+                for tag in tags:
+                    if 'appris_principal' in tag:
+                        appris = APPRIS.PRINCIPAL
+                    if 'appris_alternative' in tag:
+                        appris = APPRIS.ALTERNATIVE
+                    start_nf = start_nf or 'start_NF' in tag
+                    end_nf = end_nf or 'end_NF' in tag
                 transcript = GencodeTranscript(
                     accession = attributes['transcript_id'],
                     name = attributes['transcript_name'],
                     strand = strand,
                     # TODO: implement these tags
-                    appris = None,
-                    start_nf = None,
-                    end_nf = None
+                    appris = appris,
+                    start_nf = start_nf,
+                    end_nf = end_nf
                 )
-                # transcript.accession = attributes['transcript_id']
-                # transcript.name = attributes['transcript_name']
                 genes[attributes['gene_id']].transcripts.append(transcript)
                 transcripts[attributes['transcript_id']] = transcript
                 db_session.add(transcript)

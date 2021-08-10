@@ -6,12 +6,12 @@ from warnings import warn
 from Bio.Seq import Seq
 from inscripta.biocantor.location.location_impl import (CompoundInterval,
                                                         SingleInterval, Strand)
-from sqlalchemy import CHAR, Column, Enum, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import reconstructor, relationship
 
-from constants import Nucleobase, AminoAcid
+from constants import APPRIS, Nucleobase, AminoAcid
 from helpers import BisectDict
 from database import Base
 
@@ -137,6 +137,10 @@ class Transcript(Base):
 
 
 class GencodeTranscript(Transcript):
+    appris = Column(Enum(APPRIS))
+    start_nf = Column(Boolean)
+    end_nf = Column(Boolean)
+    
     def __init__(self, *, accession, name, strand, appris, start_nf, end_nf):
         super().__init__()
         self.accession = accession
