@@ -76,4 +76,5 @@ class TranscriptLevelAlignmentCategory(StringEnum):
     DELETION = 'd'
     FRAMESHIFT = 'f'
     EDGE_MISMATCH = 'e'
-    OTHER = 'x'
+    COMPLEX = 'x'
+    UNKNOWN = '?'

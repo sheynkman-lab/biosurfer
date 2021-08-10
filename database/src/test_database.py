@@ -39,7 +39,7 @@ for gene in genes:
         print(f'{gene}: {repr(e)}')
 
 #%%
-# example of frameshift on plus strand (f-category)
+# example of frameshift on plus strand (f-category) and complex split codon alignment (x-category)
 aln = TranscriptBasedAlignment(proteins['TANGO2-201'], proteins['TANGO2-207'])
 print(repr(aln))
 print(aln.full)

@@ -1,5 +1,6 @@
 from abc import ABC
 from collections import deque
+from itertools import groupby
 from typing import List, Optional, Union
 
 from constants import AminoAcid
@@ -64,81 +65,9 @@ class TranscriptBasedAlignment(Alignment):
         else:
             strand = anchor.orf.transcript.strand
         super().__init__(anchor, other)
-        
-        anchor_stack = deque(anchor.residues)
-        other_stack = deque(other.residues)
-        anchor_res, other_res = None, None
-        anchor_gap, other_gap = None, None
-        self.chain: List['ResidueAlignment'] = []
-        while anchor_stack or other_stack:
-            # use residues at top of stack to determine event type
-            event_type = TranscriptAlignCat.OTHER
-            if anchor_stack and other_stack:
-                anchor_current, other_current = anchor_stack[0], other_stack[0]
-                if len(anchor_current.exons) == 1 and len(other_current.exons) == 1:
-                    # for contiguous (nonsplit) codons, can just compare the coords of their middle nucleotides
-                    coord_diff = anchor_current.codon[1].coordinate - other_current.codon[1].coordinate
-                    if strand is Strand.MINUS:
-                        coord_diff = -coord_diff
-                    if coord_diff == 0:
-                        if anchor_current.amino_acid is other_current.amino_acid:
-                            event_type = TranscriptAlignCat.MATCH
-                    elif abs(coord_diff) == 1:
-                        event_type = TranscriptAlignCat.FRAMESHIFT
-                    elif coord_diff < 0:
-                        event_type = TranscriptAlignCat.DELETION
-                    elif coord_diff > 0:
-                        event_type = TranscriptAlignCat.INSERTION
-                else:
-                    # for split codons, need to compare the coords of all their nucleotides
-                    anchor_coords = tuple(nt.coordinate for nt in anchor_current.codon)
-                    other_coords = tuple(nt.coordinate for nt in other_current.codon)
-                    overlap = len(set(anchor_coords) & set(other_coords))
-                    if overlap < 2:
-                        coord_diff = anchor_coords[1] - other_coords[1]
-                        if strand is Strand.MINUS:
-                            coord_diff = -coord_diff
-                        if coord_diff < 0:
-                            event_type = TranscriptAlignCat.DELETION
-                        elif coord_diff > 0:
-                            event_type = TranscriptAlignCat.INSERTION
-                    elif overlap == 2:
-                        if anchor_coords[1] != other_coords[1]:
-                            event_type = TranscriptAlignCat.FRAMESHIFT
-                        elif anchor_current.amino_acid is not other_current.amino_acid:
-                            event_type = TranscriptAlignCat.EDGE_MISMATCH
-                    elif overlap == 3 and anchor_current.amino_acid is other_current.amino_acid:
-                        event_type = TranscriptAlignCat.MATCH
-            elif not other_stack:
-                event_type = TranscriptAlignCat.DELETION
-            elif not anchor_stack:
-                event_type = TranscriptAlignCat.INSERTION
+        self.chain = rough_alignment(anchor, other, strand)
+        refine_alignment(self.chain)
 
-            # TODO: set upstream and downstream exons for GapResidue
-            if event_type is TranscriptAlignCat.DELETION:
-                anchor_gap = None
-                if not other_gap:
-                    gap_pos = other_res.position if other_res else 0
-                    other_gap = GapResidue(other, gap_pos, None, None)
-                anchor_res = anchor_stack.popleft()
-                res_align = ResidueAlignment(anchor_res, other_gap, TranscriptAlignCat.DELETION)
-            elif event_type is TranscriptAlignCat.INSERTION:
-                other_gap = None
-                if not anchor_gap:
-                    gap_pos = anchor_res.position if anchor_res else 0
-                    anchor_gap = GapResidue(anchor, gap_pos, None, None)
-                other_res = other_stack.popleft()
-                res_align = ResidueAlignment(anchor_gap, other_res, TranscriptAlignCat.INSERTION)
-            else:
-                anchor_gap, other_gap = None, None
-                anchor_res = anchor_stack.popleft()
-                other_res = other_stack.popleft()
-                res_align = ResidueAlignment(anchor_res, other_res, event_type)
-            
-            assert res_align.anchor.protein is anchor
-            assert res_align.other.protein is other
-            self.chain.append(res_align)
-    
     @property
     def full(self):
         anchor_str = ''.join(str(res.anchor.amino_acid) for res in self.chain)
@@ -147,5 +76,107 @@ class TranscriptBasedAlignment(Alignment):
         return anchor_str + '\n' + ttype_str + '\n' + other_str
     
 
+def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> List['ResidueAlignment']:
+    anchor_stack = deque(anchor.residues)
+    other_stack = deque(other.residues)
+    anchor_res, other_res = None, None
+    anchor_gap, other_gap = None, None
+    chain = []
+    while anchor_stack or other_stack:
+        # use residues at top of stack to determine event type
+        event_type = TranscriptAlignCat.UNKNOWN
+        if anchor_stack and other_stack:
+            anchor_current, other_current = anchor_stack[0], other_stack[0]
+            if len(anchor_current.exons) == 1 and len(other_current.exons) == 1:
+                # for contiguous (nonsplit) codons, can just compare the coords of their middle nucleotides
+                coord_diff = anchor_current.codon[1].coordinate - other_current.codon[1].coordinate
+                if strand is Strand.MINUS:
+                    coord_diff = -coord_diff
+                if coord_diff == 0:
+                    if anchor_current.amino_acid is other_current.amino_acid:
+                        event_type = TranscriptAlignCat.MATCH
+                elif abs(coord_diff) == 1:
+                    event_type = TranscriptAlignCat.FRAMESHIFT
+                elif coord_diff < 0:
+                    event_type = TranscriptAlignCat.DELETION
+                elif coord_diff > 0:
+                    event_type = TranscriptAlignCat.INSERTION
+            else:
+                # for split codons, need to compare the coords of all their nucleotides
+                anchor_coords = tuple(nt.coordinate for nt in anchor_current.codon)
+                other_coords = tuple(nt.coordinate for nt in other_current.codon)
+                overlap = len(set(anchor_coords) & set(other_coords))
+                if overlap < 2:
+                    coord_diff = anchor_coords[1] - other_coords[1]
+                    if strand is Strand.MINUS:
+                        coord_diff = -coord_diff
+                    if coord_diff < 0:
+                        event_type = TranscriptAlignCat.DELETION
+                    elif coord_diff > 0:
+                        event_type = TranscriptAlignCat.INSERTION
+                elif overlap == 2:
+                    if anchor_coords[1] != other_coords[1]:
+                        event_type = TranscriptAlignCat.FRAMESHIFT
+                    elif anchor_current.amino_acid is not other_current.amino_acid:
+                        event_type = TranscriptAlignCat.EDGE_MISMATCH
+                elif overlap == 3 and anchor_current.amino_acid is other_current.amino_acid:
+                    event_type = TranscriptAlignCat.MATCH
+        elif not other_stack:
+            event_type = TranscriptAlignCat.DELETION
+        elif not anchor_stack:
+            event_type = TranscriptAlignCat.INSERTION
 
-    
+        # TODO: set upstream and downstream exons for GapResidue
+        if event_type is TranscriptAlignCat.DELETION:
+            anchor_gap = None
+            if not other_gap:
+                gap_pos = other_res.position if other_res else 0
+                other_gap = GapResidue(other, gap_pos, None, None)
+            anchor_res = anchor_stack.popleft()
+            res_align = ResidueAlignment(anchor_res, other_gap, TranscriptAlignCat.DELETION)
+        elif event_type is TranscriptAlignCat.INSERTION:
+            other_gap = None
+            if not anchor_gap:
+                gap_pos = anchor_res.position if anchor_res else 0
+                anchor_gap = GapResidue(anchor, gap_pos, None, None)
+            other_res = other_stack.popleft()
+            res_align = ResidueAlignment(anchor_gap, other_res, TranscriptAlignCat.INSERTION)
+        else:
+            anchor_gap, other_gap = None, None
+            anchor_res = anchor_stack.popleft()
+            other_res = other_stack.popleft()
+            res_align = ResidueAlignment(anchor_res, other_res, event_type)
+        
+        assert res_align.anchor.protein is anchor
+        assert res_align.other.protein is other
+        chain.append(res_align)
+    return chain
+
+
+def refine_alignment(chain: List['ResidueAlignment']) -> None:
+    """Performs a second pass on an existing ResidueAlignment chain to identify complex codon alignments."""
+    delete_insert = {TranscriptAlignCat.DELETION, TranscriptAlignCat.INSERTION}
+    i = 1
+    while i+1 < len(chain):
+        curr = chain[i]
+        curr_cat = curr.category
+        if curr_cat in delete_insert:
+            prev = chain[i-1]
+            next = chain[i+1]
+            prev_cat = prev.category
+            next_cat = next.category
+            if len({prev_cat, curr_cat, next_cat}) == 3:
+                if prev_cat in delete_insert:
+                    merge_res = prev
+                elif next_cat in delete_insert:
+                    merge_res = next
+                if curr_cat is TranscriptAlignCat.DELETION:
+                    chain[i] = ResidueAlignment(curr.anchor, merge_res.other, TranscriptAlignCat.COMPLEX)
+                elif curr_cat is TranscriptAlignCat.INSERTION:
+                    chain[i] = ResidueAlignment(merge_res.anchor, curr.other, TranscriptAlignCat.COMPLEX)
+                if merge_res is prev:
+                    chain.pop(i-1)
+                    continue  # popping previous item from chain automatically advances i to the next item
+                elif merge_res is next:
+                    chain.pop(i+1)
+        i += 1
