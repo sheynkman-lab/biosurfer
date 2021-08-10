@@ -166,17 +166,19 @@ def refine_alignment(chain: List['ResidueAlignment']) -> None:
             prev_cat = prev.category
             next_cat = next.category
             if len({prev_cat, curr_cat, next_cat}) == 3:
-                if prev_cat in delete_insert:
+                merge_res = None
+                if prev_cat in delete_insert and next_cat is TranscriptAlignCat.FRAMESHIFT:
                     merge_res = prev
-                elif next_cat in delete_insert:
+                elif next_cat in delete_insert and prev_cat is TranscriptAlignCat.FRAMESHIFT:
                     merge_res = next
-                if curr_cat is TranscriptAlignCat.DELETION:
-                    chain[i] = ResidueAlignment(curr.anchor, merge_res.other, TranscriptAlignCat.COMPLEX)
-                elif curr_cat is TranscriptAlignCat.INSERTION:
-                    chain[i] = ResidueAlignment(merge_res.anchor, curr.other, TranscriptAlignCat.COMPLEX)
-                if merge_res is prev:
-                    chain.pop(i-1)
-                    continue  # popping previous item from chain automatically advances i to the next item
-                elif merge_res is next:
-                    chain.pop(i+1)
+                if merge_res:
+                    if curr_cat is TranscriptAlignCat.DELETION:
+                        chain[i] = ResidueAlignment(curr.anchor, merge_res.other, TranscriptAlignCat.COMPLEX)
+                    elif curr_cat is TranscriptAlignCat.INSERTION:
+                        chain[i] = ResidueAlignment(merge_res.anchor, curr.other, TranscriptAlignCat.COMPLEX)
+                    if merge_res is prev:
+                        chain.pop(i-1)
+                        continue  # popping previous item from chain automatically advances i to the next item
+                    elif merge_res is next:
+                        chain.pop(i+1)
         i += 1
