@@ -1,7 +1,7 @@
 from abc import ABC
 from collections import deque
 from itertools import groupby
-from typing import List, Optional, Union
+from typing import List, Optional, Union, MutableSequence
 
 from constants import AminoAcid
 from constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
@@ -125,26 +125,33 @@ def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> Li
             event_type = TranscriptAlignCat.DELETION
         elif not anchor_stack:
             event_type = TranscriptAlignCat.INSERTION
+        
+        def make_gap_res_from_prev_res(prev_res: 'Residue', protein: 'Protein'):
+            gap_pos = prev_res.position if prev_res else 0
+            upstream_exon = prev_res.codon[0].exon if prev_res else None
+            return GapResidue(protein, gap_pos, upstream_exon, None)
+        def get_next_res_from_stack(stack: MutableSequence['Residue'], gap_res: 'GapResidue'):
+            next_res = stack.popleft()
+            if gap_res:
+                gap_res.downstream_exon = next_res.codon[-1].exon
+            return next_res
 
-        # TODO: set upstream and downstream exons for GapResidue
         if event_type is TranscriptAlignCat.DELETION:
+            anchor_res = get_next_res_from_stack(anchor_stack, anchor_gap)
             anchor_gap = None
             if not other_gap:
-                gap_pos = other_res.position if other_res else 0
-                other_gap = GapResidue(other, gap_pos, None, None)
-            anchor_res = anchor_stack.popleft()
+                other_gap = make_gap_res_from_prev_res(other_res, other)
             res_align = ResidueAlignment(anchor_res, other_gap, TranscriptAlignCat.DELETION)
         elif event_type is TranscriptAlignCat.INSERTION:
+            other_res = get_next_res_from_stack(other_stack, other_gap)
             other_gap = None
             if not anchor_gap:
-                gap_pos = anchor_res.position if anchor_res else 0
-                anchor_gap = GapResidue(anchor, gap_pos, None, None)
-            other_res = other_stack.popleft()
+                anchor_gap = make_gap_res_from_prev_res(anchor_res, anchor)
             res_align = ResidueAlignment(anchor_gap, other_res, TranscriptAlignCat.INSERTION)
         else:
+            anchor_res = get_next_res_from_stack(anchor_stack, anchor_gap)
+            other_res = get_next_res_from_stack(other_stack, other_gap)
             anchor_gap, other_gap = None, None
-            anchor_res = anchor_stack.popleft()
-            other_res = other_stack.popleft()
             res_align = ResidueAlignment(anchor_res, other_res, event_type)
         
         assert res_align.anchor.protein is anchor

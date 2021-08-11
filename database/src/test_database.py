@@ -47,33 +47,21 @@ for gene in genes:
         isoforms = get_gene_protein_isoforms(gene)
         proteins.update(isoforms)
         isoform_list = list(isoforms.values())
-        aln_dict[gene] = [TranscriptBasedAlignment(isoform_list[0], other) for other in isoform_list[1:]]
+        anchor = isoform_list[0]
+        for other in isoform_list[1:]:
+            aln_dict[(anchor.orf.transcript.name, other.orf.transcript.name)] = TranscriptBasedAlignment(anchor, other)
     except Exception as e:
         print(f'----------------\n{gene}')
         traceback.print_exc()
 
-#%%
-# example of frameshift on plus strand (f-category) and complex split codon alignment (x-category)
-aln = TranscriptBasedAlignment(proteins['TANGO2-201'], proteins['TANGO2-207'])
-print(repr(aln))
-print(aln.full)
+# %%
+alns = (
+    ('TANGO2-201', 'TANGO2-207'),
+    ('MAPK12-201', 'MAPK12-202'),
+    ('BID-208', 'BID-202'),
+)
 
-#%%
-# example of frameshift on minus strand (f-category)
-aln = TranscriptBasedAlignment(proteins['RBFOX2-201'], proteins['RBFOX2-202'])
-print(repr(aln))
-print(aln.full)
-
-#%%
-# example of "edge mismatch" (e-category)
-aln = TranscriptBasedAlignment(proteins['MAPK12-201'], proteins['MAPK12-202'])
-print(repr(aln))
-print(aln.full)
-
-#%%
-# example of single-nt overlap between two codons (treated as separate alignment pairs)
-aln = TranscriptBasedAlignment(proteins['BID-201'], proteins['BID-202'])
-print(repr(aln))
-print(aln.full)
-
+for anchor, other in alns:
+    aln = aln_dict[anchor, other]
+    print(f'{aln}\n{aln.full}')
 # %%

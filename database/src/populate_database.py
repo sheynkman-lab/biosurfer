@@ -83,7 +83,6 @@ def load_data_from_gtf(gtf_file: str) -> None:
                     accession = attributes['transcript_id'],
                     name = attributes['transcript_name'],
                     strand = strand,
-                    # TODO: implement these tags
                     appris = appris,
                     start_nf = start_nf,
                     end_nf = end_nf

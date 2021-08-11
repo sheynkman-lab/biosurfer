@@ -1,6 +1,6 @@
 from collections import Counter
 from operator import attrgetter
-from typing import List
+from typing import List, Optional, Tuple
 from warnings import warn
 
 from Bio.Seq import Seq
@@ -11,9 +11,9 @@ from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import reconstructor, relationship
 
-from constants import APPRIS, Nucleobase, AminoAcid
-from helpers import BisectDict
+from constants import APPRIS, AminoAcid, Nucleobase
 from database import Base
+from helpers import BisectDict
 
 
 class Chromosome(Base):
@@ -343,12 +343,15 @@ class Protein(Base):
                 nt.residue = aa
 
 
+OptNucleotide = Optional['Nucleotide']
+Codon = Tuple[OptNucleotide, OptNucleotide, OptNucleotide]
+
 class Residue:
     def __init__(self, protein: 'Protein', amino_acid: str, position: int) -> None:
         self.amino_acid = AminoAcid(amino_acid)
         self.protein = protein
         self.position = position  # position within protein peptide sequence
-        self.codon = (None, None, None)  # 3-tuple of associated Nucleotides; filled in later
+        self.codon: Codon = (None, None, None)  # 3-tuple of associated Nucleotides; filled in later
     
     def __repr__(self) -> str:
         return f'{self.amino_acid}{self.position}'
