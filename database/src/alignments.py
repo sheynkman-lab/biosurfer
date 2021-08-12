@@ -1,10 +1,13 @@
 from abc import ABC
 from collections import deque
-from itertools import groupby
-from typing import List, Optional, Union, MutableSequence
+from collections.abc import Sequence
+from itertools import chain, groupby
+from operator import attrgetter
+from typing import Iterable, List, Optional, Union, MutableSequence
 
-from constants import AminoAcid
+from constants import AminoAcid, ProteinLevelAlignmentCategory
 from constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
+from constants import ProteinLevelAlignmentCategory as ProteinAlignCat
 from models import ORF, Exon, Nucleotide, Protein, Residue, Strand, Transcript
 
 
@@ -41,6 +44,7 @@ class GapResidue(Residue):
         return None
 
 
+# TODO: need to clean up Alignment class hierarchy
 class Alignment(ABC):
     def __init__(self, anchor, other):
         self.anchor = anchor
@@ -56,7 +60,24 @@ class ResidueAlignment(Alignment):
         self.category = category
 
 
-class TranscriptBasedAlignment(Alignment):
+class AlignmentBlock(Sequence):
+    def __init__(self, parent, position, chain, category):
+        self.parent = parent
+        self.position = position
+        self._chain = list(chain)
+        self.category = category
+
+    def __repr__(self):
+        return f'{repr(self.parent)}:{self.position}-{self.category}'
+
+    def __getitem__(self, index):
+        return self._chain[index]
+    
+    def __len__(self):
+        return len(self._chain)
+
+
+class TranscriptBasedAlignment(Alignment, Sequence):
     def __init__(self, anchor: 'Protein', other: 'Protein'):
         if anchor.orf.gene is not other.orf.gene:
             raise ValueError(f'{anchor} and {other} belong to different genes')
@@ -65,14 +86,22 @@ class TranscriptBasedAlignment(Alignment):
         else:
             strand = anchor.orf.transcript.strand
         super().__init__(anchor, other)
-        self.chain = rough_alignment(anchor, other, strand)
-        refine_alignment(self.chain)
+        self._chain = rough_alignment(anchor, other, strand)
+        refine_alignment(self._chain)
+        self.transcript_blocks = [AlignmentBlock(self, i, res_alns, category) for i, (category, res_alns) in enumerate(groupby(self._chain, key=attrgetter('category')), start=1)]
+        self.protein_blocks = get_protein_blocks(self, self.transcript_blocks)
+
+    def __getitem__(self, index):
+        return self._chain[index]
+    
+    def __len__(self):
+        return len(self._chain)
 
     @property
     def full(self):
-        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self.chain)
-        other_str = ''.join(str(res.other.amino_acid) for res in self.chain)
-        ttype_str = ''.join(str(res.category) for res in self.chain)
+        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self._chain)
+        other_str = ''.join(str(res.other.amino_acid) for res in self._chain)
+        ttype_str = ''.join(str(res.category) for res in self._chain)
         return anchor_str + '\n' + ttype_str + '\n' + other_str
     
 
@@ -189,3 +218,22 @@ def refine_alignment(chain: List['ResidueAlignment']) -> None:
                     elif merge_res is next:
                         chain.pop(i+1)
         i += 1
+
+
+def get_protein_blocks(parent, tblocks):
+    # TODO: account for amino acid sequence
+    pblocks = []
+    for i, (is_match, tblock_group) in enumerate(groupby(tblocks, key=lambda tblock: tblock.category is TranscriptAlignCat.MATCH), start=1):
+        if is_match:
+            pblock_category = ProteinAlignCat.MATCH
+        else:
+            categories = {tblock.category for tblock in tblock_group if tblock.category is not TranscriptAlignCat.EDGE_MISMATCH}
+            pblock_category = ProteinAlignCat.SUBSTITUTION
+            if len(categories) == 1:
+                single_category = list(categories)[0]
+                if single_category is TranscriptAlignCat.DELETION:
+                    pblock_category = ProteinAlignCat.DELETION
+                elif single_category is TranscriptAlignCat.INSERTION:
+                    pblock_category = ProteinAlignCat.INSERTION
+        pblocks.append(AlignmentBlock(parent, i, chain.from_iterable(tblock_group), pblock_category))
+    return pblocks

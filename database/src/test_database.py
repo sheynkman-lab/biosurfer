@@ -64,4 +64,6 @@ alns = (
 for anchor, other in alns:
     aln = aln_dict[anchor, other]
     print(f'{aln}\n{aln.full}')
+    print(aln.transcript_blocks)
+    print(aln.protein_blocks)
 # %%
