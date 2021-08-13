@@ -5,10 +5,10 @@ from itertools import chain, groupby
 from operator import attrgetter
 from typing import Iterable, List, Optional, Union, MutableSequence
 
-from constants import AminoAcid, ProteinLevelAlignmentCategory
+from constants import AminoAcid, Strand
 from constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
 from constants import ProteinLevelAlignmentCategory as ProteinAlignCat
-from models import ORF, Exon, Nucleotide, Protein, Residue, Strand, Transcript
+from models import ORF, Exon, Nucleotide, Protein, Residue, Transcript
 
 
 # def get_first_nt_adjusted_coord(res: 'Residue', strand: 'Strand' = Strand.PLUS) -> int:

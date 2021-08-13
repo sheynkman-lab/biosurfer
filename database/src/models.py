@@ -5,14 +5,15 @@ from warnings import warn
 
 from Bio.Seq import Seq
 from inscripta.biocantor.location.location_impl import (CompoundInterval,
-                                                        SingleInterval, Strand)
-from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String
+                                                        SingleInterval)
+from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String, select
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import reconstructor, relationship
+from sqlalchemy.orm.exc import NoResultFound
 
-from constants import APPRIS, AminoAcid, Nucleobase
-from database import Base
+from constants import APPRIS, AminoAcid, Nucleobase, Strand
+from database import Base, db_session
 from helpers import BisectDict
 
 
@@ -37,6 +38,14 @@ class Gene(Base):
     chromosome = relationship('Chromosome', back_populates='genes')
     def __repr__(self) -> str:
         return self.name
+    
+    @staticmethod
+    def from_name(name: str):
+        statement = select(Gene).filter(Gene.name == name)
+        try:
+            return db_session.execute(statement).one()[Gene]
+        except NoResultFound:
+            return None
 
 
 class Transcript(Base):
@@ -144,6 +153,14 @@ class Transcript(Base):
         if coordinate in self._nucleotide_mapping:
             return self._nucleotide_mapping[coordinate]
         else:
+            return None
+    
+    @staticmethod
+    def from_name(name: str):
+        statement = select(Transcript).filter(Transcript.name == name)[Transcript]
+        try:
+            return db_session.execute(statement).one()
+        except NoResultFound:
             return None
 
 
@@ -334,6 +351,10 @@ class Protein(Base):
     def gene(self):
         return self.orf.transcript.gene
     
+    @hybrid_property
+    def transcript(self):
+        return self.orf.transcript
+
     def _link_aa_to_orf_nt(self):
         aa_sequence = Seq(self.sequence)
 

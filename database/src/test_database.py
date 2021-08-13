@@ -12,7 +12,7 @@ from models import ORF, Exon, Gene, Protein, Transcript
 
 
 def get_gene_protein_isoforms(gene_name):
-    gene = db_session.execute(select(Gene).filter(Gene.name == gene_name)).one()[Gene]
+    gene = Gene.from_name(gene_name)
     return {transcript.name: transcript.orfs[0].protein for transcript in sorted(gene.transcripts, key=attrgetter('appris')) if transcript.orfs}
 
 #%%

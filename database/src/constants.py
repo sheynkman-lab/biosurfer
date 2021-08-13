@@ -1,4 +1,5 @@
 from helpers import OrderedEnum, StringEnum
+from inscripta.biocantor.location.location_impl import Strand
 
 
 class Nucleobase(StringEnum):
