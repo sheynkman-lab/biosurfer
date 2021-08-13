@@ -61,21 +61,43 @@ class ResidueAlignment(Alignment):
 
 
 class AlignmentBlock(Sequence):
-    def __init__(self, parent, position, chain, category):
+    def __init__(self, parent, position, start, end, category):
         self.parent = parent
         self.position = position
-        self._chain = list(chain)
+        self.start = start  # 0-based, inclusive
+        self.end = end  # 0-based, exclusive
+        self.length = end - start
         self.category = category
+        self.annotation = None
 
     def __repr__(self):
         return f'{repr(self.parent)}:{self.position}-{self.category}'
 
-    def __getitem__(self, index):
-        return self._chain[index]
-    
     def __len__(self):
-        return len(self._chain)
+        return self.length
 
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            if index.step:
+                raise NotImplementedError('AlignmentBlock does not support slices with steps')
+            return [self[i] for i in range(*index.indices(self.length))]
+        elif isinstance(index, int):
+            return self.parent[self._parent_based_index(index)]
+        else:
+            raise TypeError(f'{index} is not an int or slice')
+    
+    def _parent_based_index(self, index):
+        if index < -self.length or index >= self.length:
+            raise IndexError(f'{index} out of range for {self}')
+        return (index % self.length) + self.start
+    
+    @property
+    def full(self):
+        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self)
+        other_str = ''.join(str(res.other.amino_acid) for res in self)
+        ttype_str = ''.join(str(res.category) for res in self)
+        return anchor_str + '\n' + ttype_str + '\n' + other_str
+    
 
 class TranscriptBasedAlignment(Alignment, Sequence):
     def __init__(self, anchor: 'Protein', other: 'Protein'):
@@ -88,7 +110,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
         super().__init__(anchor, other)
         self._chain = rough_alignment(anchor, other, strand)
         refine_alignment(self._chain)
-        self.transcript_blocks = [AlignmentBlock(self, i, res_alns, category) for i, (category, res_alns) in enumerate(groupby(self._chain, key=attrgetter('category')), start=1)]
+        self.transcript_blocks = get_transcript_blocks(self)
         self.protein_blocks = get_protein_blocks(self, self.transcript_blocks)
 
     def __getitem__(self, index):
@@ -99,10 +121,13 @@ class TranscriptBasedAlignment(Alignment, Sequence):
 
     @property
     def full(self):
-        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self._chain)
-        other_str = ''.join(str(res.other.amino_acid) for res in self._chain)
-        ttype_str = ''.join(str(res.category) for res in self._chain)
+        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self)
+        other_str = ''.join(str(res.other.amino_acid) for res in self)
+        ttype_str = ''.join(str(res.category) for res in self)
         return anchor_str + '\n' + ttype_str + '\n' + other_str
+    
+    def annotate(self):
+        pass
     
 
 def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> List['ResidueAlignment']:
@@ -220,10 +245,23 @@ def refine_alignment(chain: List['ResidueAlignment']) -> None:
         i += 1
 
 
+def get_transcript_blocks(aln: 'TranscriptBasedAlignment') -> List['AlignmentBlock']:
+    tblocks = []
+    start = 0
+    for i, (category, res_alns) in enumerate(groupby(aln, key=attrgetter('category'))):
+        tblock_length = len(list(res_alns))
+        tblocks.append(AlignmentBlock(aln, i, start, start+tblock_length, category))
+        start += tblock_length
+    return tblocks
+
+
 def get_protein_blocks(parent, tblocks):
     # TODO: account for amino acid sequence
     pblocks = []
     for i, (is_match, tblock_group) in enumerate(groupby(tblocks, key=lambda tblock: tblock.category is TranscriptAlignCat.MATCH), start=1):
+        tblock_group = list(tblock_group)
+        start = min(tblock.start for tblock in tblock_group)
+        end = max(tblock.end for tblock in tblock_group)
         if is_match:
             pblock_category = ProteinAlignCat.MATCH
         else:
@@ -235,5 +273,6 @@ def get_protein_blocks(parent, tblocks):
                     pblock_category = ProteinAlignCat.DELETION
                 elif single_category is TranscriptAlignCat.INSERTION:
                     pblock_category = ProteinAlignCat.INSERTION
-        pblocks.append(AlignmentBlock(parent, i, chain.from_iterable(tblock_group), pblock_category))
+        pblocks.append(AlignmentBlock(parent, i, start, end, pblock_category))
     return pblocks
+    
