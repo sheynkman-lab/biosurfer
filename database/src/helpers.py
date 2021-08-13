@@ -1,24 +1,52 @@
 # utility functions that don't fit in other modules
+from bisect import bisect
+from collections.abc import Mapping
+from enum import Enum
+from operator import itemgetter
+from typing import Generic, Iterable, Tuple, TypeVar, Iterator
+T = TypeVar('T')
 
-CODON_TABLE_DNA = {
-    'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M',
-    'ACA':'T', 'ACC':'T', 'ACG':'T', 'ACT':'T',
-    'AAC':'N', 'AAT':'N', 'AAA':'K', 'AAG':'K',
-    'AGC':'S', 'AGT':'S', 'AGA':'R', 'AGG':'R',                 
-    'CTA':'L', 'CTC':'L', 'CTG':'L', 'CTT':'L',
-    'CCA':'P', 'CCC':'P', 'CCG':'P', 'CCT':'P',
-    'CAC':'H', 'CAT':'H', 'CAA':'Q', 'CAG':'Q',
-    'CGA':'R', 'CGC':'R', 'CGG':'R', 'CGT':'R',
-    'GTA':'V', 'GTC':'V', 'GTG':'V', 'GTT':'V',
-    'GCA':'A', 'GCC':'A', 'GCG':'A', 'GCT':'A',
-    'GAC':'D', 'GAT':'D', 'GAA':'E', 'GAG':'E',
-    'GGA':'G', 'GGC':'G', 'GGG':'G', 'GGT':'G',
-    'TCA':'S', 'TCC':'S', 'TCG':'S', 'TCT':'S',
-    'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
-    'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*',
-    'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W',
-}
-dna_to_rna = str.maketrans('T', 'U')
-CODON_TABLE_RNA = {codon.translate(dna_to_rna): aa for codon, aa in CODON_TABLE_DNA.items()}
-CODON_TABLE = CODON_TABLE_DNA.copy()
-CODON_TABLE.update(CODON_TABLE_RNA)
+
+class OrderedEnum(Enum):
+    # https://docs.python.org/3/library/enum.html#orderedenum
+    def __ge__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value >= other.value
+        return NotImplemented
+    def __gt__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value > other.value
+        return NotImplemented
+    def __le__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value <= other.value
+        return NotImplemented
+    def __lt__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value < other.value
+        return NotImplemented
+
+
+class StringEnum(Enum):
+    def __str__(self):
+        return self.value
+
+
+class BisectDict(Mapping, Generic[T]):
+    def __init__(self, items: Iterable[Tuple[int, T]]):
+        self.breakpoints, self._values = zip(*sorted(items, key=itemgetter(0)))
+    
+    def __getitem__(self, key: int) -> T:
+        if key < 0:
+            raise KeyError('Key must be non-negative')
+        i = bisect(self.breakpoints, key)
+        try:
+            return self._values[i]
+        except IndexError as e:
+            raise KeyError(key) from e
+    
+    def __iter__(self) -> Iterator[int]:
+        yield from (0,) + self.breakpoints[:-1]
+    
+    def __len__(self):
+        return len(self.breakpoints)

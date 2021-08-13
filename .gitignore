@@ -147,4 +147,6 @@ dmypy.json
 # Local data files
 data
 results
-database.sqlite3
+*.sqlite3
+*.tsv
+*.csv

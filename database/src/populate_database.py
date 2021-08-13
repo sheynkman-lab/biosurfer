@@ -1,13 +1,17 @@
 #%%
 import logging
 import time
+from operator import attrgetter
 
 from Bio import SeqIO
+from inscripta.biocantor.location.location_impl import SingleInterval
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
+from constants import APPRIS
 from database import Base, db_session, engine
-from models import Chromosome, Exon, Gene, Nucleotide, ORF, Protein, Transcript
+from models import (ORF, Chromosome, GencodeExon, GencodeTranscript, Gene,
+                    Protein, Transcript)
 
 
 def read_gtf_line(line: str) -> list:
@@ -34,8 +38,9 @@ def read_gtf_line(line: str) -> list:
     stop = int(stop)
     attributes = attributes.split(';')[:-1]
     attributes = [att.strip(' ').split(' ') for att in attributes]
-    attributes = {att[0]: att[1].strip('"') for att in attributes}
-    return [chromosome, source, feature, start, stop, score, strand, phase, attributes]
+    tags = [att[1].strip('"') for att in attributes if att[0] == 'tag']
+    attributes = {att[0]: att[1].strip('"') for att in attributes if att[0] != 'tag'}
+    return chromosome, source, feature, start, stop, score, strand, phase, attributes, tags
 
 def load_data_from_gtf(gtf_file: str) -> None:
     Base.metadata.create_all(engine)
@@ -46,7 +51,7 @@ def load_data_from_gtf(gtf_file: str) -> None:
         for line in gtf:
             if line.startswith("#"): 
                 continue
-            chr, source, feature, start, stop, score, strand, phase, attributes = read_gtf_line(line)
+            chr, source, feature, start, stop, score, strand, phase, attributes, tags = read_gtf_line(line)
             if feature == 'gene':
                 if chr not in chromosomes.keys():
                   chromosome = Chromosome()
@@ -61,26 +66,52 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 gene.strand = strand
                 genes[attributes['gene_id']] = gene
                 db_session.add(gene)
-
                 chromosome.genes.append(gene)
                 db_session.add(chromosome)
+
             elif feature == 'transcript':
-                transcript = Transcript()
-                transcript.accession = attributes['transcript_id']
-                transcript.name = attributes['transcript_name']
+                appris = APPRIS.NONE
+                start_nf, end_nf = False, False
+                for tag in tags:
+                    if 'appris_principal' in tag:
+                        appris = APPRIS.PRINCIPAL
+                    if 'appris_alternative' in tag:
+                        appris = APPRIS.ALTERNATIVE
+                    start_nf = start_nf or 'start_NF' in tag
+                    end_nf = end_nf or 'end_NF' in tag
+                transcript = GencodeTranscript(
+                    accession = attributes['transcript_id'],
+                    name = attributes['transcript_name'],
+                    strand = strand,
+                    appris = appris,
+                    start_nf = start_nf,
+                    end_nf = end_nf
+                )
                 genes[attributes['gene_id']].transcripts.append(transcript)
                 transcripts[attributes['transcript_id']] = transcript
                 db_session.add(transcript)
                 
             elif feature == 'exon':
-                exon = Exon()
-                exon.accession = attributes['exon_id']
-                exon.start = start
-                exon.stop = stop
-                exon.transcript = transcripts[attributes['transcript_id']]
+                exon = GencodeExon(
+                    accession = attributes['exon_id'],
+                    start = start,
+                    stop = stop,
+                    transcript = transcripts[attributes['transcript_id']]
+                )
                 db_session.add(exon)
     
-    # TODO: calculate exon.start_tx and exon.stop_tx for transcript in transcripts for exon in transcript
+    # calculate the coordinates of each exon relative to the sequence of its parent transcript
+    for transcript in transcripts.values():
+        exon_to_genomic_loc = [SingleInterval(exon.start - 1, exon.stop, transcript.strand) for exon in transcript.exons]
+        transcript_genomic_loc = exon_to_genomic_loc[0]
+        for exon_genomic_loc in exon_to_genomic_loc:
+            transcript_genomic_loc = transcript_genomic_loc.union(exon_genomic_loc)
+        for i, exon in enumerate(transcript.exons):
+            # TODO: is it faster to just loop through transcript's exons and count off lengths manually?
+            exon_transcript_loc = exon_to_genomic_loc[i].location_relative_to(transcript_genomic_loc)
+            exon.transcript_start = exon_transcript_loc.start + 1
+            exon.transcript_stop = exon_transcript_loc.end
+        transcript.exons.sort(key=attrgetter('transcript_start'))
 
     db_session.commit() #Attempt to commit all the records
     
@@ -97,20 +128,17 @@ def load_transcript_fasta(transcript_fasta):
             statement = select(Transcript).filter(Transcript.accession == transcript_name)
             result = db_session.execute(statement).one()
             transcript = result[0]
+            transcript.sequence = sequence
 
             orf = ORF()
-            orf.start_tx, orf.stop_tx = orf_start, orf_end
             orf.transcript = transcript
-            # TODO: calculate genomic start and end? or get from CDS?
+            orf.transcript_start, orf.transcript_stop = orf_start, orf_end
+            orf.start = orf.nucleotides[0].coordinate
+            orf.stop = orf.nucleotides[-1].coordinate
+            if orf.start > orf.stop:
+                orf.start, orf.stop = orf.stop, orf.start
             db_session.add(orf)
 
-            prior_length = 0
-            for exon in transcript.exons:
-                exon_sequence = sequence[prior_length:prior_length + exon.length]
-                if exon.sequence != exon_sequence:
-                    logging.info(f"updating exon {exon} in transcript {transcript}\nPrior\t{exon.sequence}\nNew\t{exon_sequence}")
-                    exon.sequence = exon_sequence
-                prior_length = prior_length + exon.length
             db_session.commit() #Attempt to commit all the records
         except NoResultFound:
             logging.warning(f'could not get transcript {transcript_name} from database')
@@ -138,9 +166,12 @@ def load_translation_fasta(translation_fasta):
     db_session.commit()
 
 path = '/home/redox/sheynkman-lab/biosurfer/data/biosurfer_demo_data/'
-gtf_file = 'gencode.v38.annotation.gtf.toy'
-tx_file = 'gencode.v38.pc_transcripts.fa.toy'
-tl_file = 'gencode.v38.pc_translations.fa.toy'
+gtf_file = 'chr22.gtf'
+tx_file = 'gencode.v35.pc_transcripts.chr22.fa'
+tl_file = 'gencode.v38.pc_translations.chr22.fa'
+# gtf_file = 'gencode.v38.annotation.gtf.toy'
+# tx_file = 'gencode.v38.pc_transcripts.fa.toy'
+# tl_file = 'gencode.v38.pc_translations.fa.toy'
 
 #%%
 start = time.time()
