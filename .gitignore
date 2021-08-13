@@ -148,3 +148,5 @@ dmypy.json
 data
 results
 *.sqlite3
+*.tsv
+*.csv

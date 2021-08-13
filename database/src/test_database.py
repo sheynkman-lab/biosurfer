@@ -2,12 +2,14 @@
 import traceback
 from operator import attrgetter
 
+import pandas as pd
 from IPython.display import display
 from sqlalchemy import select
 
 from alignments import TranscriptBasedAlignment
 from database import db_session
 from models import ORF, Exon, Gene, Protein, Transcript
+
 
 def get_gene_protein_isoforms(gene_name):
     gene = db_session.execute(select(Gene).filter(Gene.name == gene_name)).one()[Gene]
@@ -50,25 +52,27 @@ for gene in genes:
         isoform_list = list(isoforms.values())
         anchor = isoform_list[0]
         for other in isoform_list[1:]:
-            aln_dict[(anchor.orf.transcript.name, other.orf.transcript.name)] = TranscriptBasedAlignment(anchor, other)
+            aln_dict[other.orf.transcript.name] = TranscriptBasedAlignment(anchor, other)
     except Exception as e:
         print(f'----------------\n{gene}')
         traceback.print_exc()
 
 # %%
 alns = (
-    ('TANGO2-201', 'TANGO2-207'),
-    ('MAPK12-201', 'MAPK12-202'),
-    ('BID-208', 'BID-202'),
+    'BID-201',
+    'BID-202',
+    'BID-203',
+    'MAPK12-202',
+    'TANGO2-207',
 )
 
-for anchor, other in alns:
-    aln = aln_dict[anchor, other]
+for aln in aln_dict.values():
     aln.annotate()
-    print(f'{aln}\n{aln.full}')
-    display(aln.transcript_blocks)
-    display(aln.protein_blocks)
-    for pblock in aln.protein_blocks:
-        print(pblock.annotation)
 
+all_annotations = pd.DataFrame.from_records(
+    ((str(aln.anchor), str(aln.other), str(pblock.category), pblock.annotation) for aln in aln_dict.values() for pblock in aln.protein_blocks if pblock.annotation),
+    columns=('anchor', 'other', 'category', 'annotation')
+)
+display(all_annotations)
+all_annotations.to_csv('chr22_annotations.tsv', sep='\t')
 # %%

@@ -70,6 +70,7 @@ class Transcript(Base):
 
     def _init_inner(self):
         self._nucleotides = None
+        self._nucleotide_mapping = None
 
     def __init__(self):
         self._init_inner()
@@ -86,13 +87,16 @@ class Transcript(Base):
         elif self._nucleotides is None:
             assert sum(exon.stop - exon.start + 1 for exon in self.exons) == len(self.sequence)
             self._nucleotides = []
+            self._nucleotide_mapping = dict()
             i = 0
             for exon in self.exons:
                 coords = range(exon.start, exon.stop+1)
                 if self.strand is Strand.MINUS:
                     coords = reversed(coords)
                 for coord in coords:
-                    self._nucleotides.append(Nucleotide(self, coord, i+1, self.sequence[i]))
+                    nt = Nucleotide(self, coord, i+1, self.sequence[i])
+                    self._nucleotides.append(nt)
+                    self._nucleotide_mapping[coord] = nt
                     i += 1
         return self._nucleotides
 
@@ -130,10 +134,17 @@ class Transcript(Base):
         # TODO: implement this
         raise NotImplementedError
     
-    # this may seem redundant, but the idea is to keep the publicly accessible method separate from the implementation details
+    # These methods may seem redundant, but the idea is to keep the publicly accessible interface separate from the implementation details
     def get_exon_containing_position(self, position: int) -> 'Exon':
         """Given a position (1-based) within the transcript's nucleotide sequence, return the exon containing that position."""
         return self._exon_mapping[position]
+    
+    def get_nucleotide_from_coordinate(self, coordinate: int) -> 'Nucleotide':
+        """Given a genomic coordinate (1-based) included in the transcript, return the Nucleotide object corresponding to that coordinate."""
+        if coordinate in self._nucleotide_mapping:
+            return self._nucleotide_mapping[coordinate]
+        else:
+            return None
 
 
 class GencodeTranscript(Transcript):
