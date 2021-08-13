@@ -2,6 +2,7 @@
 import traceback
 from operator import attrgetter
 
+from IPython.display import display
 from sqlalchemy import select
 
 from alignments import TranscriptBasedAlignment
@@ -63,7 +64,11 @@ alns = (
 
 for anchor, other in alns:
     aln = aln_dict[anchor, other]
+    aln.annotate()
     print(f'{aln}\n{aln.full}')
-    print(aln.transcript_blocks)
-    print(aln.protein_blocks)
+    display(aln.transcript_blocks)
+    display(aln.protein_blocks)
+    for pblock in aln.protein_blocks:
+        print(pblock.annotation)
+
 # %%

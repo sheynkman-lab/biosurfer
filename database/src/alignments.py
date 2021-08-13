@@ -11,14 +11,14 @@ from constants import ProteinLevelAlignmentCategory as ProteinAlignCat
 from models import ORF, Exon, Nucleotide, Protein, Residue, Strand, Transcript
 
 
-def get_first_nt_adjusted_coord(res: 'Residue', strand: 'Strand' = Strand.PLUS) -> int:
-            if len(res.exons) == 1 or res.codon[0].exon is res.codon[1].exon:
-                return res.codon[0].coordinate
-            # if codon's primary exon is downstream, "abacus" the coord of the 1st nucleotide
-            elif strand is Strand.PLUS:
-                return res.codon[1].coordinate - 1
-            elif strand is Strand.MINUS:
-                return res.codon[1].coordinate + 1
+# def get_first_nt_adjusted_coord(res: 'Residue', strand: 'Strand' = Strand.PLUS) -> int:
+#             if len(res.exons) == 1 or res.codon[0].exon is res.codon[1].exon:
+#                 return res.codon[0].coordinate
+#             # if codon's primary exon is downstream, "abacus" the coord of the 1st nucleotide
+#             elif strand is Strand.PLUS:
+#                 return res.codon[1].coordinate - 1
+#             elif strand is Strand.MINUS:
+#                 return res.codon[1].coordinate + 1
 
 
 class GapResidue(Residue):
@@ -94,14 +94,17 @@ class AlignmentBlock(Sequence):
     def full(self):
         anchor_str = ''.join(str(res.anchor.amino_acid) for res in self)
         other_str = ''.join(str(res.other.amino_acid) for res in self)
-        ttype_str = ''.join(str(res.category) for res in self)
-        return anchor_str + '\n' + ttype_str + '\n' + other_str
+        cat_str = ''.join(str(res.category) for res in self)
+        return anchor_str + '\n' + cat_str + '\n' + other_str
     
 
 class TranscriptAlignmentBlock(AlignmentBlock):
     def __init__(self, parent, position, start, end, category: 'TranscriptAlignCat'):
         super().__init__(parent, position, start, end)
         self.category = category
+        # These attributes are useful in the annotation code
+        self._upstream_match_or_frame_tblock = None
+        self._downstream_match_or_frame_tblock = None
     
     def __repr__(self):
         return f'{self.parent}:tblock{self.position}-{self.category}'
@@ -114,10 +117,15 @@ class ProteinAlignmentBlock(AlignmentBlock):
         super().__init__(parent, position, start, end)
         self.category = category
         self.transcript_blocks = list(tblocks)
-        self.annotation = None
+        self._annotations = []
 
     def __repr__(self):
         return f'{self.parent}:pblock{self.position}-{self.category}'
+    
+    @property
+    def annotation(self):
+        return '\n'.join(self._annotations) if self._annotations else None
+
 
 class TranscriptBasedAlignment(Alignment, Sequence):
     def __init__(self, anchor: 'Protein', other: 'Protein'):
@@ -146,9 +154,84 @@ class TranscriptBasedAlignment(Alignment, Sequence):
         ttype_str = ''.join(str(res.category) for res in self)
         return anchor_str + '\n' + ttype_str + '\n' + other_str
     
-    def annotate(self):
-        pass
-    
+    # TODO: consider using Annotation classes in the future?
+    def annotate(self) -> None:
+        for pblock in self.protein_blocks:
+            if pblock.category is ProteinAlignCat.MATCH:
+                continue
+            for tblock in pblock.transcript_blocks:
+                if tblock.category is TranscriptAlignCat.DELETION:
+                    first_exon = tblock[0].anchor.codon[0].exon
+                    last_exon = tblock[-1].anchor.codon[2].exon
+                    nterminal = tblock._upstream_match_or_frame_tblock is None
+                    cterminal = tblock._downstream_match_or_frame_tblock is None
+                    if not (nterminal or cterminal):
+                        prev_anchor_exon = tblock._upstream_match_or_frame_tblock[-1].anchor.codon[0].exon
+                        next_anchor_exon = tblock._downstream_match_or_frame_tblock[0].anchor.codon[2].exon
+                        if prev_anchor_exon is next_anchor_exon:
+                            pblock._annotations.append(f'portion of {prev_anchor_exon} intronized')
+                        else:
+                            e_first = first_exon.position
+                            e_last = last_exon.position
+                            if prev_anchor_exon is first_exon:
+                                pblock._annotations.append(f'{first_exon} shortened by alternative splice donor')
+                                e_first += 1
+                            if next_anchor_exon is last_exon:
+                                pblock._annotations.append(f'{last_exon} shortened by alternative splice acceptor')
+                                e_last -= 1
+                            first_skipped_exon = self.anchor.orf.transcript.exons[e_first-1]
+                            last_skipped_exon = self.anchor.orf.transcript.exons[e_last-1]
+                            if first_skipped_exon is last_skipped_exon:
+                                pblock._annotations.append(f'{first_skipped_exon} skipped')
+                            elif e_first < e_last:
+                                pblock._annotations.append(f'exons {first_skipped_exon} to {last_skipped_exon}')
+                    else:
+                        if nterminal:
+                            pblock._annotations.append('<N-terminal deletion>')
+                        if cterminal:
+                            pblock._annotations.append('<C-terminal deletion>')
+                
+                if tblock.category is TranscriptAlignCat.INSERTION:
+                    first_exon = tblock[0].other.codon[0].exon
+                    last_exon = tblock[-1].other.codon[2].exon
+                    nterminal = tblock._upstream_match_or_frame_tblock is None
+                    cterminal = tblock._downstream_match_or_frame_tblock is None
+                    if not (nterminal or cterminal):
+                        prev_anchor_exon = tblock._upstream_match_or_frame_tblock[-1].anchor.codon[0].exon
+                        next_anchor_exon = tblock._downstream_match_or_frame_tblock[0].anchor.codon[2].exon
+                        prev_other_exon = tblock._upstream_match_or_frame_tblock[-1].other.codon[0].exon
+                        next_other_exon = tblock._downstream_match_or_frame_tblock[0].other.codon[2].exon
+                        if prev_other_exon is next_other_exon:
+                            pblock._annotations.append(f'retained intron between {prev_anchor_exon} and {next_anchor_exon}')
+                        else:
+                            number_of_included_exons = last_exon.position - first_exon.position + 1
+                            if prev_other_exon is first_exon:
+                                pblock._annotations.append(f'{prev_anchor_exon} lengthened by alternative splice donor')
+                                number_of_included_exons -= 1
+                            if next_other_exon is last_exon:
+                                pblock._annotations.append(f'{next_anchor_exon} lengthened by alternative splice acceptor')
+                                number_of_included_exons -= 1
+                            if number_of_included_exons == 1:
+                                pblock._annotations.append(f'exon included between {prev_anchor_exon} and {next_anchor_exon}')
+                            else:
+                                pblock._annotations.append(f'{number_of_included_exons} exons included between {prev_anchor_exon} and {next_anchor_exon}')
+                    else:
+                        if nterminal:
+                            pblock._annotations.append('<N-terminal insertion>')
+                        if cterminal:
+                            pblock._annotations.append('<C-terminal insertion>')
+                
+                if tblock.category is TranscriptAlignCat.EDGE_MISMATCH:
+                    pblock._annotations.append(f'{tblock[0].anchor} replaced with {tblock[0].other} due to use of alternate junction')
+                
+                if tblock.category is TranscriptAlignCat.FRAMESHIFT:
+                    first_exon = tblock[0].anchor.codon[2].exon
+                    last_exon = tblock[-1].anchor.codon[0].exon
+                    if first_exon is last_exon:
+                        pblock._annotations.append(f'exon {first_exon.position} translated in different frame')
+                    else:
+                        pblock._annotations.append(f'exons {first_exon.position} to {last_exon.position} translated in different frame')
+
 
 def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> List['ResidueAlignment']:
     anchor_stack = deque(anchor.residues)
@@ -268,9 +351,18 @@ def refine_alignment(chain: List['ResidueAlignment']) -> None:
 def get_transcript_blocks(aln: Iterable['ResidueAlignment']) -> List['TranscriptAlignmentBlock']:
     tblocks = []
     start = 0
+    prev_match_or_frame_tblock = None
+    MATCH_OR_FRAME = {TranscriptAlignCat.MATCH, TranscriptAlignCat.FRAMESHIFT}
     for i, (category, res_alns) in enumerate(groupby(aln, key=attrgetter('category'))):
         tblock_length = len(list(res_alns))
-        tblocks.append(TranscriptAlignmentBlock(aln, i, start, start+tblock_length, category))
+        tblock = TranscriptAlignmentBlock(aln, i, start, start+tblock_length, category)
+        if category in MATCH_OR_FRAME:
+            if tblocks:
+                tblocks[-1]._downstream_match_or_frame_tblock = tblock
+            prev_match_or_frame_tblock = tblock
+        else:
+            tblock._upstream_match_or_frame_tblock = prev_match_or_frame_tblock
+        tblocks.append(tblock)
         start += tblock_length
     return tblocks
 
