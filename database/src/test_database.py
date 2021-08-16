@@ -1,22 +1,33 @@
 #%%
+import os
 import traceback
 from operator import attrgetter
+from warnings import filterwarnings
 
+import matplotlib.pyplot as plt
 import pandas as pd
 from IPython.display import display
+from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 from sqlalchemy import select
 
 from alignments import TranscriptBasedAlignment
 from database import db_session
-from models import ORF, Exon, Gene, Protein, Transcript
+from models import Transcript, Exon, Gene, Protein, Transcript
+from plotting import IsoformPlot
+
+filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
 
-def get_gene_protein_isoforms(gene_name):
-    gene = Gene.from_name(gene_name)
-    return {transcript.name: transcript.orfs[0].protein for transcript in sorted(gene.transcripts, key=attrgetter('appris')) if transcript.orfs}
+def get_transcripts_sorted_by_appris(gene):
+    return sorted(gene.transcripts, key=attrgetter('appris'))
+
+
+def get_protein_isoforms(gene):
+    return {transcript.name: transcript.orfs[0].protein for transcript in get_transcripts_sorted_by_appris(gene) if transcript.orfs}
+
 
 #%%
-genes = (
+gene_list = (
     'APOBEC3B',
     'BID',
     'CABIN1',
@@ -43,29 +54,51 @@ genes = (
     'SYNGR1',
     'TANGO2',
 )
+genes = dict()
+transcripts = dict()
 proteins = dict()
 aln_dict = dict()
-for gene in genes:
+
+for name in gene_list:
     try:
-        isoforms = get_gene_protein_isoforms(gene)
+        gene = Gene.from_name(name)
+    except Exception as e:
+        print(f'----------------\ncould not get {name}')
+        traceback.print_exc()
+    else:
+        genes[name] = gene
+        transcript_list = get_transcripts_sorted_by_appris(gene)
+        transcripts[name] = transcript_list
+        isoforms = {transcript.name: transcript.orfs[0].protein for transcript in transcript_list if transcript.orfs}
         proteins.update(isoforms)
         isoform_list = list(isoforms.values())
         anchor = isoform_list[0]
         for other in isoform_list[1:]:
             aln_dict[other.orf.transcript.name] = TranscriptBasedAlignment(anchor, other)
-    except Exception as e:
-        print(f'----------------\n{gene}')
-        traceback.print_exc()
 
 # %%
-alns = (
-    'BID-201',
-    'BID-202',
-    'BID-203',
-    'MAPK12-202',
-    'TANGO2-207',
-)
+broken = set()
+force_plotting = True
 
+for name, tx_list in transcripts.items():
+    fig_path = f'../../data/plots/{name}_isoforms.png'
+    if force_plotting or not os.path.isfile(fig_path):
+        try:
+            fig = plt.figure()
+            isoplot = IsoformPlot(tx_list)
+            isoplot.draw_all_isoforms()
+        except Exception as e:
+            broken.add(name)
+            print(f'----------------\ncould not plot {name}')
+            print(e)
+        else:
+            fig.set_size_inches(9, 0.5*len(isoplot.transcripts))
+            plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
+            print('saved '+fig_path)
+        finally:
+            plt.close(fig)
+
+# %%
 for aln in aln_dict.values():
     aln.annotate()
 
@@ -75,4 +108,3 @@ all_annotations = pd.DataFrame.from_records(
 )
 display(all_annotations)
 all_annotations.to_csv('chr22_annotations.tsv', sep='\t')
-# %%

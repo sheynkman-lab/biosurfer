@@ -46,6 +46,11 @@ class Gene(Base):
             return db_session.execute(statement).one()[Gene]
         except NoResultFound:
             return None
+    
+    @hybrid_property
+    def strand(self) -> Strand:
+        strands = Counter(transcript.strand for transcript in self.transcripts)
+        return strands.most_common(1)[0][0]
 
 
 class Transcript(Base):
