@@ -39,8 +39,8 @@ class Gene(Base):
     def __repr__(self) -> str:
         return self.name
     
-    @staticmethod
-    def from_name(name: str):
+    @classmethod
+    def from_name(cls, name: str):
         statement = select(Gene).filter(Gene.name == name)
         try:
             return db_session.execute(statement).one()[Gene]
@@ -155,11 +155,11 @@ class Transcript(Base):
         else:
             return None
     
-    @staticmethod
-    def from_name(name: str):
-        statement = select(Transcript).filter(Transcript.name == name)[Transcript]
+    @classmethod
+    def from_name(cls, name: str):
+        statement = select(Transcript).filter(Transcript.name == name)
         try:
-            return db_session.execute(statement).one()
+            return db_session.execute(statement).one()[Transcript]
         except NoResultFound:
             return None
 
