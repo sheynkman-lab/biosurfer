@@ -1,5 +1,8 @@
-from helpers import OrderedEnum, StringEnum
+from enum import auto
+
 from inscripta.biocantor.location.location_impl import Strand
+
+from helpers import OrderedEnum, StringEnum
 
 
 class Nucleobase(StringEnum):
@@ -56,6 +59,17 @@ class AminoAcid(StringEnum):
     SEC = 'U'    
     STOP = '*'  # included for ease of use
     GAP = '-'
+
+
+class UTRType(OrderedEnum):
+    FIVE_PRIME = auto()
+    THREE_PRIME = auto()
+
+    def __str__(self):
+        if self is UTRType.FIVE_PRIME:
+            return '5utr'
+        elif self is UTRType.THREE_PRIME:
+            return '3utr'
 
 
 class ProteinLevelAlignmentCategory(StringEnum):

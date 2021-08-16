@@ -12,7 +12,7 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import reconstructor, relationship
 from sqlalchemy.orm.exc import NoResultFound
 
-from constants import APPRIS, AminoAcid, Nucleobase, Strand
+from constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
 from database import Base, db_session
 from helpers import BisectDict
 
@@ -87,7 +87,7 @@ class Transcript(Base):
     @reconstructor
     def init_on_load(self):
         self._init_inner()
-        self._exon_mapping = BisectDict((exon.transcript_stop+1, exon) for exon in self.exons)
+        self._exon_mapping = BisectDict((exon.transcript_stop+1, i) for i, exon in enumerate(self.exons))
     
     @hybrid_property
     def nucleotides(self):
@@ -146,6 +146,10 @@ class Transcript(Base):
     # These methods may seem redundant, but the idea is to keep the publicly accessible interface separate from the implementation details
     def get_exon_containing_position(self, position: int) -> 'Exon':
         """Given a position (1-based) within the transcript's nucleotide sequence, return the exon containing that position."""
+        return self.exons[self._exon_mapping[position]]
+    
+    def get_exon_index_containing_position(self, position: int) -> int:
+        """Given a position (1-based) within the transcript's nucleotide sequence, return the number of the exon containing that position."""
         return self._exon_mapping[position]
     
     def get_nucleotide_from_coordinate(self, coordinate: int) -> 'Nucleotide':
@@ -303,6 +307,13 @@ class ORF(Base):
         uselist=False
     )
 
+    @reconstructor
+    def init_on_load(self):
+        self._first_exon_index = self.transcript.get_exon_index_containing_position(self.transcript_start)
+        self._last_exon_index = self.transcript.get_exon_index_containing_position(self.transcript_stop)
+        self.utr5 = UTR(self, UTRType.FIVE_PRIME, self._first_exon_index)
+        self.utr3 = UTR(self, UTRType.THREE_PRIME, self._last_exon_index)
+
     def __repr__(self) -> str:
         return f'{self.transcript}:orf({self.transcript_start}-{self.transcript_stop})'
 
@@ -319,8 +330,54 @@ class ORF(Base):
         return self.transcript.gene
     
     @hybrid_property
+    def exons(self):
+        return self.transcript.exons[self._first_exon_index:self._last_exon_index+1]
+
+    @hybrid_property
     def _location(self):
         return SingleInterval(self.transcript_start-1, self.transcript_stop, Strand.PLUS)
+
+
+class UTR:
+    def __init__(self, orf: 'ORF', type: 'UTRType', boundary_exon_index: int):
+        self.orf = orf
+        self.transcript: 'Transcript' = orf.transcript
+        self.type = type
+        self._boundary_exon_index = boundary_exon_index
+
+        if type is UTRType.FIVE_PRIME:
+            self.transcript_start = 1
+            self.transcript_stop = orf.transcript_start - 1
+        elif type is UTRType.THREE_PRIME:
+            self.transcript_start = orf.transcript_stop + 1
+            self.transcript_stop = self.transcript.length
+        self.length = self.transcript_stop - self.transcript_start + 1
+
+    @property
+    def nucleotides(self) -> List['Nucleotide']:
+        return self.transcript.nucleotides[self.transcript_start-1:self.transcript_stop]
+    
+    @property
+    def sequence(self) -> str:
+        return self.transcript.sequence[self.transcript_start-1:self.transcript_stop]
+    
+    @property
+    def start(self) -> int:
+        return self.transcript.nucleotides[self.transcript_start-1].coordinate
+    
+    @property
+    def stop(self) -> int:
+        return self.transcript.nucleotides[self.transcript_stop-1].coordinate
+    
+    @property
+    def exons(self) -> List['Exon']:
+        if self.type is UTRType.FIVE_PRIME:
+            return self.transcript.exons[:self._boundary_exon_index+1]
+        elif self.type is UTRType.THREE_PRIME:
+            return self.transcript.exons[self._boundary_exon_index:]
+    
+    def __repr__(self):
+        return f'{self.transcript}:{self.type}({self.transcript_start}-{self.transcript_stop})'
 
 
 class Protein(Base):
