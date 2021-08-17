@@ -12,14 +12,14 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from brokenaxes import BrokenAxes
 
+from alignments import TranscriptBasedAlignment
+from constants import TranscriptLevelAlignmentCategory
 from helpers import Interval, IntervalTree
 from models import ORF, Gene, Protein, Strand, Transcript
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
-
-    from alignments import TranscriptBasedAlignment
 
 StartStop = Tuple[int, int]
 
@@ -28,9 +28,8 @@ ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 
 # hatching styles for different relative frameshifts
 REL_FRAME_STYLE = {
-    1: '',
-    2: '///',
-    3: 'xxx'
+    TranscriptLevelAlignmentCategory.FRAME_AHEAD: '////',
+    TranscriptLevelAlignmentCategory.FRAME_BEHIND: 'xxxx'
 }
 
 
@@ -98,6 +97,8 @@ class IsoformPlot:
     def _get_subaxes(self, xcoords: Union[int, StartStop]) -> Tuple['Axes']:
         """For a specific coordinate or range of coordinates, retrieve corresponding subaxes."""
         if isinstance(xcoords, tuple):
+            if xcoords[0] > xcoords[1]:
+                xcoords = (xcoords[1], xcoords[0])
             xcoords = slice(*xcoords)
         subax_ids = [interval[-1] for interval in self._subaxes[xcoords]]
         if not subax_ids:
@@ -248,8 +249,8 @@ class IsoformPlot:
         # process orfs to get ready for plotting
         # find_and_set_subtle_splicing_status(self.transcripts, self.opts.subtle_splicing_threshold)
         
-        for i, orf in enumerate(self.transcripts):
-            self.draw_isoform(orf, i)
+        for i, tx in enumerate(self.transcripts):
+            self.draw_isoform(tx, i)
         
         # set title
         gene = self.transcripts[0].gene
@@ -260,7 +261,7 @@ class IsoformPlot:
         left_subaxes = self._bax.axs[0]
         left_subaxes.spines['left'].set_visible(False)
         left_subaxes.set_yticks(list(range(len(self.transcripts))))
-        left_subaxes.set_yticklabels([orf.name for orf in self.transcripts])
+        left_subaxes.set_yticklabels([tx.name for tx in self.transcripts])
         
         # rotate x axis tick labels for better readability
         for subaxes in self._bax.axs:
@@ -269,3 +270,31 @@ class IsoformPlot:
                 label.set_va('top')
                 label.set_rotation(90)
                 label.set_size(8)
+    
+    def draw_frameshifts(self, hatch_color = 'white'):
+        """Plot relative frameshifts on all isoforms, using the first isoform as the anchor."""
+        FRAMESHIFT = {TranscriptLevelAlignmentCategory.FRAME_AHEAD, TranscriptLevelAlignmentCategory.FRAME_BEHIND}
+        anchor_tx = self.transcripts[0]
+        anchor = anchor_tx.orfs[0].protein
+        for i, other_tx in enumerate(self.transcripts[1:], start=1):
+            if not other_tx.orfs:
+                continue
+            other = other_tx.orfs[0].protein
+            aln = TranscriptBasedAlignment(anchor, other)
+            for (category, exons), block in groupby(aln, key=attrgetter('category', 'other.exons')):
+                if category in FRAMESHIFT:
+                    if len(exons) > 1:
+                        continue
+                    block = list(block)
+                    start = block[0].other.codon[0].coordinate
+                    stop = block[-1].other.codon[2].coordinate
+                    self.draw_region(
+                        track = i,
+                        start = start,
+                        stop = stop,
+                        facecolor = 'none',
+                        edgecolor = hatch_color,
+                        linewidth = 0.0,
+                        zorder = 1.5,
+                        hatch = REL_FRAME_STYLE[category]
+                    )

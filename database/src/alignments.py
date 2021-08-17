@@ -257,7 +257,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                 if tblock.category is TranscriptAlignCat.EDGE_MISMATCH:
                     pblock._annotations.append(f'{tblock[0].anchor} replaced with {tblock[0].other} due to use of alternate junction')
                 
-                if tblock.category is TranscriptAlignCat.FRAMESHIFT:
+                if tblock.category in {TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}:
                     first_exon = tblock[0].anchor.codon[2].exon
                     last_exon = tblock[-1].anchor.codon[0].exon
                     if first_exon is last_exon:
@@ -285,8 +285,10 @@ def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> Li
                 if coord_diff == 0:
                     if anchor_current.amino_acid is other_current.amino_acid:
                         event_type = TranscriptAlignCat.MATCH
-                elif abs(coord_diff) == 1:
-                    event_type = TranscriptAlignCat.FRAMESHIFT
+                elif coord_diff == -1:
+                    event_type = TranscriptAlignCat.FRAME_AHEAD
+                elif coord_diff == 1:
+                    event_type = TranscriptAlignCat.FRAME_BEHIND
                 elif coord_diff < 0:
                     event_type = TranscriptAlignCat.DELETION
                 elif coord_diff > 0:
@@ -305,8 +307,10 @@ def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> Li
                     elif coord_diff > 0:
                         event_type = TranscriptAlignCat.INSERTION
                 elif overlap == 2:
-                    if anchor_coords[1] != other_coords[1]:
-                        event_type = TranscriptAlignCat.FRAMESHIFT
+                    if anchor_coords[1] < other_coords[1]:
+                        event_type = TranscriptAlignCat.FRAME_AHEAD
+                    elif anchor_coords[1] > other_coords[1]:
+                        event_type = TranscriptAlignCat.FRAME_BEHIND
                     elif anchor_current.amino_acid is not other_current.amino_acid:
                         event_type = TranscriptAlignCat.EDGE_MISMATCH
                 elif overlap == 3 and anchor_current.amino_acid is other_current.amino_acid:
@@ -352,21 +356,22 @@ def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> Li
 
 def refine_alignment(chain: List['ResidueAlignment']) -> None:
     """Performs a second pass on an existing ResidueAlignment chain to identify complex codon alignments."""
-    delete_insert = {TranscriptAlignCat.DELETION, TranscriptAlignCat.INSERTION}
+    DELETE_INSERT = {TranscriptAlignCat.DELETION, TranscriptAlignCat.INSERTION}
+    FRAMESHIFT = {TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}
     i = 1
     while i+1 < len(chain):
         curr = chain[i]
         curr_cat = curr.category
-        if curr_cat in delete_insert:
+        if curr_cat in DELETE_INSERT:
             prev = chain[i-1]
             next = chain[i+1]
             prev_cat = prev.category
             next_cat = next.category
             if len({prev_cat, curr_cat, next_cat}) == 3:
                 merge_res = None
-                if prev_cat in delete_insert and next_cat is TranscriptAlignCat.FRAMESHIFT:
+                if prev_cat in DELETE_INSERT and next_cat in FRAMESHIFT:
                     merge_res = prev
-                elif next_cat in delete_insert and prev_cat is TranscriptAlignCat.FRAMESHIFT:
+                elif next_cat in DELETE_INSERT and prev_cat in FRAMESHIFT:
                     merge_res = next
                 if merge_res:
                     if curr_cat is TranscriptAlignCat.DELETION:
@@ -385,7 +390,7 @@ def get_transcript_blocks(aln: Iterable['ResidueAlignment']) -> List['Transcript
     tblocks = []
     start = 0
     prev_match_or_frame_tblock = None
-    MATCH_OR_FRAME = {TranscriptAlignCat.MATCH, TranscriptAlignCat.FRAMESHIFT}
+    MATCH_OR_FRAME = {TranscriptAlignCat.MATCH, TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}
     for i, (category, res_alns) in enumerate(groupby(aln, key=attrgetter('category'))):
         tblock_length = len(list(res_alns))
         tblock = TranscriptAlignmentBlock(aln, i, start, start+tblock_length, category)

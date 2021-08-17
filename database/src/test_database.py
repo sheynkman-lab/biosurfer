@@ -90,6 +90,7 @@ for name, tx_list in transcripts.items():
             fig = plt.figure()
             isoplot = IsoformPlot(tx_list)
             isoplot.draw_all_isoforms()
+            isoplot.draw_frameshifts()
         except Exception as e:
             broken.add(name)
             print(f'----------------\ncould not plot {name}')
