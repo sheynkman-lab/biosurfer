@@ -63,13 +63,14 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 gene = Gene()
                 gene.accession = attributes['gene_id']
                 gene.name = attributes['gene_name']
-                gene.strand = strand
+                # gene.strand = strand
                 genes[attributes['gene_id']] = gene
                 db_session.add(gene)
                 chromosome.genes.append(gene)
                 db_session.add(chromosome)
 
             elif feature == 'transcript':
+                
                 appris = APPRIS.NONE
                 start_nf, end_nf = False, False
                 for tag in tags:
@@ -116,7 +117,9 @@ def load_data_from_gtf(gtf_file: str) -> None:
     db_session.commit() #Attempt to commit all the records
     
 def load_transcript_fasta(transcript_fasta):
-    for record in SeqIO.parse(transcript_fasta, 'fasta'):
+    for i, record in enumerate(SeqIO.parse(transcript_fasta, 'fasta')):
+        if i % 1000 == 0:
+            print(f'read {i}k entries...')
         fields = record.id.split('|')
         transcript_name = fields[0]
         orf_coords = [field[4:] for field in fields if field.startswith('CDS:')][0]
@@ -141,12 +144,13 @@ def load_transcript_fasta(transcript_fasta):
 
             db_session.commit() #Attempt to commit all the records
         except NoResultFound:
-            logging.warning(f'could not get transcript {transcript_name} from database')
+            pass
+            # logging.warning(f'could not get transcript {transcript_name} from database')
         
     # db_session.commit() #Attempt to commit all the records
 
 def load_translation_fasta(translation_fasta):
-    for record in SeqIO.parse(translation_fasta, 'fasta'):
+    for i, record in enumerate(SeqIO.parse(translation_fasta, 'fasta')):
         fields = record.id.split('|')
         protein_id, transcript_id = fields[:2]
         sequence = str(record.seq)
@@ -161,14 +165,15 @@ def load_translation_fasta(translation_fasta):
             protein.orf = transcript.orfs[0]
             db_session.add(protein)
         except NoResultFound:
-            logging.warning(f'could not get transcript {transcript_id} from database')
+            pass
+            # logging.warning(f'could not get transcript {transcript_id} from database')
         
     db_session.commit()
 
 path = '/home/redox/sheynkman-lab/biosurfer/data/biosurfer_demo_data/'
 gtf_file = 'chr22.gtf'
-tx_file = 'gencode.v35.pc_transcripts.chr22.fa'
-tl_file = 'gencode.v38.pc_translations.chr22.fa'
+tx_file = 'gencode.v38.pc_transcripts.fa'
+tl_file = 'gencode.v38.pc_translations.fa'
 # gtf_file = 'gencode.v38.annotation.gtf.toy'
 # tx_file = 'gencode.v38.pc_transcripts.fa.toy'
 # tl_file = 'gencode.v38.pc_translations.fa.toy'

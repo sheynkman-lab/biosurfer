@@ -92,7 +92,7 @@ class Transcript(Base):
     @hybrid_property
     def nucleotides(self):
         if not self.sequence:
-            raise AttributeError(f'{self} has no sequence')
+            raise AttributeError(f'{self.name} has no sequence')
         elif self._nucleotides is None:
             assert sum(exon.stop - exon.start + 1 for exon in self.exons) == len(self.sequence)
             self._nucleotides = []
