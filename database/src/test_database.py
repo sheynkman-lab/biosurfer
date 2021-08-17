@@ -40,9 +40,9 @@ gene_list = (
     'LARGE1',
     'MAPK12',
     'MICAL3',
-    'MRTFA',
     'NF2',
     'PISD',
+    'POLR2F',
     'RAC2',
     'RBFOX2',
     'SEPTIN5',
@@ -75,6 +75,9 @@ for name in gene_list:
         anchor = isoform_list[0]
         for other in isoform_list[1:]:
             aln_dict[other.orf.transcript.name] = TranscriptBasedAlignment(anchor, other)
+
+# %%
+noncoding_transcripts = {transcript for gene in genes.values() for transcript in gene.transcripts if not transcript.orfs}
 
 # %%
 broken = set()
