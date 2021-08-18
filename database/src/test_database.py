@@ -81,7 +81,7 @@ noncoding_transcripts = {transcript for gene in genes.values() for transcript in
 
 # %%
 broken = set()
-force_plotting = True
+force_plotting = False
 
 for name, tx_list in transcripts.items():
     fig_path = f'../../data/plots/{name}_isoforms.png'

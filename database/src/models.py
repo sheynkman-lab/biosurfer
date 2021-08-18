@@ -163,6 +163,10 @@ class Transcript(Base):
             return self._nucleotide_mapping[coordinate]
         else:
             return None
+
+    def contains_coordinate(self, coordinate: int) -> bool:
+        """Given a genomic coordinate (1-based), return whether or not the transcript contains the nucleotide at that coordinate."""
+        return coordinate in self._nucleotide_mapping
     
     @classmethod
     def from_name(cls, name: str):
@@ -402,7 +406,7 @@ class Protein(Base):
 
     @reconstructor
     def init_on_load(self):
-        self.residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence, start=1)]
+        self.residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence + '*', start=1)]
         if self.orf and self.orf.nucleotides:
             self._link_aa_to_orf_nt()
     
