@@ -112,3 +112,5 @@ all_annotations = pd.DataFrame.from_records(
 )
 display(all_annotations)
 all_annotations.to_csv('chr22_annotations.tsv', sep='\t')
+
+# %%

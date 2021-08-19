@@ -157,19 +157,34 @@ class TranscriptBasedAlignment(Alignment, Sequence):
     # TODO: consider using Annotation classes in the future?
     # TODO: detect NAGNAG splicing
     def annotate(self) -> None:
+        strand = self.anchor.orf.transcript.strand
         anchor_transcript = self.anchor.orf.transcript
         other_transcript = self.other.orf.transcript
+        nterminal_pblock = None
+        cterminal_pblock = None
+        
+        # classify internal splicing events
         for pblock in self.protein_blocks:
+            if not nterminal_pblock:
+                for res_aln in pblock:
+                    if res_aln.anchor.amino_acid is AminoAcid.MET or res_aln.other.amino_acid is AminoAcid.MET:
+                        nterminal_pblock = pblock
+                        break
+            if not cterminal_pblock:
+                for res_aln in reversed(pblock):
+                    if res_aln.anchor.amino_acid is AminoAcid.STOP or res_aln.other.amino_acid is AminoAcid.STOP:
+                        cterminal_pblock = pblock
+                        break
+            
             if pblock.category is ProteinAlignCat.MATCH:
                 continue
+            
             for tblock in pblock.transcript_blocks:
                 if tblock.category is TranscriptAlignCat.DELETION:
                     first_exon = tblock[0].anchor.codon[0].exon
                     last_exon = tblock[-1].anchor.codon[2].exon
-                    nterminal = tblock._upstream_match_or_frame_tblock is None
-                    cterminal = tblock._downstream_match_or_frame_tblock is None
 
-                    if not (nterminal or cterminal):
+                    if tblock._upstream_match_or_frame_tblock and tblock._downstream_match_or_frame_tblock:
                         prev_anchor_exon = tblock._upstream_match_or_frame_tblock[-1].anchor.codon[0].exon
                         next_anchor_exon = tblock._downstream_match_or_frame_tblock[0].anchor.codon[2].exon
                         if prev_anchor_exon is next_anchor_exon:
@@ -189,25 +204,6 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                                 pblock._annotations.append(f'{first_skipped_exon} skipped')
                             elif e_first < e_last:
                                 pblock._annotations.append(f'exons {first_skipped_exon} to {last_skipped_exon} skipped')
-                    else:
-                        if nterminal:
-                            assert tblock[0].anchor.amino_acid is AminoAcid.MET or tblock.position > 1
-                            anchor_start_coords = tuple(nt.coordinate for nt in tblock[0].anchor.codon)
-                            start_codon_nucleotides_in_other = tuple(other_transcript.get_nucleotide_from_coordinate(coord) for coord in anchor_start_coords)
-                            if all(start_codon_nucleotides_in_other):
-                                if not any(nt.residue for nt in start_codon_nucleotides_in_other):
-                                    pblock._annotations.append('alternate start codon (downstream)')
-                                else:
-                                    pblock._annotations.append('anchor start codon disrupted by splicing')
-                            else:
-                                if (other_transcript.strand is Strand.PLUS and other_transcript.start > anchor_transcript.start 
-                                    or other_transcript.strand is Strand.MINUS and other_transcript.stop < anchor_transcript.stop):
-                                    pblock._annotations.append('alternate TSS located downstream of anchor start codon')
-                                else:
-                                    pblock._annotations.append('anchor start codon excluded by 5\' UTR splicing')
-                            # pblock._annotations.append('<N-terminal deletion>')
-                        if cterminal:
-                            pblock._annotations.append('<C-terminal deletion>')
                 
                 if tblock.category is TranscriptAlignCat.INSERTION:
                     first_exon = tblock[0].other.codon[0].exon
@@ -215,7 +211,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                     nterminal = tblock._upstream_match_or_frame_tblock is None
                     cterminal = tblock._downstream_match_or_frame_tblock is None
 
-                    if not (nterminal or cterminal):
+                    if tblock._upstream_match_or_frame_tblock and tblock._downstream_match_or_frame_tblock:
                         prev_anchor_exon = tblock._upstream_match_or_frame_tblock[-1].anchor.codon[0].exon
                         next_anchor_exon = tblock._downstream_match_or_frame_tblock[0].anchor.codon[2].exon
                         prev_other_exon = tblock._upstream_match_or_frame_tblock[-1].other.codon[0].exon
@@ -234,25 +230,6 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                                 pblock._annotations.append(f'exon included between {prev_anchor_exon} and {next_anchor_exon}')
                             elif number_of_included_exons > 1:
                                 pblock._annotations.append(f'{number_of_included_exons} exons included between {prev_anchor_exon} and {next_anchor_exon}')
-                    else:
-                        if nterminal:
-                            assert tblock[0].other.amino_acid is AminoAcid.MET or tblock.position > 1
-                            other_start_coords = tuple(nt.coordinate for nt in tblock[0].other.codon)
-                            start_codon_nucleotides_in_anchor = tuple(anchor_transcript.get_nucleotide_from_coordinate(coord) for coord in other_start_coords)
-                            if all(start_codon_nucleotides_in_anchor):
-                                if not any(nt.residue for nt in start_codon_nucleotides_in_anchor):
-                                    pblock._annotations.append('alternate start codon (upstream)')
-                                else:
-                                    pblock._annotations.append('alternate start codon created by splicing')
-                            else:
-                                if (anchor_transcript.strand is Strand.PLUS and anchor_transcript.start > other_transcript.start 
-                                    or anchor_transcript.strand is Strand.MINUS and anchor_transcript.stop < other_transcript.stop):
-                                    pblock._annotations.append('alternate TSS located upstream of anchor start codon')
-                                else:
-                                    pblock._annotations.append('alternate start codon included by 5\' UTR splicing')
-                            # pblock._annotations.append('<N-terminal insertion>')
-                        if cterminal:
-                            pblock._annotations.append('<C-terminal insertion>')
                 
                 if tblock.category is TranscriptAlignCat.EDGE_MISMATCH:
                     pblock._annotations.append(f'{tblock[0].anchor} replaced with {tblock[0].other} due to use of alternate junction')
@@ -264,6 +241,59 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         pblock._annotations.append(f'exon {first_exon.position} translated in different frame')
                     else:
                         pblock._annotations.append(f'exons {first_exon.position} to {last_exon.position} translated in different frame')
+        
+        # classify N-terminal changes (if any)
+        if nterminal_pblock.category is not ProteinAlignCat.MATCH:
+            upstream_start_codon = tuple(nt.coordinate for nt in self.anchor.residues[0].codon)
+            downstream_start_codon = tuple(nt.coordinate for nt in self.other.residues[0].codon)
+            upstream_start_transcript, downstream_start_transcript = anchor_transcript, other_transcript
+            if strand is Strand.PLUS:
+                alternative_tss = anchor_transcript.start != other_transcript.start
+                if upstream_start_codon[1] > downstream_start_codon[1]:
+                    upstream_start_codon, downstream_start_codon = downstream_start_codon, upstream_start_codon 
+                    upstream_start_transcript, downstream_start_transcript = downstream_start_transcript, upstream_start_transcript
+            elif strand is Strand.MINUS:
+                alternative_tss = anchor_transcript.stop != other_transcript.stop
+                if upstream_start_codon[1] < downstream_start_codon[1]:
+                    upstream_start_codon, downstream_start_codon = downstream_start_codon, upstream_start_codon 
+                    upstream_start_transcript, downstream_start_transcript = downstream_start_transcript, upstream_start_transcript
+            
+            upstream_start_codon_shared_nts = sum(downstream_start_transcript.contains_coordinate(coord) for coord in upstream_start_codon)
+            downstream_start_codon_shared_nts = sum(upstream_start_transcript.contains_coordinate(coord) for coord in downstream_start_codon)
+            if upstream_start_codon_shared_nts == 3:
+                if downstream_start_codon_shared_nts == 3:
+                    # mutually shared start codons
+                    if other_transcript is downstream_start_transcript:
+                        nterminal_pblock._annotations.append('alternative usage of downstream start codon')
+                    else:
+                        nterminal_pblock._annotations.append('alternative use of upstream start codon')
+                else:
+                    # shared upstream start, exclusive downstream start
+                    if other_transcript is downstream_start_transcript:
+                        nterminal_pblock._annotations.append('alternative use of downstream start codon introduced by splicing')
+                    else:
+                        nterminal_pblock._annotations.append('alternative use of upstream start codon due to removal of anchor start codon by splicing')
+            else:
+                if downstream_start_codon_shared_nts == 3:
+                    # exclusive upstream start, shared downstream start
+                    if strand is Strand.PLUS:
+                        cause = 'alternative TSS' if upstream_start_codon[0] < downstream_start_transcript.start else 'splicing'
+                    elif strand is Strand.MINUS:
+                        cause = 'alternative TSS' if upstream_start_codon[0] > downstream_start_transcript.stop else 'splicing'
+                    if other_transcript is downstream_start_transcript:
+                        nterminal_pblock._annotations.append('alternative use of downstream start codon due to removal of anchor start codon by ' + cause)
+                    else:
+                        nterminal_pblock._annotations.append('alternative use of upstream start codon introduced by ' + cause)
+                else:
+                    # mutually exclusive start codons
+                    if alternative_tss:
+                        nterminal_pblock._annotations.append('alternative TSS leading to mutually exclusive start codons')
+                    else:
+                        nterminal_pblock._annotations.append('5\' UTR splicing leading to mutually exclusive start codons')
+        
+        # classify C-terminal changes (if any)
+        if cterminal_pblock is not ProteinAlignCat.MATCH:
+            cterminal_pblock._annotations.append('<C-terminal placeholder>')
 
 
 def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> List['ResidueAlignment']:
