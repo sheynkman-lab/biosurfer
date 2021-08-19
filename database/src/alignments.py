@@ -243,9 +243,9 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                     first_exon = tblock[0].anchor.codon[2].exon
                     last_exon = tblock[-1].anchor.codon[0].exon
                     if first_exon is last_exon:
-                        pblock._annotations.append(f'exon {first_exon.position} translated in different frame')
+                        pblock._annotations.append(f'{first_exon} translated in different frame')
                     else:
-                        pblock._annotations.append(f'exons {first_exon.position} to {last_exon.position} translated in different frame')
+                        pblock._annotations.append(f'{first_exon} to {last_exon} translated in different frame')
         
         # classify N-terminal changes (if any)
         if nterminal_pblock.category is not ProteinAlignCat.MATCH:
@@ -358,18 +358,18 @@ def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> Li
                 anchor_coords = tuple(nt.coordinate for nt in anchor_current.codon)
                 other_coords = tuple(nt.coordinate for nt in other_current.codon)
                 overlap = len(set(anchor_coords) & set(other_coords))
+                coord_diff = anchor_coords[1] - other_coords[1]
+                if strand is Strand.MINUS:
+                    coord_diff = -coord_diff
                 if overlap < 2:
-                    coord_diff = anchor_coords[1] - other_coords[1]
-                    if strand is Strand.MINUS:
-                        coord_diff = -coord_diff
                     if coord_diff < 0:
                         event_type = TranscriptAlignCat.DELETION
                     elif coord_diff > 0:
                         event_type = TranscriptAlignCat.INSERTION
                 elif overlap == 2:
-                    if anchor_coords[1] < other_coords[1]:
+                    if coord_diff < 0:
                         event_type = TranscriptAlignCat.FRAME_AHEAD
-                    elif anchor_coords[1] > other_coords[1]:
+                    elif coord_diff > 0:
                         event_type = TranscriptAlignCat.FRAME_BEHIND
                     elif anchor_current.amino_acid is not other_current.amino_acid:
                         event_type = TranscriptAlignCat.EDGE_MISMATCH

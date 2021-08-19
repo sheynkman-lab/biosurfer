@@ -111,6 +111,11 @@ all_annotations = pd.DataFrame.from_records(
     columns=('anchor', 'other', 'category', 'annotation')
 )
 display(all_annotations)
-all_annotations.to_csv('chr22_annotations.tsv', sep='\t')
+all_annotations.to_csv('chr22_annotations.tsv', sep='\t', index=False)
+
+# %%
+all_full = '\n\n\n'.join(str(aln)+'\n'+aln.full for aln in aln_dict.values())
+with open('chr22_alignments.txt', 'w') as f:
+    f.write(all_full)
 
 # %%
