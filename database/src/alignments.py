@@ -157,11 +157,15 @@ class TranscriptBasedAlignment(Alignment, Sequence):
     # TODO: consider using Annotation classes in the future?
     # TODO: detect NAGNAG splicing
     def annotate(self) -> None:
+        FRAMESHIFT = {TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}
+        # DELETE_INSERT = {TranscriptAlignCat.DELETION, TranscriptAlignCat.INSERTION}
+
         strand = self.anchor.orf.transcript.strand
         anchor_transcript = self.anchor.orf.transcript
         other_transcript = self.other.orf.transcript
         nterminal_pblock = None
         cterminal_pblock = None
+        upstream_cterm_res_aln = None
         
         # classify internal splicing events
         for pblock in self.protein_blocks:
@@ -171,9 +175,10 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         nterminal_pblock = pblock
                         break
             if not cterminal_pblock:
-                for res_aln in reversed(pblock):
+                for res_aln in pblock:
                     if res_aln.anchor.amino_acid is AminoAcid.STOP or res_aln.other.amino_acid is AminoAcid.STOP:
                         cterminal_pblock = pblock
+                        upstream_cterm_res_aln = res_aln
                         break
             
             if pblock.category is ProteinAlignCat.MATCH:
@@ -234,7 +239,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                 if tblock.category is TranscriptAlignCat.EDGE_MISMATCH:
                     pblock._annotations.append(f'{tblock[0].anchor} replaced with {tblock[0].other} due to use of alternate junction')
                 
-                if tblock.category in {TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}:
+                if tblock.category in FRAMESHIFT:
                     first_exon = tblock[0].anchor.codon[2].exon
                     last_exon = tblock[-1].anchor.codon[0].exon
                     if first_exon is last_exon:
@@ -292,8 +297,33 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         nterminal_pblock._annotations.append('5\' UTR splicing leading to mutually exclusive start codons')
         
         # classify C-terminal changes (if any)
-        if cterminal_pblock is not ProteinAlignCat.MATCH:
-            cterminal_pblock._annotations.append('<C-terminal placeholder>')
+        if cterminal_pblock.category is not ProteinAlignCat.MATCH:
+            
+            if upstream_cterm_res_aln.category in FRAMESHIFT:
+                if upstream_cterm_res_aln.anchor.amino_acid is AminoAcid.STOP:
+                    cterminal_pblock._annotations.append('splicing-induced frameshift leading to stop codon read-through')
+                else:
+                    cterminal_pblock._annotations.append('splicing-induced frameshift leading to premature stop codon')
+            elif upstream_cterm_res_aln.category is TranscriptAlignCat.DELETION:
+                if strand is Strand.PLUS:
+                    alt_cterm_exons = upstream_cterm_res_aln.anchor.exons[-1].stop < self.other.orf.exons[-1].start
+                elif strand is Strand.MINUS:
+                    alt_cterm_exons = upstream_cterm_res_aln.anchor.exons[-1].start > self.other.orf.exons[-1].stop
+                if alt_cterm_exons:
+                    cterminal_pblock._annotations.append('alternative C-terminal exon')
+                else:
+                    cterminal_pblock._annotations.append('anchor stop codon removed by splicing')
+            elif upstream_cterm_res_aln.category is TranscriptAlignCat.INSERTION:
+                if strand is Strand.PLUS:
+                    alt_cterm_exons = upstream_cterm_res_aln.other.exons[-1].stop < self.anchor.orf.exons[-1].start
+                elif strand is Strand.MINUS:
+                    alt_cterm_exons = upstream_cterm_res_aln.other.exons[-1].start > self.anchor.orf.exons[-1].stop
+                if alt_cterm_exons:
+                    cterminal_pblock._annotations.append('alternative C-terminal exon')
+                else:
+                    cterminal_pblock._annotations.append('premature stop codon introduced by splicing')
+            else:
+                cterminal_pblock._annotations.append('complex C-terminal event')
 
 
 def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> List['ResidueAlignment']:
