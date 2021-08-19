@@ -272,15 +272,15 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                 if downstream_start_codon_shared_nts == 3:
                     # mutually shared start codons
                     if other_transcript is downstream_start_transcript:
-                        nterminal_pblock._annotations.append('alternative usage of downstream start codon')
+                        nterminal_pblock._annotations.append('usage of downstream alternative TIS')  # TODO: indicate anchor exon
                     else:
-                        nterminal_pblock._annotations.append('alternative use of upstream start codon')
+                        nterminal_pblock._annotations.append('usage of upstream alternative TIS')  # TODO: indicate anchor exon
                 else:
                     # shared upstream start, exclusive downstream start
                     if other_transcript is downstream_start_transcript:
-                        nterminal_pblock._annotations.append('alternative use of downstream start codon introduced by splicing')
+                        nterminal_pblock._annotations.append('usage of downstream TIS revealed by splicing')  # TODO: indicate surrounding anchor exons
                     else:
-                        nterminal_pblock._annotations.append('alternative use of upstream start codon due to removal of anchor start codon by splicing')
+                        nterminal_pblock._annotations.append('usage of upstream alternative TIS due to removal of anchor TIS by splicing')  # TODO: indicate anchor exon
             else:
                 if downstream_start_codon_shared_nts == 3:
                     # exclusive upstream start, shared downstream start
@@ -289,9 +289,9 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                     elif strand is Strand.MINUS:
                         cause = 'alternative TSS' if upstream_start_codon[0] > downstream_start_transcript.stop else 'splicing'
                     if other_transcript is downstream_start_transcript:
-                        nterminal_pblock._annotations.append('alternative use of downstream start codon due to removal of anchor start codon by ' + cause)
+                        nterminal_pblock._annotations.append('usage of downstream alternative TIS due to removal of anchor TIS by ' + cause)  # TODO: indicate anchor exon
                     else:
-                        nterminal_pblock._annotations.append('alternative use of upstream start codon introduced by ' + cause)
+                        nterminal_pblock._annotations.append('usage of upstream TIS revealed by ' + cause)  # TODO: indicate surrounding anchor exons
                 else:
                     # mutually exclusive start codons
                     if alternative_tss:
@@ -304,9 +304,9 @@ class TranscriptBasedAlignment(Alignment, Sequence):
             
             if upstream_cterm_res_aln.category in FRAMESHIFT:
                 if upstream_cterm_res_aln.anchor.amino_acid is AminoAcid.STOP:
-                    cterminal_pblock._annotations.append('splicing-induced frameshift leading to stop codon read-through')
+                    cterminal_pblock._annotations.append('splicing-induced frameshift leading to usage of downstream stop codon')  # TODO: indicate location of other stop codon
                 else:
-                    cterminal_pblock._annotations.append('splicing-induced frameshift leading to premature stop codon')
+                    cterminal_pblock._annotations.append('splicing-induced frameshift leading to usage of upstream stop codon')  # TODO: indicate location of other stop codon
             elif upstream_cterm_res_aln.category is TranscriptAlignCat.DELETION:
                 if strand is Strand.PLUS:
                     alt_cterm_exons = upstream_cterm_res_aln.anchor.exons[-1].stop < self.other.orf.exons[-1].start
@@ -315,7 +315,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                 if alt_cterm_exons:
                     cterminal_pblock._annotations.append('alternative C-terminal exon')
                 else:
-                    cterminal_pblock._annotations.append('anchor stop codon removed by splicing')
+                    cterminal_pblock._annotations.append('anchor stop codon spliced out leading to usage of downstream stop codon')  # TODO: indicate location of other stop codon
             elif upstream_cterm_res_aln.category is TranscriptAlignCat.INSERTION:
                 if strand is Strand.PLUS:
                     alt_cterm_exons = upstream_cterm_res_aln.other.exons[-1].stop < self.anchor.orf.exons[-1].start
@@ -324,7 +324,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                 if alt_cterm_exons:
                     cterminal_pblock._annotations.append('alternative C-terminal exon')
                 else:
-                    cterminal_pblock._annotations.append('premature stop codon introduced by splicing')
+                    cterminal_pblock._annotations.append('upstream stop codon introduced by splicing')  # TODO: indicate surrounding anchor exons
             else:
                 cterminal_pblock._annotations.append('complex C-terminal event')
 
