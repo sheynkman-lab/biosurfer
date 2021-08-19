@@ -91,6 +91,20 @@ class TranscriptLevelAlignmentCategory(StringEnum):
     UNKNOWN = '?'
 
 
+class ProteinRegion(OrderedEnum):
+    NTERMINUS = auto()
+    INTERNAL = auto()
+    CTERMINUS = auto()
+
+    def __str__(self):
+        if self is ProteinRegion.NTERMINUS:
+            return 'Nterm'
+        elif self is ProteinRegion.INTERNAL:
+            return 'internal'
+        elif self is ProteinRegion.CTERMINUS:
+            return 'Cterm'
+
+
 class APPRIS(OrderedEnum):
     PRINCIPAL = 1
     ALTERNATIVE = 2

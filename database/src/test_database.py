@@ -107,8 +107,8 @@ for aln in aln_dict.values():
     aln.annotate()
 
 all_annotations = pd.DataFrame.from_records(
-    ((str(aln.anchor), str(aln.other), str(pblock.category), pblock.annotation) for aln in aln_dict.values() for pblock in aln.protein_blocks if pblock.annotation),
-    columns=('anchor', 'other', 'category', 'annotation')
+    ((str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.annotation) for aln in aln_dict.values() for pblock in aln.protein_blocks if pblock.annotation),
+    columns=('anchor', 'other', 'category', 'region', 'annotation')
 )
 display(all_annotations)
 all_annotations.to_csv('chr22_annotations.tsv', sep='\t', index=False)

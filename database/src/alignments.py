@@ -5,7 +5,7 @@ from itertools import chain, groupby
 from operator import attrgetter
 from typing import Iterable, List, Optional, Union, MutableSequence
 
-from constants import AminoAcid, Strand
+from constants import AminoAcid, ProteinRegion, Strand
 from constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
 from constants import ProteinLevelAlignmentCategory as ProteinAlignCat
 from models import Transcript, Exon, Nucleotide, Protein, Residue, Transcript
@@ -118,6 +118,7 @@ class ProteinAlignmentBlock(AlignmentBlock):
         self.category = category
         self.transcript_blocks = list(tblocks)
         self._annotations = []
+        self.region = ProteinRegion.INTERNAL
 
     def __repr__(self):
         return f'{self.parent}:pblock{self.position}-{self.category}'
@@ -171,13 +172,15 @@ class TranscriptBasedAlignment(Alignment, Sequence):
         for pblock in self.protein_blocks:
             if not nterminal_pblock:
                 for res_aln in pblock:
-                    if res_aln.anchor.amino_acid is AminoAcid.MET or res_aln.other.amino_acid is AminoAcid.MET:
+                    if res_aln.anchor.position == 1 or res_aln.other.position == 1:
                         nterminal_pblock = pblock
+                        pblock.region = ProteinRegion.NTERMINUS
                         break
             if not cterminal_pblock:
                 for res_aln in pblock:
                     if res_aln.anchor.amino_acid is AminoAcid.STOP or res_aln.other.amino_acid is AminoAcid.STOP:
                         cterminal_pblock = pblock
+                        pblock.region = ProteinRegion.CTERMINUS
                         upstream_cterm_res_aln = res_aln
                         break
             
