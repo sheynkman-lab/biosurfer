@@ -189,8 +189,8 @@ class TranscriptBasedAlignment(Alignment, Sequence):
             
             for tblock in pblock.transcript_blocks:
                 if tblock.category is TranscriptAlignCat.DELETION:
-                    first_exon = tblock[0].anchor.codon[0].exon
-                    last_exon = tblock[-1].anchor.codon[2].exon
+                    first_exon = tblock[0].anchor.codon[2].exon
+                    last_exon = tblock[-1].anchor.codon[0].exon
 
                     if tblock._upstream_match_or_frame_tblock and tblock._downstream_match_or_frame_tblock:
                         prev_anchor_exon = tblock._upstream_match_or_frame_tblock[-1].anchor.codon[0].exon
@@ -213,11 +213,9 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                             elif e_first < e_last:
                                 pblock._annotations.append(f'exons {first_skipped_exon} to {last_skipped_exon} skipped')
                 
-                if tblock.category is TranscriptAlignCat.INSERTION:
-                    first_exon = tblock[0].other.codon[0].exon
-                    last_exon = tblock[-1].other.codon[2].exon
-                    nterminal = tblock._upstream_match_or_frame_tblock is None
-                    cterminal = tblock._downstream_match_or_frame_tblock is None
+                elif tblock.category is TranscriptAlignCat.INSERTION:
+                    first_exon = tblock[0].other.codon[2].exon
+                    last_exon = tblock[-1].other.codon[0].exon
 
                     if tblock._upstream_match_or_frame_tblock and tblock._downstream_match_or_frame_tblock:
                         prev_anchor_exon = tblock._upstream_match_or_frame_tblock[-1].anchor.codon[0].exon
@@ -239,10 +237,10 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                             elif number_of_included_exons > 1:
                                 pblock._annotations.append(f'{number_of_included_exons} exons included between {prev_anchor_exon} and {next_anchor_exon}')
                 
-                if tblock.category is TranscriptAlignCat.EDGE_MISMATCH:
+                elif tblock.category is TranscriptAlignCat.EDGE_MISMATCH:
                     pblock._annotations.append(f'{tblock[0].anchor} replaced with {tblock[0].other} due to use of alternate junction')
                 
-                if tblock.category in FRAMESHIFT:
+                elif tblock.category in FRAMESHIFT:
                     first_exon = tblock[0].anchor.codon[2].exon
                     last_exon = tblock[-1].anchor.codon[0].exon
                     if first_exon is last_exon:
@@ -459,8 +457,10 @@ def get_transcript_blocks(aln: Iterable['ResidueAlignment']) -> List['Transcript
         tblock_length = len(list(res_alns))
         tblock = TranscriptAlignmentBlock(aln, i, start, start+tblock_length, category)
         if category in MATCH_OR_FRAME:
-            if tblocks:
-                tblocks[-1]._downstream_match_or_frame_tblock = tblock
+            for prev_tblock in reversed(tblocks):
+                if prev_tblock is prev_match_or_frame_tblock:
+                    break
+                prev_tblock._downstream_match_or_frame_tblock = tblock
             prev_match_or_frame_tblock = tblock
         else:
             tblock._upstream_match_or_frame_tblock = prev_match_or_frame_tblock

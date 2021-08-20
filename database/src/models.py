@@ -323,6 +323,8 @@ class ORF(Base):
         self.utr5 = UTR(self, UTRType.FIVE_PRIME, self._first_exon_index)
         self.utr3 = UTR(self, UTRType.THREE_PRIME, self._last_exon_index)
 
+        # ORFs with stop codons at least 50 bp upstream of the last splice site in the mature transcript
+        # (i.e. the beginning of the last exon) are considered candidates for nonsense-mediated decay (NMD)
         last_junction = self.transcript.exons[-1].transcript_start
         self.nmd = last_junction - self.transcript_stop >= 50
 
