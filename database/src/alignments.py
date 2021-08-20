@@ -22,11 +22,7 @@ from models import Transcript, Exon, Nucleotide, Protein, Residue, Transcript
 
 
 class GapResidue(Residue):
-    def __init__(self, protein: 'Protein', position: int, upstream_exon: 'Exon', downstream_exon: 'Exon'):
-        # if upstream_exon.transcript is not downstream_exon.transcript:
-        #     raise ValueError(f'{upstream_exon} and {downstream_exon} belong to different transcripts')
-        # if upstream_exon.transcript is not protein.orf.transcript:
-        #     raise ValueError(f'{upstream_exon} and {protein} belong to different transcripts')
+    def __init__(self, protein: 'Protein', position: int, upstream_exon: Optional['Exon'], downstream_exon: Optional['Exon']):
         super().__init__(protein, AminoAcid.GAP, position)
         self.upstream_exon = upstream_exon
         self.downstream_exon = downstream_exon
@@ -103,8 +99,8 @@ class TranscriptAlignmentBlock(AlignmentBlock):
         super().__init__(parent, position, start, end)
         self.category = category
         # These attributes are useful in the annotation code
-        self._upstream_match_or_frame_tblock = None
-        self._downstream_match_or_frame_tblock = None
+        self._prev_match_or_frame_tblock = None
+        self._next_match_or_frame_tblock = None
     
     def __repr__(self):
         return f'{self.parent}:tblock{self.position}-{self.category}'
@@ -166,6 +162,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
         other_transcript = self.other.orf.transcript
         nterminal_pblock = None
         cterminal_pblock = None
+        upstream_cterm_tblock = None
         upstream_cterm_res_aln = None
         
         # classify internal splicing events
@@ -181,6 +178,10 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                     if res_aln.anchor.amino_acid is AminoAcid.STOP or res_aln.other.amino_acid is AminoAcid.STOP:
                         cterminal_pblock = pblock
                         pblock.region = ProteinRegion.CTERMINUS
+                        for tblock in pblock.transcript_blocks:
+                            if res_aln in tblock:
+                                upstream_cterm_tblock = tblock
+                                break
                         upstream_cterm_res_aln = res_aln
                         break
             
@@ -192,9 +193,9 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                     first_exon = tblock[0].anchor.codon[2].exon
                     last_exon = tblock[-1].anchor.codon[0].exon
 
-                    if tblock._upstream_match_or_frame_tblock and tblock._downstream_match_or_frame_tblock:
-                        prev_anchor_exon = tblock._upstream_match_or_frame_tblock[-1].anchor.codon[0].exon
-                        next_anchor_exon = tblock._downstream_match_or_frame_tblock[0].anchor.codon[2].exon
+                    if tblock._prev_match_or_frame_tblock and tblock._next_match_or_frame_tblock:
+                        prev_anchor_exon = tblock._prev_match_or_frame_tblock[-1].anchor.codon[0].exon
+                        next_anchor_exon = tblock._next_match_or_frame_tblock[0].anchor.codon[2].exon
                         if prev_anchor_exon is next_anchor_exon:
                             pblock._annotations.append(f'portion of {prev_anchor_exon} intronized')
                         else:
@@ -217,11 +218,11 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                     first_exon = tblock[0].other.codon[2].exon
                     last_exon = tblock[-1].other.codon[0].exon
 
-                    if tblock._upstream_match_or_frame_tblock and tblock._downstream_match_or_frame_tblock:
-                        prev_anchor_exon = tblock._upstream_match_or_frame_tblock[-1].anchor.codon[0].exon
-                        next_anchor_exon = tblock._downstream_match_or_frame_tblock[0].anchor.codon[2].exon
-                        prev_other_exon = tblock._upstream_match_or_frame_tblock[-1].other.codon[0].exon
-                        next_other_exon = tblock._downstream_match_or_frame_tblock[0].other.codon[2].exon
+                    if tblock._prev_match_or_frame_tblock and tblock._next_match_or_frame_tblock:
+                        prev_anchor_exon = tblock._prev_match_or_frame_tblock[-1].anchor.codon[0].exon
+                        next_anchor_exon = tblock._next_match_or_frame_tblock[0].anchor.codon[2].exon
+                        prev_other_exon = tblock._prev_match_or_frame_tblock[-1].other.codon[0].exon
+                        next_other_exon = tblock._next_match_or_frame_tblock[0].other.codon[2].exon
                         if prev_other_exon is next_other_exon:
                             pblock._annotations.append(f'retained intron between {prev_anchor_exon} and {next_anchor_exon}')
                         else:
@@ -314,11 +315,15 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                 else:
                     cterminal_pblock._annotations.append('anchor stop codon spliced out leading to usage of downstream stop codon')  # TODO: indicate location of other stop codon
             elif upstream_cterm_res_aln.category is TranscriptAlignCat.INSERTION:
+                exon_extension_introduces_stop = upstream_cterm_tblock._prev_match_or_frame_tblock[-1].other.codon[0].exon is upstream_cterm_res_aln.other.codon[2].exon
                 if strand is Strand.PLUS:
                     alt_cterm_exons = upstream_cterm_res_aln.other.exons[-1].stop < self.anchor.orf.exons[-1].start
                 elif strand is Strand.MINUS:
                     alt_cterm_exons = upstream_cterm_res_aln.other.exons[-1].start > self.anchor.orf.exons[-1].stop
-                if alt_cterm_exons:
+                if exon_extension_introduces_stop:
+                    lengthened_exon = upstream_cterm_tblock._prev_match_or_frame_tblock[-1].anchor.codon[0].exon
+                    cterminal_pblock._annotations.append(f'upstream stop codon introduced by extension of {lengthened_exon}')
+                elif alt_cterm_exons:
                     cterminal_pblock._annotations.append('alternative C-terminal exon')
                 else:
                     cterminal_pblock._annotations.append('upstream stop codon introduced by splicing')  # TODO: indicate surrounding anchor exons
@@ -460,10 +465,10 @@ def get_transcript_blocks(aln: Iterable['ResidueAlignment']) -> List['Transcript
             for prev_tblock in reversed(tblocks):
                 if prev_tblock is prev_match_or_frame_tblock:
                     break
-                prev_tblock._downstream_match_or_frame_tblock = tblock
+                prev_tblock._next_match_or_frame_tblock = tblock
             prev_match_or_frame_tblock = tblock
         else:
-            tblock._upstream_match_or_frame_tblock = prev_match_or_frame_tblock
+            tblock._prev_match_or_frame_tblock = prev_match_or_frame_tblock
         tblocks.append(tblock)
         start += tblock_length
     return tblocks
