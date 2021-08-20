@@ -323,6 +323,9 @@ class ORF(Base):
         self.utr5 = UTR(self, UTRType.FIVE_PRIME, self._first_exon_index)
         self.utr3 = UTR(self, UTRType.THREE_PRIME, self._last_exon_index)
 
+        last_junction = self.transcript.exons[-1].transcript_start
+        self.nmd = last_junction - self.transcript_stop >= 50
+
     def __repr__(self) -> str:
         return f'{self.transcript}:orf({self.transcript_start}-{self.transcript_stop})'
 

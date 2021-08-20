@@ -301,7 +301,6 @@ class TranscriptBasedAlignment(Alignment, Sequence):
         
         # classify C-terminal changes (if any)
         if cterminal_pblock.category is not ProteinAlignCat.MATCH:
-            
             if upstream_cterm_res_aln.category in FRAMESHIFT:
                 if upstream_cterm_res_aln.anchor.amino_acid is AminoAcid.STOP:
                     cterminal_pblock._annotations.append('splicing-induced frameshift leading to usage of downstream stop codon')  # TODO: indicate location of other stop codon
@@ -327,6 +326,8 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                     cterminal_pblock._annotations.append('upstream stop codon introduced by splicing')  # TODO: indicate surrounding anchor exons
             else:
                 cterminal_pblock._annotations.append('complex C-terminal event')
+            if self.other.orf.nmd:
+                cterminal_pblock._annotations.append('NMD candidate')
 
 
 def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> List['ResidueAlignment']:
