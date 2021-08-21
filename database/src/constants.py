@@ -58,6 +58,7 @@ class AminoAcid(StringEnum):
     SELENOCYSTEINE = 'U'
     SEC = 'U'    
     STOP = '*'  # included for ease of use
+    UNKNOWN = 'X'
     GAP = '-'
 
 

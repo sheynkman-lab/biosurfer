@@ -26,7 +26,7 @@ def get_protein_isoforms(gene):
 
 
 #%%
-gene_list = (
+chr22_genes = (
     'APOBEC3B',
     'BID',
     'CABIN1',
@@ -53,6 +53,35 @@ gene_list = (
     'SYNGR1',
     'TANGO2',
 )
+chr19_genes = (
+    'ACSBG2',
+    'APOE',
+    'ARHGEF1',
+    'ARMC6',
+    'ATP1A3',
+    'CACTIN',
+    'CEACAM5',
+    'CLASRP',
+    'CYP2B6',
+    'CYP2S1',
+    'DMAC2',
+    'ETV2',
+    'GCDH',
+    'HMG20B',
+    'HNRNPUL1',
+    'ICAM4',
+    'KLF2',
+    'KLK3',
+    'LSR',
+    'MBOAT7',
+    'NOSIP',
+    'OSCAR',
+    # 'SELENOW',
+    'TIMM50',
+)
+gene_list = chr19_genes
+annotations_output = 'chr19_annotations.tsv'
+alignments_output = 'chr19_alignments.txt'
 genes = dict()
 transcripts = dict()
 proteins = dict()
@@ -66,17 +95,17 @@ for name in gene_list:
         traceback.print_exc()
     else:
         genes[name] = gene
-        transcript_list = get_transcripts_sorted_by_appris(gene)
+        transcript_list = [tx for tx in get_transcripts_sorted_by_appris(gene) if tx.basic and tx.orfs]
         transcripts[name] = transcript_list
-        isoforms = {transcript.name: transcript.orfs[0].protein for transcript in transcript_list if transcript.orfs}
-        proteins.update(isoforms)
-        isoform_list = list(isoforms.values())
-        anchor = isoform_list[0]
-        for other in isoform_list[1:]:
-            try:
+        try:
+            isoforms = {transcript.name: transcript.orfs[0].protein for transcript in transcript_list}
+            proteins.update(isoforms)
+            isoform_list = list(isoforms.values())
+            anchor = isoform_list[0]
+            for other in isoform_list[1:]:
                 aln_dict[other.orf.transcript.name] = TranscriptBasedAlignment(anchor, other)
-            except Exception as e:
-                print(f'----------------\ncould not align {anchor} and {other} ({name}): {e}')
+        except Exception as e:
+            print(f'----------------\ncould not get proteins for {name}: {e}')
 
 # %%
 noncoding_transcripts = {transcript for gene in genes.values() for transcript in gene.transcripts if not transcript.orfs}
@@ -96,7 +125,7 @@ for name, tx_list in transcripts.items():
         except Exception as e:
             broken.add(name)
             print(f'----------------\ncould not plot {name}')
-            print(e)
+            traceback.print_exc()
         else:
             fig.set_size_inches(9, 0.5*len(isoplot.transcripts))
             plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
@@ -113,11 +142,11 @@ all_annotations = pd.DataFrame.from_records(
     columns=('anchor', 'other', 'category', 'region', 'annotation')
 )
 display(all_annotations)
-all_annotations.to_csv('chr22_annotations.tsv', sep='\t', index=False)
+all_annotations.to_csv(annotations_output, sep='\t', index=False)
 
 # %%
 all_full = '\n\n\n'.join(str(aln)+'\n'+aln.full for aln in aln_dict.values())
-with open('chr22_alignments.txt', 'w') as f:
+with open(alignments_output, 'w') as f:
     f.write(all_full)
 
 # %%
