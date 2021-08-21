@@ -334,6 +334,17 @@ class TranscriptBasedAlignment(Alignment, Sequence):
 
 
 def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> List['ResidueAlignment']:
+    # helper functions
+    def make_gap_res_from_prev_res(prev_res: 'Residue', protein: 'Protein'):
+        gap_pos = prev_res.position if prev_res else 0
+        upstream_exon = prev_res.codon[0].exon if prev_res else None
+        return GapResidue(protein, gap_pos, upstream_exon, None)
+    def get_next_res_from_stack(stack: MutableSequence['Residue'], gap_res: 'GapResidue'):
+        next_res = stack.popleft()
+        if gap_res:
+            gap_res.downstream_exon = next_res.codon[-1].exon
+        return next_res
+
     anchor_stack = deque(anchor.residues)
     other_stack = deque(other.residues)
     anchor_res, other_res = None, None
@@ -386,16 +397,6 @@ def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> Li
             event_type = TranscriptAlignCat.DELETION
         elif not anchor_stack:
             event_type = TranscriptAlignCat.INSERTION
-        
-        def make_gap_res_from_prev_res(prev_res: 'Residue', protein: 'Protein'):
-            gap_pos = prev_res.position if prev_res else 0
-            upstream_exon = prev_res.codon[0].exon if prev_res else None
-            return GapResidue(protein, gap_pos, upstream_exon, None)
-        def get_next_res_from_stack(stack: MutableSequence['Residue'], gap_res: 'GapResidue'):
-            next_res = stack.popleft()
-            if gap_res:
-                gap_res.downstream_exon = next_res.codon[-1].exon
-            return next_res
 
         if event_type is TranscriptAlignCat.DELETION:
             anchor_res = get_next_res_from_stack(anchor_stack, anchor_gap)
