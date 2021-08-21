@@ -9,9 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
 from constants import APPRIS
-from database import Base, db_session, engine
-from models import (Transcript, Chromosome, GencodeExon, GencodeTranscript, Gene,
-                    Protein, Transcript)
+from models import (ORF, Base, Chromosome, Exon, GencodeExon,
+                    GencodeTranscript, Gene, Protein, Transcript, db_session,
+                    engine)
 
 
 def read_gtf_line(line: str) -> list:
@@ -48,58 +48,70 @@ def load_data_from_gtf(gtf_file: str) -> None:
     transcripts = {}
     chromosomes = {}
     with open(gtf_file) as gtf:
-        for line in gtf:
+        for i, line in enumerate(gtf):
+            if i % 5000 == 0:
+                print(f'read {i//1000}k lines...')
             if line.startswith("#"): 
                 continue
             chr, source, feature, start, stop, score, strand, phase, attributes, tags = read_gtf_line(line)
+            gene_id = attributes['gene_id']
+            gene_name = attributes['gene_name']
+            
             if feature == 'gene':
-                if chr not in chromosomes.keys():
-                  chromosome = Chromosome()
-                  chromosome.name = chr
-                  chromosomes[chr] = chromosome
+                if chr not in chromosomes:
+                    chromosome = Chromosome.from_name(chr)
+                    if chromosome is None:
+                        chromosome = Chromosome()
+                        chromosome.name = chr
+                    chromosomes[chr] = chromosome
+                    db_session.add(chromosome)
                 else:
                     chromosome = chromosomes[chr]
 
-                gene = Gene()
-                gene.accession = attributes['gene_id']
-                gene.name = attributes['gene_name']
-                # gene.strand = strand
-                genes[attributes['gene_id']] = gene
-                db_session.add(gene)
-                chromosome.genes.append(gene)
-                db_session.add(chromosome)
-
+                if Gene.from_accession(gene_id) is None:
+                    gene = Gene()
+                    gene.accession = gene_id
+                    gene.name = gene_name
+                    # gene.strand = strand
+                    genes[gene_id] = gene
+                    db_session.add(gene)
+                    chromosome.genes.append(gene)
+                    
             elif feature == 'transcript':
-                
-                appris = APPRIS.NONE
-                start_nf, end_nf = False, False
-                for tag in tags:
-                    if 'appris_principal' in tag:
-                        appris = APPRIS.PRINCIPAL
-                    if 'appris_alternative' in tag:
-                        appris = APPRIS.ALTERNATIVE
-                    start_nf = start_nf or 'start_NF' in tag
-                    end_nf = end_nf or 'end_NF' in tag
-                transcript = GencodeTranscript(
-                    accession = attributes['transcript_id'],
-                    name = attributes['transcript_name'],
-                    strand = strand,
-                    appris = appris,
-                    start_nf = start_nf,
-                    end_nf = end_nf
-                )
-                genes[attributes['gene_id']].transcripts.append(transcript)
-                transcripts[attributes['transcript_id']] = transcript
-                db_session.add(transcript)
+                transcript_id = attributes['transcript_id']
+                transcript_name = attributes['transcript_name']
+                if Transcript.from_accession(transcript_id) is None:
+                    appris = APPRIS.NONE
+                    start_nf, end_nf = False, False
+                    for tag in tags:
+                        if 'appris_principal' in tag:
+                            appris = APPRIS.PRINCIPAL
+                        if 'appris_alternative' in tag:
+                            appris = APPRIS.ALTERNATIVE
+                        start_nf = start_nf or 'start_NF' in tag
+                        end_nf = end_nf or 'end_NF' in tag
+                    transcript = GencodeTranscript(
+                        accession = transcript_id,
+                        name = transcript_name,
+                        strand = strand,
+                        appris = appris,
+                        start_nf = start_nf,
+                        end_nf = end_nf
+                    )
+                    genes[gene_id].transcripts.append(transcript)
+                    transcripts[transcript_id] = transcript
+                    db_session.add(transcript)
                 
             elif feature == 'exon':
-                exon = GencodeExon(
-                    accession = attributes['exon_id'],
-                    start = start,
-                    stop = stop,
-                    transcript = transcripts[attributes['transcript_id']]
-                )
-                db_session.add(exon)
+                exon_id = attributes['exon_id']
+                if Exon.from_accession(exon_id) is None:
+                    exon = GencodeExon(
+                        accession = exon_id,
+                        start = start,
+                        stop = stop,
+                        transcript = transcripts[attributes['transcript_id']]
+                    )
+                    db_session.add(exon)
     
     # calculate the coordinates of each exon relative to the sequence of its parent transcript
     for transcript in transcripts.values():
@@ -118,8 +130,8 @@ def load_data_from_gtf(gtf_file: str) -> None:
     
 def load_transcript_fasta(transcript_fasta):
     for i, record in enumerate(SeqIO.parse(transcript_fasta, 'fasta')):
-        if i % 1000 == 0:
-            print(f'read {i}k entries...')
+        if i % 5000 == 0:
+            print(f'read {i//1000}k entries...')
         fields = record.id.split('|')
         transcript_name = fields[0]
         orf_coords = [field[4:] for field in fields if field.startswith('CDS:')][0]
@@ -131,26 +143,30 @@ def load_transcript_fasta(transcript_fasta):
             statement = select(Transcript).filter(Transcript.accession == transcript_name)
             result = db_session.execute(statement).one()
             transcript = result[0]
-            transcript.sequence = sequence
-
-            orf = Transcript()
-            orf.transcript = transcript
-            orf.transcript_start, orf.transcript_stop = orf_start, orf_end
-            orf.start = orf.nucleotides[0].coordinate
-            orf.stop = orf.nucleotides[-1].coordinate
-            if orf.start > orf.stop:
-                orf.start, orf.stop = orf.stop, orf.start
-            db_session.add(orf)
-
-            db_session.commit() #Attempt to commit all the records
         except NoResultFound:
             pass
             # logging.warning(f'could not get transcript {transcript_name} from database')
-        
+        else:
+            transcript.sequence = sequence
+            # check if ORF already exists
+            def has_same_range(orf):
+                return (orf.transcript_start, orf.transcript_stop) == (orf_start, orf_end)
+            if not any(has_same_range(orf) for orf in transcript.orfs):
+                orf = ORF()
+                orf.transcript = transcript
+                orf.transcript_start, orf.transcript_stop = orf_start, orf_end
+                orf.start = orf.nucleotides[0].coordinate
+                orf.stop = orf.nucleotides[-1].coordinate
+                if orf.start > orf.stop:
+                    orf.start, orf.stop = orf.stop, orf.start
+                db_session.add(orf)
+            db_session.commit() #Attempt to commit all the records
     # db_session.commit() #Attempt to commit all the records
 
 def load_translation_fasta(translation_fasta):
     for i, record in enumerate(SeqIO.parse(translation_fasta, 'fasta')):
+        if i % 5000 == 0:
+            print(f'read {i//1000}k entries...')
         fields = record.id.split('|')
         protein_id, transcript_id = fields[:2]
         sequence = str(record.seq)
@@ -159,19 +175,21 @@ def load_translation_fasta(translation_fasta):
             statement = select(Transcript).filter(Transcript.accession == transcript_id)
             result = db_session.execute(statement).one()
             transcript = result[0]
-
-            protein = Protein()
-            protein.sequence = sequence
-            protein.orf = transcript.orfs[0]
-            db_session.add(protein)
         except NoResultFound:
             pass
             # logging.warning(f'could not get transcript {transcript_id} from database')
-        
+        else:
+            def has_same_sequence(protein):
+                return protein.sequence == sequence
+            if not any(has_same_sequence(orf.protein) for orf in transcript.orfs if orf.protein):
+                protein = Protein()
+                protein.sequence = sequence
+                protein.orf = transcript.orfs[0]
+                db_session.add(protein)
     db_session.commit()
 
 path = '/home/redox/sheynkman-lab/biosurfer/data/biosurfer_demo_data/'
-gtf_file = 'chr22.gtf'
+gtf_file = 'chr19.gtf'
 tx_file = 'gencode.v38.pc_transcripts.fa'
 tl_file = 'gencode.v38.pc_translations.fa'
 # gtf_file = 'gencode.v38.annotation.gtf.toy'
@@ -180,7 +198,13 @@ tl_file = 'gencode.v38.pc_translations.fa'
 
 #%%
 start = time.time()
-load_data_from_gtf(path + gtf_file)
+load_data_from_gtf(path + 'chr19.gtf')
+end = time.time()
+print(f"Time to load gtf file\t{end - start:0.3g}")
+
+#%%
+start = time.time()
+load_data_from_gtf(path + 'chr22.gtf')
 end = time.time()
 print(f"Time to load gtf file\t{end - start:0.3g}")
 

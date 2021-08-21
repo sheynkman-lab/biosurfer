@@ -11,8 +11,7 @@ from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 from sqlalchemy import select
 
 from alignments import TranscriptBasedAlignment
-from database import db_session
-from models import Transcript, Exon, Gene, Protein, Transcript
+from models import Exon, Gene, Protein, Transcript, db_session
 from plotting import IsoformPlot
 
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
@@ -74,7 +73,10 @@ for name in gene_list:
         isoform_list = list(isoforms.values())
         anchor = isoform_list[0]
         for other in isoform_list[1:]:
-            aln_dict[other.orf.transcript.name] = TranscriptBasedAlignment(anchor, other)
+            try:
+                aln_dict[other.orf.transcript.name] = TranscriptBasedAlignment(anchor, other)
+            except Exception as e:
+                print(f'----------------\ncould not align {anchor} and {other} ({name}): {e}')
 
 # %%
 noncoding_transcripts = {transcript for gene in genes.values() for transcript in gene.transcripts if not transcript.orfs}
