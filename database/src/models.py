@@ -6,46 +6,76 @@ from warnings import warn
 from Bio.Seq import Seq
 from inscripta.biocantor.location.location_impl import (CompoundInterval,
                                                         SingleInterval)
-from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String, select
+from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
+                        create_engine, select)
+from sqlalchemy.ext.declarative import (declarative_base, declared_attr,
+                                        has_inherited_table)
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
-from sqlalchemy.orm import reconstructor, relationship
+from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
+                            sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
 
 from constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
-from database import Base, db_session
 from helpers import BisectDict
 
+db_path = 'sqlite:///gencode.sqlite3'
+engine = create_engine(db_path, convert_unicode=True)
+db_session = scoped_session(sessionmaker(autocommit=False,
+                                         autoflush=False,
+                                         bind=engine))
 
-class Chromosome(Base):
-    __tablename__ = 'chromosome'
+class Base:
+    @declared_attr
+    def __tablename__(cls):
+        if has_inherited_table(cls):
+            return None
+        return cls.__name__.lower()
+    
     id = Column(Integer, primary_key=True)
+
+Base = declarative_base(cls=Base)
+Base.query = db_session.query_property()
+
+
+class NameMixin:
     name = Column(String)
+
+    @classmethod
+    def from_name(cls, name: str):
+        statement = select(cls).filter(cls.name == name)
+        try:
+            return db_session.execute(statement).one()[cls]
+        except NoResultFound:
+            return None
+
+
+class AccessionMixin:
+    accession = Column(String)
+
+    @classmethod
+    def from_accession(cls, accession: str):
+        statement = select(cls).filter(cls.accession == accession)
+        try:
+            return db_session.execute(statement).one()[cls]
+        except NoResultFound:
+            return None
+
+
+class Chromosome(Base, NameMixin):
     genes = relationship('Gene', back_populates='chromosome')
 
     def __repr__(self) -> str:
         return self.name
 
 
-class Gene(Base):
-    __tablename__ = 'gene'
-
-    id = Column(Integer, primary_key=True)
-    accession = Column(String)
-    name = Column(String)
+class Gene(Base, NameMixin, AccessionMixin):
     chromosome_id = Column(Integer,ForeignKey('chromosome.id'))
-    transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name')
     chromosome = relationship('Chromosome', back_populates='genes')
+    transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name')
+
     def __repr__(self) -> str:
         return self.name
-    
-    @classmethod
-    def from_name(cls, name: str):
-        statement = select(Gene).filter(Gene.name == name)
-        try:
-            return db_session.execute(statement).one()[Gene]
-        except NoResultFound:
-            return None
     
     @hybrid_property
     def strand(self) -> Strand:
@@ -53,11 +83,7 @@ class Gene(Base):
         return strands.most_common(1)[0][0]
 
 
-class Transcript(Base):
-    __tablename__ = 'transcript'
-    id = Column(Integer, primary_key=True)
-    accession = Column(String)
-    name = Column(String)
+class Transcript(Base, NameMixin, AccessionMixin):
     strand = Column(Enum(Strand))
     type = Column(String)
     sequence = Column(String)
@@ -167,14 +193,6 @@ class Transcript(Base):
     def contains_coordinate(self, coordinate: int) -> bool:
         """Given a genomic coordinate (1-based), return whether or not the transcript contains the nucleotide at that coordinate."""
         return coordinate in self._nucleotide_mapping
-    
-    @classmethod
-    def from_name(cls, name: str):
-        statement = select(Transcript).filter(Transcript.name == name)
-        try:
-            return db_session.execute(statement).one()[Transcript]
-        except NoResultFound:
-            return None
 
 
 class GencodeTranscript(Transcript):
@@ -192,7 +210,7 @@ class GencodeTranscript(Transcript):
         self.end_nf = end_nf
     
     __mapper_args__ = {
-        'polymorphic_identity': 'gencode_transcript'
+        'polymorphic_identity': 'gencodetranscript'
     }
 
     @hybrid_property
@@ -200,10 +218,7 @@ class GencodeTranscript(Transcript):
         return not (self.start_nf or self.end_nf)
 
 
-class Exon(Base):
-    __tablename__ = 'exon'
-    id = Column(Integer, primary_key=True)
-    accession = Column(String)
+class Exon(Base, AccessionMixin):
     type = Column(String)
     position = Column(Integer)  # exon ordinal within parent transcript
     # genomic coordinates
@@ -262,7 +277,7 @@ class Exon(Base):
 
 class GencodeExon(Exon):
     __mapper_args__ = {
-        'polymorphic_identity': 'gencode_exon'
+        'polymorphic_identity': 'gencodeexon'
     }
 
     def __init__(self, *, accession, start, stop, transcript):
@@ -295,10 +310,7 @@ class Nucleotide:
     
 
 class ORF(Base):
-    __tablename__ = 'orf'
-    id = Column(Integer, primary_key=True)
     # genomic coordinates
-    # TODO: pull these from first and last exon
     start = Column(Integer)  
     stop = Column(Integer)  
     # transcript coordinates
@@ -395,11 +407,7 @@ class UTR:
 
 
 class Protein(Base):
-    __tablename__ = 'protein'
-    id = Column(Integer, primary_key=True)
-    
     sequence = Column(String)
-    
     orf_id = Column(Integer, ForeignKey('orf.id'))
     orf = relationship(
         'ORF',
