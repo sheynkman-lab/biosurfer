@@ -10,7 +10,7 @@ from sqlalchemy.exc import NoResultFound
 
 from constants import APPRIS
 from database import Base, db_session, engine
-from models import (ORF, Chromosome, GencodeExon, GencodeTranscript, Gene,
+from models import (Transcript, Chromosome, GencodeExon, GencodeTranscript, Gene,
                     Protein, Transcript)
 
 
@@ -133,7 +133,7 @@ def load_transcript_fasta(transcript_fasta):
             transcript = result[0]
             transcript.sequence = sequence
 
-            orf = ORF()
+            orf = Transcript()
             orf.transcript = transcript
             orf.transcript_start, orf.transcript_stop = orf_start, orf_end
             orf.start = orf.nucleotides[0].coordinate
