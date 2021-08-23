@@ -7,7 +7,7 @@ from Bio.Seq import Seq
 from inscripta.biocantor.location.location_impl import (CompoundInterval,
                                                         SingleInterval)
 from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
-                        create_engine, select)
+                        create_engine)
 from sqlalchemy.ext.declarative import (declarative_base, declared_attr,
                                         has_inherited_table)
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
@@ -16,7 +16,6 @@ from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.sql import exists
-from sqlalchemy.sql.schema import UniqueConstraint
 
 from constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
 from helpers import BisectDict
@@ -49,10 +48,6 @@ class NameMixin:
             return cls.query.where(cls.name == name).one()
         except NoResultFound:
             return None
-    
-    @classmethod
-    def name_exists(cls, name: str):
-        return db_session.query(exists().where(cls.name == name)).scalar()
 
 
 class AccessionMixin:
@@ -64,10 +59,6 @@ class AccessionMixin:
             return cls.query.where(cls.accession == accession).one()
         except NoResultFound:
             return None
-    
-    @classmethod
-    def accession_exists(cls, accession: str):
-        return db_session.query(exists().where(cls.accession == accession)).scalar()
 
 
 class Chromosome(Base, NameMixin):

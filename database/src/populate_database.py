@@ -1,15 +1,11 @@
 #%%
 import logging
 import time
-from operator import attrgetter
 
 from Bio import SeqIO
-from inscripta.biocantor.location.location_impl import SingleInterval, Strand
-from sqlalchemy import and_, select
-from sqlalchemy.exc import NoResultFound
-from sqlalchemy.sql import exists
+from inscripta.biocantor.location.location_impl import SingleInterval
 
-from constants import APPRIS
+from constants import APPRIS, Strand
 from models import (ORF, Base, Chromosome, Exon, GencodeExon,
                     GencodeTranscript, Gene, Protein, Transcript, db_session,
                     engine)
