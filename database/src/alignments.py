@@ -439,6 +439,8 @@ def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> Li
                         event_type = TranscriptAlignCat.FRAME_AHEAD
                     elif coord_diff > 0:
                         event_type = TranscriptAlignCat.FRAME_BEHIND
+                    elif anchor_current.amino_acid is other_current.amino_acid:
+                        event_type = TranscriptAlignCat.EDGE_MATCH
                     elif anchor_current.amino_acid is not other_current.amino_acid:
                         event_type = TranscriptAlignCat.EDGE_MISMATCH
                 elif overlap == 3 and anchor_current.amino_acid is other_current.amino_acid:
@@ -526,6 +528,7 @@ def get_transcript_blocks(aln: Iterable['ResidueAlignment']) -> List['Transcript
 
 
 def get_protein_blocks(parent: 'TranscriptBasedAlignment') -> List['ProteinAlignmentBlock']:
+    EDGE = {TranscriptAlignCat.EDGE_MATCH, TranscriptAlignCat.EDGE_MISMATCH}
     # TODO: account for amino acid sequence
     pblocks = []
     for i, (is_match, tblock_group) in enumerate(groupby(parent.transcript_blocks, key=lambda tblock: tblock.category is TranscriptAlignCat.MATCH)):
@@ -533,7 +536,7 @@ def get_protein_blocks(parent: 'TranscriptBasedAlignment') -> List['ProteinAlign
         if is_match:
             pblock_category = ProteinAlignCat.MATCH
         else:
-            categories = {tblock.category for tblock in tblock_group if tblock.category is not TranscriptAlignCat.EDGE_MISMATCH}
+            categories = {tblock.category for tblock in tblock_group if tblock.category not in EDGE}
             pblock_category = ProteinAlignCat.SUBSTITUTION
             if len(categories) == 1:
                 single_category = list(categories)[0]
