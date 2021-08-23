@@ -203,7 +203,7 @@ class GencodeTranscript(Transcript):
 
     @hybrid_property
     def basic(self):
-        return not (self.start_nf or self.end_nf)
+        return ~(self.start_nf | self.end_nf)
 
 
 class Exon(Base, AccessionMixin):

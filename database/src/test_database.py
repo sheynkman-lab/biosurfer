@@ -8,129 +8,67 @@ from warnings import filterwarnings
 import matplotlib.pyplot as plt
 from IPython.display import display
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
+from sqlalchemy.sql.expression import and_, func
 
 from alignments import TranscriptBasedAlignment
-from models import Exon, Gene, Protein, Transcript
+from models import ORF, Gene, Protein, db_session
+from models import GencodeTranscript as Transcript
 from plotting import IsoformPlot
 
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
+#%%
+# proteins = db_session.query(Protein).join(ORF, Transcript).where(Transcript.basic).order_by(func.random()).limit(20).all()
+# genes = {protein.gene for protein in proteins}
 
-def get_transcripts_sorted_by_appris(gene):
-    return sorted(gene.transcripts, key=attrgetter('appris'))
-
-
-def get_protein_isoforms(gene):
-    return {transcript.name: transcript.orfs[0].protein for transcript in get_transcripts_sorted_by_appris(gene) if transcript.orfs}
-
+gene_names = (
+    'ANKRD6',
+    'CAPN3',
+    'CCDC178',
+    'CSTF3',
+    'H1-0',
+    'HNF4A',
+    'HOMEZ',
+    'LZIC',
+    'MECP2',
+    'MEGF10',
+    'NAXD',
+    'RAD51AP1',
+    'RALGPS2',
+    'S100A13',
+    'TMPO',
+    'TSPAN12',
+    'TTC23L',
+    'VPS53',
+    'WIPF1',
+    'ZC3H14'
+)
+genes = [Gene.from_name(name) for name in gene_names]
+display(genes)
 
 #%%
-chr22_genes = (
-    'APOBEC3B',
-    'BID',
-    'CABIN1',
-    'CHEK2',
-    'DERL3',
-    'EWSR1',
-    'GGT1',
-    'GUCD1',
-    'INPP5J',
-    'LARGE1',
-    'MAPK12',
-    'MICAL3',
-    'NF2',
-    'PISD',
-    'POLR2F',
-    'RAC2',
-    'RBFOX2',
-    'SEPTIN5',
-    'SERHL2',
-    'SHANK3',
-    'SLC2A11',
-    'SMTN',
-    'SPECC1L',
-    'SYNGR1',
-    'TANGO2',
-)
-chr19_genes = (
-    'ACSBG2',
-    'APOE',
-    'ARHGEF1',
-    'ARMC6',
-    'ATP1A3',
-    'CACTIN',
-    'CEACAM5',
-    'CLASRP',
-    'CYP2B6',
-    'CYP2S1',
-    'DMAC2',
-    'ETV2',
-    'GCDH',
-    'HMG20B',
-    'HNRNPUL1',
-    'ICAM4',
-    'KLF2',
-    'KLK3',
-    'LSR',
-    'MBOAT7',
-    'NOSIP',
-    'OSCAR',
-    # 'SELENOW',
-    'TIMM50',
-)
-gene_list = chr19_genes
-annotations_output = 'chr19_annotations.tsv'
-alignments_output = 'chr19_alignments.txt'
-genes = dict()
-transcripts = dict()
-proteins = dict()
+annotations_output = 'sample_annotations.tsv'
+alignments_output = 'sample_alignments.txt'
 aln_dict = dict()
-
-for name in gene_list:
-    try:
-        gene = Gene.from_name(name)
-    except Exception as e:
-        print(f'----------------\ncould not get {name}')
-        traceback.print_exc()
-    else:
-        genes[name] = gene
-        transcript_list = [tx for tx in get_transcripts_sorted_by_appris(gene) if tx.basic and tx.orfs]
-        transcripts[name] = transcript_list
-        try:
-            isoforms = {transcript.name: transcript.orfs[0].protein for transcript in transcript_list}
-            proteins.update(isoforms)
-            isoform_list = list(isoforms.values())
-            anchor = isoform_list[0]
-            for other in isoform_list[1:]:
-                aln_dict[other.orf.transcript.name] = TranscriptBasedAlignment(anchor, other)
-        except Exception as e:
-            print(f'----------------\ncould not get proteins for {name}: {e}')
-
-# %%
-noncoding_transcripts = {transcript for gene in genes.values() for transcript in gene.transcripts if not transcript.orfs}
-
-# %%
-broken = set()
 force_plotting = False
 
-for name, tx_list in transcripts.items():
-    fig_path = f'../../data/plots/{name}_isoforms.png'
+for gene in genes:
+    transcript_list = sorted((tx for tx in gene.transcripts if tx.basic), key=attrgetter('appris'))
+    isoforms = [transcript.orfs[0].protein for transcript in transcript_list]
+    anchor = isoforms[0]
+    for other in isoforms[1:]:
+        aln_dict[other.orf.transcript.name] = TranscriptBasedAlignment(anchor, other)
+
+    fig_path = f'../../data/plots/{gene.name}_isoforms.png'
     if force_plotting or not os.path.isfile(fig_path):
-        try:
-            fig = plt.figure()
-            isoplot = IsoformPlot(tx_list)
-            isoplot.draw_all_isoforms()
-            isoplot.draw_frameshifts()
-        except Exception as e:
-            broken.add(name)
-            print(f'----------------\ncould not plot {name}')
-            traceback.print_exc()
-        else:
-            fig.set_size_inches(9, 0.5*len(isoplot.transcripts))
-            plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
-            print('saved '+fig_path)
-        finally:
-            plt.close(fig)
+        fig = plt.figure()
+        isoplot = IsoformPlot(transcript_list)
+        isoplot.draw_all_isoforms()
+        isoplot.draw_frameshifts()
+        fig.set_size_inches(9, 0.5*len(isoplot.transcripts))
+        plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
+        print('saved '+fig_path)
+        plt.close(fig)
 
 # %%
 with open(annotations_output, 'w') as f:
