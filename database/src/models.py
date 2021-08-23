@@ -15,6 +15,8 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy.sql import exists
+from sqlalchemy.sql.schema import UniqueConstraint
 
 from constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
 from helpers import BisectDict
@@ -32,7 +34,7 @@ class Base:
             return None
         return cls.__name__.lower()
     
-    id = Column(Integer, primary_key=True)
+    # id = Column(Integer, primary_key=True)
 
 Base = declarative_base(cls=Base)
 Base.query = db_session.query_property()
@@ -43,26 +45,33 @@ class NameMixin:
 
     @classmethod
     def from_name(cls, name: str):
-        statement = select(cls).filter(cls.name == name)
         try:
-            return db_session.execute(statement).one()[cls]
+            return cls.query.where(cls.name == name).one()
         except NoResultFound:
             return None
+    
+    @classmethod
+    def name_exists(cls, name: str):
+        return db_session.query(exists().where(cls.name == name)).scalar()
 
 
 class AccessionMixin:
-    accession = Column(String)
+    accession = Column(String, primary_key=True)
 
     @classmethod
     def from_accession(cls, accession: str):
-        statement = select(cls).filter(cls.accession == accession)
         try:
-            return db_session.execute(statement).one()[cls]
+            return cls.query.where(cls.accession == accession).one()
         except NoResultFound:
             return None
+    
+    @classmethod
+    def accession_exists(cls, accession: str):
+        return db_session.query(exists().where(cls.accession == accession)).scalar()
 
 
 class Chromosome(Base, NameMixin):
+    name = Column(String, primary_key=True)
     genes = relationship('Gene', back_populates='chromosome')
 
     def __repr__(self) -> str:
@@ -70,7 +79,7 @@ class Chromosome(Base, NameMixin):
 
 
 class Gene(Base, NameMixin, AccessionMixin):
-    chromosome_id = Column(Integer,ForeignKey('chromosome.id'))
+    chromosome_id = Column(Integer, ForeignKey('chromosome.name'))
     chromosome = relationship('Chromosome', back_populates='genes')
     transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name')
 
@@ -87,21 +96,21 @@ class Transcript(Base, NameMixin, AccessionMixin):
     strand = Column(Enum(Strand))
     type = Column(String)
     sequence = Column(String)
-    gene_id = Column(Integer, ForeignKey('gene.id'))
+    gene_id = Column(Integer, ForeignKey('gene.accession'))
     gene = relationship('Gene', back_populates='transcripts')
     exons = relationship(
         'Exon',
-        order_by='Exon.position',
+        order_by='Exon.transcript_start',
         collection_class=ordering_list('position', count_from=1),
         back_populates='transcript',
         uselist=True
     )
     orfs = relationship(
         'ORF',
-        order_by='ORF.start',
+        order_by='ORF.transcript_start',
         back_populates='transcript',
-        uselist=True)
-    # TODO: add start and stop attrs
+        uselist=True
+    )
 
     __mapper_args__ = {
         'polymorphic_on': type,
@@ -112,13 +121,17 @@ class Transcript(Base, NameMixin, AccessionMixin):
         self._nucleotides = None
         self._nucleotide_mapping = None
 
-    def __init__(self):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self._init_inner()
 
     @reconstructor
     def init_on_load(self):
         self._init_inner()
-        self._exon_mapping = BisectDict((exon.transcript_stop+1, i) for i, exon in enumerate(self.exons))
+        if self.exons and all(exon.transcript_stop for exon in self.exons):
+            self._exon_mapping = BisectDict((exon.transcript_stop+1, i) for i, exon in enumerate(self.exons))
+        else:
+            self._exon_mapping = None
     
     @hybrid_property
     def nucleotides(self):
@@ -200,14 +213,10 @@ class GencodeTranscript(Transcript):
     start_nf = Column(Boolean)
     end_nf = Column(Boolean)
     
-    def __init__(self, *, accession, name, strand, appris, start_nf, end_nf):
-        super().__init__()
-        self.accession = accession
-        self.name = name
-        self.strand = Strand.from_symbol(strand)
-        self.appris = appris
-        self.start_nf = start_nf
-        self.end_nf = end_nf
+    def __init__(self, **kwargs):
+        if 'strand' in kwargs:
+            kwargs['strand'] = Strand.from_symbol(kwargs['strand'])
+        super().__init__(**kwargs)
     
     __mapper_args__ = {
         'polymorphic_identity': 'gencodetranscript'
@@ -228,7 +237,7 @@ class Exon(Base, AccessionMixin):
     transcript_start = Column(Integer)
     transcript_stop = Column(Integer)
     # sequence = Column(String, default='')
-    transcript_id = Column(Integer, ForeignKey('transcript.id'))
+    transcript_id = Column(Integer, ForeignKey('transcript.accession'), primary_key=True)
     transcript = relationship(
         'Transcript', 
         back_populates='exons'
@@ -280,12 +289,6 @@ class GencodeExon(Exon):
         'polymorphic_identity': 'gencodeexon'
     }
 
-    def __init__(self, *, accession, start, stop, transcript):
-        self.accession = accession
-        self.start = start
-        self.stop = stop
-        self.transcript = transcript
-
 
 class Nucleotide:
     def __init__(self, parent, coordinate: int, position: int, base: str) -> None:
@@ -311,22 +314,24 @@ class Nucleotide:
 
 class ORF(Base):
     # genomic coordinates
-    start = Column(Integer)  
-    stop = Column(Integer)  
+    # start = Column(Integer)  
+    # stop = Column(Integer)  
     # transcript coordinates
-    transcript_start = Column(Integer)
-    transcript_stop = Column(Integer)
-
-    transcript_id = Column(Integer, ForeignKey('transcript.id'))
+    transcript_start = Column(Integer, primary_key=True)
+    transcript_stop = Column(Integer, primary_key=True)
+    transcript_id = Column(Integer, ForeignKey('transcript.accession'), primary_key=True)
     transcript = relationship(
         'Transcript', 
         back_populates='orfs'
     )
+    protein_id = Column(String, ForeignKey('protein.accession'))
     protein = relationship(
         'Protein',
         back_populates='orf',
         uselist=False
     )
+
+    # __table_args__ = (UniqueConstraint(transcript_id, transcript_start, transcript_stop, name='_transcript_orf_pair'),)
 
     @reconstructor
     def init_on_load(self):
@@ -342,6 +347,30 @@ class ORF(Base):
 
     def __repr__(self) -> str:
         return f'{self.transcript}:orf({self.transcript_start}-{self.transcript_stop})'
+
+    @hybrid_property
+    def start(self):
+        if self.transcript.strand is Strand.PLUS:
+            transcript_coord = self.transcript_start
+        elif self.transcript.strand is Strand.MINUS:
+            transcript_coord = self.transcript_stop
+        else:
+            return None
+        return self.transcript.nucleotides[transcript_coord - 1].coordinate
+
+    @hybrid_property
+    def stop(self):
+        if self.transcript.strand is Strand.PLUS:
+            transcript_coord = self.transcript_stop
+        elif self.transcript.strand is Strand.MINUS:
+            transcript_coord = self.transcript_start
+        else:
+            return None
+        return self.transcript.nucleotides[transcript_coord - 1].coordinate
+    
+    @hybrid_property
+    def length(self):
+        return self.transcript_stop - self.transcript_start + 1
 
     @hybrid_property
     def sequence(self):
@@ -406,15 +435,16 @@ class UTR:
         return f'{self.transcript}:{self.type}({self.transcript_start}-{self.transcript_stop})'
 
 
-class Protein(Base):
+class Protein(Base, AccessionMixin):
     sequence = Column(String)
-    orf_id = Column(Integer, ForeignKey('orf.id'))
     orf = relationship(
         'ORF',
-        back_populates='protein'
+        back_populates='protein',
+        uselist=False
     )
 
-    def __init__(self):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.residues = []
 
     @reconstructor
