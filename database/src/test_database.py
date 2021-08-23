@@ -73,12 +73,12 @@ for gene in genes:
 # %%
 with open(annotations_output, 'w') as f:
     writer = csv.writer(f, delimiter='\t', quotechar='"')
-    writer.writerow(['anchor', 'other', 'category', 'region', 'annotation'])
+    writer.writerow(['anchor', 'other', 'category', 'region', 'event', 'annotation'])
     for aln in aln_dict.values():
         aln.annotate()
         for pblock in aln.protein_blocks:
             if pblock.annotation:
-                writer.writerow([str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.annotation])
+                writer.writerow([str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.event, pblock.annotation])
 
 # %%
 all_full = '\n\n\n'.join(str(aln)+'\n'+aln.full for aln in aln_dict.values())
