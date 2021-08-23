@@ -237,9 +237,9 @@ class IsoformPlot:
             self.draw_point(track, stop_codon, type='line', color='red')
 
         if hasattr(tx, 'start_nf') and tx.start_nf:
-            self.draw_text(tx.first.coord, track, '! ', ha='right', va='center', weight='bold', color='r')
+            self.draw_text(tx.start if self.strand is Strand.PLUS else tx.stop, track, '! ', ha='right', va='center', weight='bold', color='r')
         if hasattr(tx, 'end_nf') and tx.end_nf:
-            self.draw_text(tx.last.coord, track, ' !', ha='left', va='center', weight='bold', color='r')
+            self.draw_text(tx.stop if self.strand is Strand.PLUS else tx.start, track, ' !', ha='left', va='center', weight='bold', color='r')
 
     def draw_all_isoforms(self):
         """Plot all isoforms."""

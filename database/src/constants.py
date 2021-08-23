@@ -58,6 +58,7 @@ class AminoAcid(StringEnum):
     SELENOCYSTEINE = 'U'
     SEC = 'U'    
     STOP = '*'  # included for ease of use
+    UNKNOWN = 'X'
     GAP = '-'
 
 
@@ -89,6 +90,20 @@ class TranscriptLevelAlignmentCategory(StringEnum):
     EDGE_MISMATCH = 'e'
     COMPLEX = 'x'
     UNKNOWN = '?'
+
+
+class ProteinRegion(OrderedEnum):
+    NTERMINUS = auto()
+    INTERNAL = auto()
+    CTERMINUS = auto()
+
+    def __str__(self):
+        if self is ProteinRegion.NTERMINUS:
+            return 'Nterm'
+        elif self is ProteinRegion.INTERNAL:
+            return 'internal'
+        elif self is ProteinRegion.CTERMINUS:
+            return 'Cterm'
 
 
 class APPRIS(OrderedEnum):
