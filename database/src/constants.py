@@ -1,8 +1,29 @@
-from enum import auto
-
-from inscripta.biocantor.location.location_impl import Strand
+from enum import auto, Enum
 
 from helpers import OrderedEnum, StringEnum
+
+
+class Strand(OrderedEnum):
+    PLUS = auto()
+    MINUS = auto()
+    UNKNOWN = auto()
+
+    def __str__(self):
+        if self is Strand.PLUS:
+            return '+'
+        elif self is Strand.MINUS:
+            return '-'
+        else:
+            return '?'
+    
+    @classmethod
+    def from_symbol(cls, symbol: str) -> 'Strand':
+        if symbol == '+':
+            return Strand.PLUS
+        elif symbol == '-':
+            return Strand.MINUS
+        else:
+            raise ValueError(f'\'{symbol}\' is not a valid strand')
 
 
 class Nucleobase(StringEnum):

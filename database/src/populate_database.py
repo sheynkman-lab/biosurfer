@@ -1,9 +1,9 @@
 #%%
 import logging
 import time
+from operator import itemgetter
 
 from Bio import SeqIO
-from inscripta.biocantor.location.location_impl import SingleInterval
 
 from constants import APPRIS, Strand
 from models import (ORF, Base, Chromosome, Exon, GencodeExon,
@@ -19,15 +19,16 @@ def read_gtf_line(line: str) -> list:
 
     Returns:
         list: gtf attributes
-            chromosome : str
-            source : str
-            feature : str
-            start : int
-            stop : int
-            score : str
-            strand : str
-            phase : str
-            attributes: dict
+        chromosome : str
+        source : str
+        feature : str
+        start : int
+        stop : int
+        score : str
+        strand : str
+        phase : str
+        attributes: dict
+        tags: list
 
     """
     chromosome, source, feature, start, stop, score, strand, phase, attributes = line.split('\t')
@@ -142,17 +143,13 @@ def load_data_from_gtf(gtf_file: str) -> None:
     print('calculating transcript-relative exon coordinates...')
     # calculate the coordinates of each exon relative to the sequence of its parent transcript
     for transcript_id, exon_list in transcripts_to_exons.items():
-        strand = Strand.MINUS if transcript_id in minus_transcripts else Strand.PLUS
-        exon_to_genomic_loc = [SingleInterval(exon['start'] - 1, exon['stop'], strand) for exon in exon_list]
-        transcript_genomic_loc = exon_to_genomic_loc[0]
-        for exon_genomic_loc in exon_to_genomic_loc[1:]:
-            transcript_genomic_loc = transcript_genomic_loc.union(exon_genomic_loc)
+        exon_list.sort(key=itemgetter('start'), reverse=transcript_id in minus_transcripts)
+        tx_idx = 1
         for i, exon in enumerate(exon_list):
-            # TODO: is it faster to just loop through transcript's exons and count off lengths manually?
-            exon_transcript_loc = exon_to_genomic_loc[i].location_relative_to(transcript_genomic_loc)
-            exon['transcript_start'] = exon_transcript_loc.start + 1
-            exon['transcript_stop'] = exon_transcript_loc.end
-        # transcript.exons.sort(key=attrgetter('transcript_start'))
+            exon_length = exon['stop'] - exon['start'] + 1
+            exon['transcript_start'] = tx_idx
+            exon['transcript_stop'] = tx_idx + exon_length - 1
+            tx_idx += exon_length
     db_session.bulk_update_mappings(GencodeExon, exons_to_update)
     db_session.bulk_insert_mappings(GencodeExon, exons_to_insert)
 

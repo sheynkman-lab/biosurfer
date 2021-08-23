@@ -4,8 +4,6 @@ from typing import List, Optional, Tuple
 from warnings import warn
 
 from Bio.Seq import Seq
-from inscripta.biocantor.location.location_impl import (CompoundInterval,
-                                                        SingleInterval)
 from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
                         create_engine)
 from sqlalchemy.ext.declarative import (declarative_base, declared_attr,
@@ -15,7 +13,6 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
-from sqlalchemy.sql import exists
 
 from constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
 from helpers import BisectDict
@@ -144,17 +141,8 @@ class Transcript(Base, NameMixin, AccessionMixin):
                     i += 1
         return self._nucleotides
 
-    
     def __repr__(self) -> str:
         return self.name
-
-    @hybrid_property
-    def _location(self):
-        exon = self.exons[0]
-        loc = exon._location
-        for exon in self.exons[1:]:
-            loc = loc.union(exon._location)
-        return loc
 
     @hybrid_property
     def start(self):
@@ -241,11 +229,7 @@ class Exon(Base, AccessionMixin):
 
     def __repr__(self) -> str:
         return f'{self.transcript}:exon{self.position}'
-
-    @hybrid_property
-    def _location(self):
-        return SingleInterval(self.transcript_start-1, self.transcript_stop, Strand.PLUS)
-    
+  
     @hybrid_property
     def length(self):
         return self.stop - self.start + 1

@@ -1,17 +1,16 @@
 #%%
+import csv
 import os
 import traceback
 from operator import attrgetter
 from warnings import filterwarnings
 
 import matplotlib.pyplot as plt
-import pandas as pd
 from IPython.display import display
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-from sqlalchemy import select
 
 from alignments import TranscriptBasedAlignment
-from models import Exon, Gene, Protein, Transcript, db_session
+from models import Exon, Gene, Protein, Transcript
 from plotting import IsoformPlot
 
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
@@ -134,15 +133,14 @@ for name, tx_list in transcripts.items():
             plt.close(fig)
 
 # %%
-for aln in aln_dict.values():
-    aln.annotate()
-
-all_annotations = pd.DataFrame.from_records(
-    ((str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.annotation) for aln in aln_dict.values() for pblock in aln.protein_blocks if pblock.annotation),
-    columns=('anchor', 'other', 'category', 'region', 'annotation')
-)
-display(all_annotations)
-all_annotations.to_csv(annotations_output, sep='\t', index=False)
+with open(annotations_output, 'w') as f:
+    writer = csv.writer(f, delimiter='\t', quotechar='"')
+    writer.writerow(['anchor', 'other', 'category', 'region', 'annotation'])
+    for aln in aln_dict.values():
+        aln.annotate()
+        for pblock in aln.protein_blocks:
+            if pblock.annotation:
+                writer.writerow([str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.annotation])
 
 # %%
 all_full = '\n\n\n'.join(str(aln)+'\n'+aln.full for aln in aln_dict.values())
