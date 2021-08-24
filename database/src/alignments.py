@@ -212,7 +212,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         next_anchor_exon = tblock._next_match_or_frame_tblock[0].anchor.codon[2].exon
                         if prev_anchor_exon is next_anchor_exon:
                             pblock._annotations.append(f'portion of {prev_anchor_exon} intronized')
-                            pblock.event = 'IR'
+                            pblock.event = 'IX'
                         else:
                             e_first = first_exon.position
                             e_last = last_exon.position
@@ -244,7 +244,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         next_other_exon = tblock._next_match_or_frame_tblock[0].other.codon[2].exon
                         if prev_other_exon is next_other_exon:
                             pblock._annotations.append(f'retained intron between {prev_anchor_exon} and {next_anchor_exon}')
-                            pblock.event = 'RI'
+                            pblock.event = 'IR'
                         else:
                             number_of_included_exons = last_exon.position - first_exon.position + 1
                             if prev_other_exon is first_exon:
@@ -307,7 +307,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         nterminal_pblock._annotations.append('usage of downstream alternative TIS revealed by splicing')  # TODO: indicate surrounding anchor exons
                         nterminal_pblock.event = 'dnTIS'
                     else:
-                        nterminal_pblock._annotations.append('usage of upstream TIS due to removal of anchor TIS by splicing')  # TODO: indicate anchor exon
+                        nterminal_pblock._annotations.append('usage of upstream start codon due to removal of downstream start codon by splicing')  # TODO: indicate anchor exon
                         nterminal_pblock.event = 'UIC-splice'
             else:
                 if downstream_start_codon_shared_nts == 3:
@@ -318,10 +318,10 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         caused_by_alt_tss = upstream_start_codon[0] > downstream_start_transcript.stop
                     if other_transcript is downstream_start_transcript:
                         if caused_by_alt_tss:
-                            nterminal_pblock._annotations.append('usage of downstream TIS due to removal of anchor TIS by alternative TSS')  # TODO: indicate anchor exon
+                            nterminal_pblock._annotations.append('usage of downstream start codon due to removal of upstream start codon by alternative TSS')  # TODO: indicate anchor exon
                             nterminal_pblock.event = 'DIC-TSS'
                         else:
-                            nterminal_pblock._annotations.append('usage of downstream TIS due to removal of anchor TIS by splicing')  # TODO: indicate anchor exon
+                            nterminal_pblock._annotations.append('usage of downstream start codon due to removal of upstream start codon by splicing')  # TODO: indicate anchor exon
                             nterminal_pblock.event = 'DIC-splice'
                     else:
                         if caused_by_alt_tss:
@@ -332,6 +332,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
 
                 else:
                     # mutually exclusive start codons
+                    # TODO: detect if downstream transcript's UTR overlaps upstream transcript's CDS
                     if alternative_tss:
                         nterminal_pblock._annotations.append('alternative TSS leading to mutually exclusive start codons')
                         nterminal_pblock.event = 'MXIC-TSS'
@@ -357,7 +358,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                     cterminal_pblock._annotations.append('alternative C-terminal exon')
                     cterminal_pblock.event = 'ACTE'
                 else:
-                    cterminal_pblock._annotations.append('anchor stop codon spliced out leading to usage of downstream stop codon')  # TODO: indicate location of other stop codon
+                    cterminal_pblock._annotations.append('upstream stop codon spliced out leading to usage of downstream stop codon')  # TODO: indicate location of other stop codon
                     cterminal_pblock.event = 'DTC-splice'
             elif upstream_cterm_res_aln.category is TranscriptAlignCat.INSERTION:
                 exon_extension_introduces_stop = upstream_cterm_tblock._prev_match_or_frame_tblock[-1].other.codon[0].exon is upstream_cterm_res_aln.other.codon[2].exon
