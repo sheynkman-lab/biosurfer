@@ -363,10 +363,6 @@ class ORF(Base):
     def exons(self):
         return self.transcript.exons[self._first_exon_index:self._last_exon_index+1]
 
-    @hybrid_property
-    def _location(self):
-        return SingleInterval(self.transcript_start-1, self.transcript_stop, Strand.PLUS)
-
 
 class UTR:
     def __init__(self, orf: 'ORF', type: 'UTRType', boundary_exon_index: int):

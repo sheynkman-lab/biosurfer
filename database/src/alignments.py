@@ -56,7 +56,18 @@ class ResidueAlignment(Alignment):
         self.category = category
 
 
-class AlignmentBlock(Sequence):
+class ResidueAlignmentSequence(Sequence):
+    @property
+    def full(self):
+        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self)
+        anchor_exon_str = ''.join(str(res.anchor.primary_exon.position % 10) if res.anchor.primary_exon else '-' for res in self)
+        other_str = ''.join(str(res.other.amino_acid) for res in self)
+        other_exon_str = ''.join(str(res.other.primary_exon.position % 10) if res.other.primary_exon else '-' for res in self)
+        cat_str = ''.join(str(res.category) for res in self)
+        return '\n'.join([anchor_exon_str, anchor_str, cat_str, other_str, other_exon_str])
+
+
+class AlignmentBlock(ResidueAlignmentSequence):
     def __init__(self, parent, position, start, end):
         self.parent = parent
         self.position = position
@@ -85,13 +96,6 @@ class AlignmentBlock(Sequence):
         if index < -self.length or index >= self.length:
             raise IndexError(f'{index} out of range for {self}')
         return (index % self.length) + self.start
-    
-    @property
-    def full(self):
-        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self)
-        other_str = ''.join(str(res.other.amino_acid) for res in self)
-        cat_str = ''.join(str(res.category) for res in self)
-        return anchor_str + '\n' + cat_str + '\n' + other_str
     
 
 class TranscriptAlignmentBlock(AlignmentBlock):
@@ -138,7 +142,7 @@ class ProteinAlignmentBlock(AlignmentBlock):
             self._event = 'complex'
 
 
-class TranscriptBasedAlignment(Alignment, Sequence):
+class TranscriptBasedAlignment(Alignment, ResidueAlignmentSequence):
     def __init__(self, anchor: 'Protein', other: 'Protein'):
         if anchor.orf.gene is not other.orf.gene:
             raise ValueError(f'{anchor} and {other} belong to different genes')
@@ -157,13 +161,6 @@ class TranscriptBasedAlignment(Alignment, Sequence):
     
     def __len__(self):
         return len(self._chain)
-
-    @property
-    def full(self):
-        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self)
-        other_str = ''.join(str(res.other.amino_acid) for res in self)
-        ttype_str = ''.join(str(res.category) for res in self)
-        return anchor_str + '\n' + ttype_str + '\n' + other_str
     
     # TODO: use Annotation classes in the future
     # TODO: detect NAGNAG splicing
@@ -307,7 +304,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         nterminal_pblock._annotations.append('usage of downstream alternative TIS revealed by splicing')  # TODO: indicate surrounding anchor exons
                         nterminal_pblock.event = 'dnTIS'
                     else:
-                        nterminal_pblock._annotations.append('usage of upstream start codon due to removal of downstream start codon by splicing')  # TODO: indicate anchor exon
+                        nterminal_pblock._annotations.append('downstream start codon spliced out leading to usage of upstream start codon')  # TODO: indicate anchor exon
                         nterminal_pblock.event = 'UIC-splice'
             else:
                 if downstream_start_codon_shared_nts == 3:
@@ -318,10 +315,10 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         caused_by_alt_tss = upstream_start_codon[0] > downstream_start_transcript.stop
                     if other_transcript is downstream_start_transcript:
                         if caused_by_alt_tss:
-                            nterminal_pblock._annotations.append('usage of downstream start codon due to removal of upstream start codon by alternative TSS')  # TODO: indicate anchor exon
+                            nterminal_pblock._annotations.append('alternative TSS leading to usage of downstream start codon')  # TODO: indicate anchor exon
                             nterminal_pblock.event = 'DIC-TSS'
                         else:
-                            nterminal_pblock._annotations.append('usage of downstream start codon due to removal of upstream start codon by splicing')  # TODO: indicate anchor exon
+                            nterminal_pblock._annotations.append('upstream start codon spliced out leading to usage of downstream start codon')  # TODO: indicate anchor exon
                             nterminal_pblock.event = 'DIC-splice'
                     else:
                         if caused_by_alt_tss:
