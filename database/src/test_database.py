@@ -23,25 +23,25 @@ filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
 gene_names = (
     'ANKRD6',
+    'APOBEC3B',
+    'BID',
     'CAPN3',
     'CCDC178',
     'CSTF3',
-    'H1-0',
+    'DERL3',
+    'ETV2',
     'HNF4A',
     'HOMEZ',
-    'LZIC',
     'MECP2',
     'MEGF10',
     'NAXD',
+    'POLR2F',
     'RAD51AP1',
-    'RALGPS2',
-    'S100A13',
+    'SLC2A11',
+    'TANGO2',
     'TMPO',
-    'TSPAN12',
     'TTC23L',
-    'VPS53',
     'WIPF1',
-    'ZC3H14'
 )
 genes = [Gene.from_name(name) for name in gene_names]
 display(genes)
@@ -65,7 +65,10 @@ for gene in genes:
         isoplot = IsoformPlot(transcript_list)
         isoplot.draw_all_isoforms()
         isoplot.draw_frameshifts()
-        fig.set_size_inches(9, 0.5*len(isoplot.transcripts))
+        k = 1
+        while 2*k*max(orf.stop - orf.start for tx in transcript_list for orf in tx.orfs) < max(tx.stop - tx.start for tx in transcript_list):
+            k *= 2
+        fig.set_size_inches(9*k, 0.5*len(isoplot.transcripts))
         plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
         print('saved '+fig_path)
         plt.close(fig)
