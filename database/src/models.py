@@ -1,6 +1,6 @@
 from collections import Counter
 from operator import attrgetter
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from warnings import warn
 
 from Bio.Seq import Seq
@@ -15,7 +15,7 @@ from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
 from sqlalchemy.orm.exc import NoResultFound
 
 from constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
-from helpers import BisectDict
+from helpers import BisectDict, frozendataclass
 
 db_path = 'sqlite:///gencode.sqlite3'
 engine = create_engine(db_path, convert_unicode=True)
@@ -108,6 +108,15 @@ class Transcript(Base, NameMixin, AccessionMixin):
     def _init_inner(self):
         self._nucleotides = None
         self._nucleotide_mapping = None
+        self._junction_mapping: Dict['Junction', Tuple['Exon', 'Exon']] = dict()
+        for i in range(1, len(self.exons)):
+            up_exon = self.exons[i-1]
+            down_exon = self.exons[i]
+            offset = -1 if self.strand is Strand.MINUS else 1
+            donor = up_exon.nucleotides[-1].coordinate + offset
+            acceptor = down_exon.nucleotides[0].coordinate - offset
+            junction = Junction(donor, acceptor, self.chromosome, self.strand)
+            self._junction_mapping[junction] = (up_exon, down_exon)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -145,11 +154,11 @@ class Transcript(Base, NameMixin, AccessionMixin):
         return self.name
 
     @hybrid_property
-    def start(self):
+    def start(self) -> int:
         return min(exon.start for exon in self.exons)
     
     @hybrid_property
-    def stop(self):
+    def stop(self) -> int:
         return max(exon.stop for exon in self.exons)
     
     @hybrid_property
@@ -157,7 +166,7 @@ class Transcript(Base, NameMixin, AccessionMixin):
         return len(self.sequence)
 
     @hybrid_property
-    def chromosome(self):
+    def chromosome(self) -> 'Chromosome':
         return self.gene.chromosome
     
     @hybrid_property
@@ -166,13 +175,17 @@ class Transcript(Base, NameMixin, AccessionMixin):
         # TODO: implement this
         raise NotImplementedError
     
+    @hybrid_property
+    def junctions(self):
+        return list(self._junction_mapping.keys())
+
     # These methods may seem redundant, but the idea is to keep the publicly accessible interface separate from the implementation details
     def get_exon_containing_position(self, position: int) -> 'Exon':
         """Given a position (1-based) within the transcript's nucleotide sequence, return the exon containing that position."""
         return self.exons[self._exon_mapping[position]]
     
     def get_exon_index_containing_position(self, position: int) -> int:
-        """Given a position (1-based) within the transcript's nucleotide sequence, return the number of the exon containing that position."""
+        """Given a position (1-based) within the transcript's nucleotide sequence, return the index (0-based) of the exon containing that position."""
         return self._exon_mapping[position]
     
     def get_nucleotide_from_coordinate(self, coordinate: int) -> 'Nucleotide':
@@ -185,6 +198,12 @@ class Transcript(Base, NameMixin, AccessionMixin):
     def contains_coordinate(self, coordinate: int) -> bool:
         """Given a genomic coordinate (1-based), return whether or not the transcript contains the nucleotide at that coordinate."""
         return coordinate in self._nucleotide_mapping
+    
+    def get_exons_from_junction(self, junction: 'Junction') -> Tuple['Exon', 'Exon']:
+        try:
+            return self._junction_mapping[junction]
+        except KeyError as e:
+            raise KeyError(f'{self} does not use junction {junction}') from e
 
 
 class GencodeTranscript(Transcript):
@@ -243,7 +262,7 @@ class Exon(Base, AccessionMixin):
         return self.gene.chromosome
     
     @hybrid_property
-    def strand(self):
+    def strand(self) -> 'Strand':
         return self.transcript.strand
     
     @hybrid_property
@@ -265,6 +284,7 @@ class GencodeExon(Exon):
     }
 
 
+# TODO: save memory usage with __slots__?
 class Nucleotide:
     def __init__(self, parent, coordinate: int, position: int, base: str) -> None:
         self.parent = parent
@@ -277,7 +297,15 @@ class Nucleotide:
         return f'{self.parent.chromosome}:{self.coordinate}({self.parent.strand}){self.base}'
     
     @property
-    def gene(self):
+    def chromosome(self) -> 'Chromosome':
+        return self.parent.chromosome
+    
+    @property
+    def strand(self) -> 'Strand':
+        return self.parent.strand
+
+    @property
+    def gene(self) -> 'Gene':
         if isinstance(self.parent, Gene):
             return self.parent
         return self.parent.gene
@@ -285,7 +313,18 @@ class Nucleotide:
     @property
     def exon(self) -> 'Exon':
         return self.parent.get_exon_containing_position(self.position)
+
+
+@frozendataclass
+class Junction:
+    donor: int
+    acceptor: int
+    chromosome: 'Chromosome'
+    strand: 'Strand'
     
+    def __repr__(self) -> str:
+        return f'{self.chromosome}({self.strand}):{self.donor}^{self.acceptor}'
+
 
 class ORF(Base):
     # genomic coordinates
@@ -344,24 +383,28 @@ class ORF(Base):
         return self.transcript.nucleotides[transcript_coord - 1].coordinate
     
     @hybrid_property
-    def length(self):
+    def length(self) -> int:
         return self.transcript_stop - self.transcript_start + 1
 
     @hybrid_property
-    def sequence(self):
+    def sequence(self) -> str:
         return self.transcript.sequence[self.transcript_start - 1:self.transcript_stop]
     
     @hybrid_property
-    def nucleotides(self):
+    def nucleotides(self) -> List['Nucleotide']:
         return self.transcript.nucleotides[self.transcript_start - 1:self.transcript_stop]
     
     @hybrid_property
-    def gene(self):
+    def gene(self) -> 'Gene':
         return self.transcript.gene
     
     @hybrid_property
-    def exons(self):
+    def exons(self) -> List['Exon']:
         return self.transcript.exons[self._first_exon_index:self._last_exon_index+1]
+    
+    @hybrid_property
+    def junctions(self) -> List['Junction']:
+        return self.transcript.junctions[self._first_exon_index:self._last_exon_index]
 
 
 class UTR:

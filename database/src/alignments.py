@@ -1,15 +1,16 @@
+import csv
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Sequence
-from itertools import chain, groupby
+from itertools import chain, groupby, product
 from operator import attrgetter
-from typing import Iterable, List, Optional, Union, MutableSequence
+from typing import Iterable, List, MutableSequence, Optional, Union
 
-from constants import AminoAcid, ProteinRegion, Strand
-from constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
+from constants import AminoAcid
 from constants import ProteinLevelAlignmentCategory as ProteinAlignCat
-from models import Transcript, Exon, Nucleotide, Protein, Residue, Transcript
-
+from constants import ProteinRegion, Strand
+from constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
+from models import Exon, Nucleotide, Protein, Residue, Transcript
 
 # def get_first_nt_adjusted_coord(res: 'Residue', strand: 'Strand' = Strand.PLUS) -> int:
 #             if len(res.exons) == 1 or res.codon[0].exon is res.codon[1].exon:
@@ -545,3 +546,21 @@ def get_protein_blocks(parent: 'TranscriptBasedAlignment') -> List['ProteinAlign
         pblocks.append(ProteinAlignmentBlock(parent, i, tblock_group, pblock_category))
     return pblocks
     
+### helper functions ###
+
+def pairwise_align_protein_sets(setA: Iterable['Protein'], setB: Iterable['Protein']):
+    return [TranscriptBasedAlignment(protA, protB) for protA, protB in product(setA, setB)]
+
+
+def export_annotated_alignments_to_tsv(output_path, alignments):
+    with open(output_path, 'w') as f:
+        writer = csv.writer(f, delimiter='\t', quotechar='"')
+        writer.writerow(['anchor', 'other', 'category', 'region', 'event', 'annotation'])
+        for aln in alignments:
+            try:
+                aln.annotate()
+            except Exception as e:
+                print(f'Could not annotate {aln}: {e}')
+            for pblock in aln.protein_blocks:
+                if pblock.annotation:
+                    writer.writerow([str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.event, pblock.annotation])
