@@ -37,7 +37,7 @@ Base.query = db_session.query_property()
 
 
 class NameMixin:
-    name = Column(String)
+    name = Column(String, index=True)
 
     @classmethod
     def from_name(cls, name: str):
@@ -48,7 +48,7 @@ class NameMixin:
 
 
 class AccessionMixin:
-    accession = Column(String, primary_key=True)
+    accession = Column(String, primary_key=True, index=True)
 
     @classmethod
     def from_accession(cls, accession: str):
