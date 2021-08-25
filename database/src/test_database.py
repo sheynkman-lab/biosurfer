@@ -47,11 +47,8 @@ genes = [Gene.from_name(name) for name in gene_names]
 display(genes)
 
 #%%
-annotations_output = 'sample_annotations.tsv'
-alignments_output = 'sample_alignments.txt'
-aln_dict = dict()
 force_plotting = False
-
+aln_dict = dict()
 for gene in genes:
     transcript_list = sorted((tx for tx in gene.transcripts if tx.basic), key=attrgetter('appris'))
     isoforms = [transcript.orfs[0].protein for transcript in transcript_list]
@@ -74,16 +71,22 @@ for gene in genes:
         plt.close(fig)
 
 # %%
+annotations_output = 'sample_annotations.tsv'
 with open(annotations_output, 'w') as f:
     writer = csv.writer(f, delimiter='\t', quotechar='"')
     writer.writerow(['anchor', 'other', 'category', 'region', 'event', 'annotation'])
     for aln in aln_dict.values():
-        aln.annotate()
+        try:
+            aln.annotate()
+        except Exception as e:
+            print(aln)
+            traceback.print_exc()
         for pblock in aln.protein_blocks:
             if pblock.annotation:
                 writer.writerow([str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.event, pblock.annotation])
 
 # %%
+alignments_output = 'sample_alignments.txt'
 all_full = '\n\n\n'.join(str(aln)+'\n'+aln.full for aln in aln_dict.values())
 with open(alignments_output, 'w') as f:
     f.write(all_full)
