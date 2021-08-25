@@ -1,10 +1,12 @@
 from itertools import filterfalse, tee
+from operator import attrgetter
 from typing import Iterable
 
 from IPython.display import display
 
 from alignments import pairwise_align_protein_sets, export_annotated_pblocks_to_tsv
-from models import Gene, Junction, Transcript
+from models import Chromosome, Gene, Junction, Transcript
+from plotting import IsoformPlot
 
 
 def split_transcripts_on_junction_usage(junction: 'Junction', transcripts: Iterable['Transcript']):
@@ -17,7 +19,8 @@ def split_transcripts_on_junction_usage(junction: 'Junction', transcripts: Itera
 
 if __name__ == '__main__':
     gene = Gene.from_name('TANGO2')
-    junc = gene.transcripts[0].junctions[3]
+    junc = gene.transcripts[1].junctions[3]
+    # junc = Junction(69072023, 69072627, gene.chromosome, gene.strand)
     using, not_using = split_transcripts_on_junction_usage(junc, gene.transcripts)
     print(junc)
     print(f'using: {using}')
@@ -31,3 +34,7 @@ if __name__ == '__main__':
         pblocks_containing_junc.extend(pblock for pblock in aln.protein_blocks if {up_exon, down_exon} & pblock.other_exons)
     export_annotated_pblocks_to_tsv('test_sQTL_annotations.tsv', pblocks_containing_junc)
     print('done')
+
+    isoplot = IsoformPlot(sorted(gene.transcripts, key=attrgetter('appris')))
+    isoplot.draw_all_isoforms()
+    isoplot.draw_frameshifts()
