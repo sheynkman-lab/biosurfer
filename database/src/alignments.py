@@ -42,22 +42,17 @@ class GapResidue(Residue):
 
 
 # TODO: need to clean up Alignment class hierarchy
-class Alignment(ABC):
-    def __init__(self, anchor, other):
+class ResidueAlignment:
+    def __init__(self, anchor: 'Residue', other: 'Residue', category: 'TranscriptAlignCat'):
         self.anchor = anchor
         self.other = other
+        self.category = category
     
     def __repr__(self):
         return f'{self.anchor}|{self.other}'
 
 
-class ResidueAlignment(Alignment):
-    def __init__(self, anchor: 'Residue', other: 'Residue', category: 'TranscriptAlignCat'):
-        super().__init__(anchor, other)
-        self.category = category
-
-
-class ResidueAlignmentSequence(Sequence):
+class ResidueAlignmentSequence(Sequence[ResidueAlignment]):  # this might break compatibility with 3.8 and earlier?
     @property
     def full(self):
         anchor_str = ''.join(str(res.anchor.amino_acid) for res in self)
@@ -83,7 +78,7 @@ class AlignmentBlock(ResidueAlignmentSequence):
     def __len__(self):
         return self.length
 
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> Union[ResidueAlignment, List[ResidueAlignment]]:
         if isinstance(index, slice):
             if index.step:
                 raise NotImplementedError('AlignmentBlock does not support slices with steps')
@@ -98,6 +93,22 @@ class AlignmentBlock(ResidueAlignmentSequence):
             raise IndexError(f'{index} out of range for {self}')
         return (index % self.length) + self.start
     
+    @property
+    def anchor(self) -> 'Protein':
+        return self[0].anchor.protein
+
+    @property
+    def other(self) -> 'Protein':
+        return self[0].other.protein
+
+    @property
+    def anchor_exons(self):
+        return {exon for res_aln in self for exon in res_aln.anchor.exons}
+
+    @property
+    def other_exons(self):
+        return {exon for res_aln in self for exon in res_aln.other.exons}
+
 
 class TranscriptAlignmentBlock(AlignmentBlock):
     def __init__(self, parent, position, start, end, category: 'TranscriptAlignCat'):
@@ -110,6 +121,8 @@ class TranscriptAlignmentBlock(AlignmentBlock):
     def __repr__(self):
         return f'{self.parent}:tblock{self.position}-{self.category}'
 
+
+PBLOCK_FIELDS =  ('anchor', 'other', 'region', 'category', 'event', 'annotation')
 
 class ProteinAlignmentBlock(AlignmentBlock):
     def __init__(self, parent, position, tblocks: Sequence['TranscriptAlignmentBlock'], category: 'ProteinAlignCat'):
@@ -133,6 +146,7 @@ class ProteinAlignmentBlock(AlignmentBlock):
     def event(self):
         return self._event
 
+    # this is pretty kludgy, will replace when Annotation classes are implemented
     @event.setter
     def event(self, event):
         if self.event is None or 'SIF' in event:
@@ -142,8 +156,11 @@ class ProteinAlignmentBlock(AlignmentBlock):
         else:
             self._event = 'complex'
 
+    def to_dict(self):
+        return {field: getattr(self, field) for field in PBLOCK_FIELDS}
 
-class TranscriptBasedAlignment(Alignment, ResidueAlignmentSequence):
+
+class TranscriptBasedAlignment(ResidueAlignmentSequence):
     def __init__(self, anchor: 'Protein', other: 'Protein'):
         if anchor.orf.gene is not other.orf.gene:
             raise ValueError(f'{anchor} and {other} belong to different genes')
@@ -151,11 +168,15 @@ class TranscriptBasedAlignment(Alignment, ResidueAlignmentSequence):
             raise ValueError(f'{anchor.orf.transcript} and {other.orf.transcript} are on different strands')
         else:
             strand = anchor.orf.transcript.strand
-        super().__init__(anchor, other)
+        self.anchor = anchor
+        self.other = other
         self._chain = rough_alignment(anchor, other, strand)
         refine_alignment(self._chain)
         self.transcript_blocks = get_transcript_blocks(self)
         self.protein_blocks = get_protein_blocks(self)
+
+    def __repr__(self):
+        return f'{self.anchor}|{self.other}'
 
     def __getitem__(self, index):
         return self._chain[index]
@@ -552,15 +573,10 @@ def pairwise_align_protein_sets(setA: Iterable['Protein'], setB: Iterable['Prote
     return [TranscriptBasedAlignment(protA, protB) for protA, protB in product(setA, setB)]
 
 
-def export_annotated_alignments_to_tsv(output_path, alignments):
+def export_annotated_pblocks_to_tsv(output_path, pblocks: Iterable['ProteinAlignmentBlock']):
     with open(output_path, 'w') as f:
-        writer = csv.writer(f, delimiter='\t', quotechar='"')
-        writer.writerow(['anchor', 'other', 'category', 'region', 'event', 'annotation'])
-        for aln in alignments:
-            try:
-                aln.annotate()
-            except Exception as e:
-                print(f'Could not annotate {aln}: {e}')
-            for pblock in aln.protein_blocks:
-                if pblock.annotation:
-                    writer.writerow([str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.event, pblock.annotation])
+        writer = csv.DictWriter(f, fieldnames=PBLOCK_FIELDS, delimiter='\t', quotechar='"')
+        writer.writeheader()
+        for pblock in pblocks:
+            if pblock.annotation:
+                writer.writerow(pblock.to_dict())
