@@ -6,11 +6,11 @@ from itertools import chain, groupby, product
 from operator import attrgetter
 from typing import Iterable, List, MutableSequence, Optional, Union
 
-from constants import AminoAcid
-from constants import ProteinLevelAlignmentCategory as ProteinAlignCat
-from constants import ProteinRegion, Strand
-from constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
-from models import Exon, Nucleotide, Protein, Residue, Transcript
+from biosurfer.core.constants import AminoAcid
+from biosurfer.core.constants import ProteinLevelAlignmentCategory as ProteinAlignCat
+from biosurfer.core.constants import ProteinRegion, Strand
+from biosurfer.core.constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
+from biosurfer.core.models import Exon, Nucleotide, Protein, Residue, Transcript
 
 # def get_first_nt_adjusted_coord(res: 'Residue', strand: 'Strand' = Strand.PLUS) -> int:
 #             if len(res.exons) == 1 or res.codon[0].exon is res.codon[1].exon:

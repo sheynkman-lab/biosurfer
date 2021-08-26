@@ -12,10 +12,10 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from brokenaxes import BrokenAxes
 
-from alignments import TranscriptBasedAlignment
-from constants import TranscriptLevelAlignmentCategory
-from helpers import Interval, IntervalTree
-from models import ORF, Gene, Protein, Strand, Transcript
+from biosurfer.core.alignments import TranscriptBasedAlignment
+from biosurfer.core.constants import TranscriptLevelAlignmentCategory
+from biosurfer.core.helpers import Interval, IntervalTree
+from biosurfer.core.models import ORF, Gene, Protein, Strand, Transcript
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes

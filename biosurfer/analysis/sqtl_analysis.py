@@ -4,9 +4,9 @@ from typing import Iterable
 
 from IPython.display import display
 
-from alignments import pairwise_align_protein_sets, export_annotated_pblocks_to_tsv
-from models import Chromosome, Gene, Junction, Transcript
-from plotting import IsoformPlot
+from biosurfer.core.alignments import pairwise_align_protein_sets, export_annotated_pblocks_to_tsv
+from biosurfer.core.models import Chromosome, Gene, Junction, Transcript
+from biosurfer.plots.plotting import IsoformPlot
 
 
 def split_transcripts_on_junction_usage(junction: 'Junction', transcripts: Iterable['Transcript']):
@@ -38,3 +38,4 @@ if __name__ == '__main__':
     isoplot = IsoformPlot(sorted(gene.transcripts, key=attrgetter('appris')))
     isoplot.draw_all_isoforms()
     isoplot.draw_frameshifts()
+    isoplot.fig.set_size_inches(9, 0.5*len(gene.transcripts))

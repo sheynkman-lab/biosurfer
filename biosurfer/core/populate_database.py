@@ -5,8 +5,8 @@ from operator import itemgetter
 
 from Bio import SeqIO
 
-from constants import APPRIS, Strand
-from models import (ORF, Base, Chromosome, Exon, GencodeExon,
+from biosurfer.core.constants import APPRIS, Strand
+from biosurfer.core.models import (ORF, Base, Chromosome, Exon, GencodeExon,
                     GencodeTranscript, Gene, Protein, Transcript, db_session,
                     engine)
 

@@ -1,6 +1,6 @@
 from enum import auto, Enum
 
-from helpers import OrderedEnum, StringEnum
+from biosurfer.core.helpers import OrderedEnum, StringEnum
 
 
 class Strand(OrderedEnum):

@@ -14,10 +14,11 @@ from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
 
-from constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
-from helpers import BisectDict, frozendataclass
+from biosurfer.core.constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
+from biosurfer.core.helpers import BisectDict, frozendataclass
 
-db_path = 'sqlite:///gencode.sqlite3'
+working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
+db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
 engine = create_engine(db_path, convert_unicode=True)
 db_session = scoped_session(sessionmaker(autocommit=False,
                                          autoflush=False,
