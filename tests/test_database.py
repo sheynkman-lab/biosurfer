@@ -10,10 +10,10 @@ from IPython.display import display
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 from sqlalchemy.sql.expression import and_, func
 
-from alignments import TranscriptBasedAlignment
-from models import ORF, Gene, Protein, db_session
-from models import GencodeTranscript as Transcript
-from plotting import IsoformPlot
+from biosurfer.core.alignments import TranscriptBasedAlignment
+from biosurfer.core.models import ORF, Gene, Protein, db_session
+from biosurfer.core.models import GencodeTranscript as Transcript
+from biosurfer.plots.plotting import IsoformPlot
 
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
