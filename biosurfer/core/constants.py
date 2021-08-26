@@ -1,6 +1,6 @@
 from enum import auto, Enum
 
-from helpers import OrderedEnum, StringEnum
+from biosurfer.core.helpers import OrderedEnum, StringEnum
 
 
 class Strand(OrderedEnum):
@@ -108,7 +108,8 @@ class TranscriptLevelAlignmentCategory(StringEnum):
     DELETION = 'd'
     FRAME_AHEAD = '1'
     FRAME_BEHIND = '2'
-    EDGE_MISMATCH = 'e'
+    EDGE_MATCH = 'e'
+    EDGE_MISMATCH = 'g'
     COMPLEX = 'x'
     UNKNOWN = '?'
 

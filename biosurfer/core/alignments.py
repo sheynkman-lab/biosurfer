@@ -1,15 +1,16 @@
+import csv
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Sequence
-from itertools import chain, groupby
+from itertools import chain, groupby, product
 from operator import attrgetter
-from typing import Iterable, List, Optional, Union, MutableSequence
+from typing import Iterable, List, MutableSequence, Optional, Union
 
-from constants import AminoAcid, ProteinRegion, Strand
-from constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
-from constants import ProteinLevelAlignmentCategory as ProteinAlignCat
-from models import Transcript, Exon, Nucleotide, Protein, Residue, Transcript
-
+from biosurfer.core.constants import AminoAcid
+from biosurfer.core.constants import ProteinLevelAlignmentCategory as ProteinAlignCat
+from biosurfer.core.constants import ProteinRegion, Strand
+from biosurfer.core.constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
+from biosurfer.core.models import Exon, Nucleotide, Protein, Residue, Transcript
 
 # def get_first_nt_adjusted_coord(res: 'Residue', strand: 'Strand' = Strand.PLUS) -> int:
 #             if len(res.exons) == 1 or res.codon[0].exon is res.codon[1].exon:
@@ -41,22 +42,28 @@ class GapResidue(Residue):
 
 
 # TODO: need to clean up Alignment class hierarchy
-class Alignment(ABC):
-    def __init__(self, anchor, other):
+class ResidueAlignment:
+    def __init__(self, anchor: 'Residue', other: 'Residue', category: 'TranscriptAlignCat'):
         self.anchor = anchor
         self.other = other
+        self.category = category
     
     def __repr__(self):
         return f'{self.anchor}|{self.other}'
 
 
-class ResidueAlignment(Alignment):
-    def __init__(self, anchor: 'Residue', other: 'Residue', category: 'TranscriptAlignCat'):
-        super().__init__(anchor, other)
-        self.category = category
+class ResidueAlignmentSequence(Sequence[ResidueAlignment]):  # this might break compatibility with 3.8 and earlier?
+    @property
+    def full(self):
+        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self)
+        anchor_exon_str = ''.join(str(res.anchor.primary_exon.position % 10) if res.anchor.primary_exon else '-' for res in self)
+        other_str = ''.join(str(res.other.amino_acid) for res in self)
+        other_exon_str = ''.join(str(res.other.primary_exon.position % 10) if res.other.primary_exon else '-' for res in self)
+        cat_str = ''.join(str(res.category) for res in self)
+        return '\n'.join([anchor_exon_str, anchor_str, cat_str, other_str, other_exon_str])
 
 
-class AlignmentBlock(Sequence):
+class AlignmentBlock(ResidueAlignmentSequence):
     def __init__(self, parent, position, start, end):
         self.parent = parent
         self.position = position
@@ -71,7 +78,7 @@ class AlignmentBlock(Sequence):
     def __len__(self):
         return self.length
 
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> Union[ResidueAlignment, List[ResidueAlignment]]:
         if isinstance(index, slice):
             if index.step:
                 raise NotImplementedError('AlignmentBlock does not support slices with steps')
@@ -87,12 +94,21 @@ class AlignmentBlock(Sequence):
         return (index % self.length) + self.start
     
     @property
-    def full(self):
-        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self)
-        other_str = ''.join(str(res.other.amino_acid) for res in self)
-        cat_str = ''.join(str(res.category) for res in self)
-        return anchor_str + '\n' + cat_str + '\n' + other_str
-    
+    def anchor(self) -> 'Protein':
+        return self[0].anchor.protein
+
+    @property
+    def other(self) -> 'Protein':
+        return self[0].other.protein
+
+    @property
+    def anchor_exons(self):
+        return {exon for res_aln in self for exon in res_aln.anchor.exons}
+
+    @property
+    def other_exons(self):
+        return {exon for res_aln in self for exon in res_aln.other.exons}
+
 
 class TranscriptAlignmentBlock(AlignmentBlock):
     def __init__(self, parent, position, start, end, category: 'TranscriptAlignCat'):
@@ -106,6 +122,8 @@ class TranscriptAlignmentBlock(AlignmentBlock):
         return f'{self.parent}:tblock{self.position}-{self.category}'
 
 
+PBLOCK_FIELDS =  ('anchor', 'other', 'region', 'category', 'event', 'annotation')
+
 class ProteinAlignmentBlock(AlignmentBlock):
     def __init__(self, parent, position, tblocks: Sequence['TranscriptAlignmentBlock'], category: 'ProteinAlignCat'):
         start = min(tblock.start for tblock in tblocks)
@@ -115,6 +133,7 @@ class ProteinAlignmentBlock(AlignmentBlock):
         self.transcript_blocks = list(tblocks)
         self._annotations = []
         self.region = ProteinRegion.INTERNAL
+        self._event = None
 
     def __repr__(self):
         return f'{self.parent}:pblock{self.position}-{self.category}'
@@ -122,9 +141,26 @@ class ProteinAlignmentBlock(AlignmentBlock):
     @property
     def annotation(self):
         return ', \n'.join(self._annotations) if self._annotations else None
+    
+    @property
+    def event(self):
+        return self._event
+
+    # this is pretty kludgy, will replace when Annotation classes are implemented
+    @event.setter
+    def event(self, event):
+        if self.event is None or 'SIF' in event:
+            self._event = event
+        elif event in {'FS', 'NMD'}:
+            self._event = f'{self._event}-{event}'
+        else:
+            self._event = 'complex'
+
+    def to_dict(self):
+        return {field: getattr(self, field) for field in PBLOCK_FIELDS}
 
 
-class TranscriptBasedAlignment(Alignment, Sequence):
+class TranscriptBasedAlignment(ResidueAlignmentSequence):
     def __init__(self, anchor: 'Protein', other: 'Protein'):
         if anchor.orf.gene is not other.orf.gene:
             raise ValueError(f'{anchor} and {other} belong to different genes')
@@ -132,26 +168,23 @@ class TranscriptBasedAlignment(Alignment, Sequence):
             raise ValueError(f'{anchor.orf.transcript} and {other.orf.transcript} are on different strands')
         else:
             strand = anchor.orf.transcript.strand
-        super().__init__(anchor, other)
+        self.anchor = anchor
+        self.other = other
         self._chain = rough_alignment(anchor, other, strand)
         refine_alignment(self._chain)
         self.transcript_blocks = get_transcript_blocks(self)
         self.protein_blocks = get_protein_blocks(self)
+
+    def __repr__(self):
+        return f'{self.anchor}|{self.other}'
 
     def __getitem__(self, index):
         return self._chain[index]
     
     def __len__(self):
         return len(self._chain)
-
-    @property
-    def full(self):
-        anchor_str = ''.join(str(res.anchor.amino_acid) for res in self)
-        other_str = ''.join(str(res.other.amino_acid) for res in self)
-        ttype_str = ''.join(str(res.category) for res in self)
-        return anchor_str + '\n' + ttype_str + '\n' + other_str
     
-    # TODO: consider using Annotation classes in the future?
+    # TODO: use Annotation classes in the future
     # TODO: detect NAGNAG splicing
     def annotate(self) -> None:
         FRAMESHIFT = {TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}
@@ -198,21 +231,26 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         next_anchor_exon = tblock._next_match_or_frame_tblock[0].anchor.codon[2].exon
                         if prev_anchor_exon is next_anchor_exon:
                             pblock._annotations.append(f'portion of {prev_anchor_exon} intronized')
+                            pblock.event = 'IX'
                         else:
                             e_first = first_exon.position
                             e_last = last_exon.position
                             if prev_anchor_exon is first_exon:
                                 pblock._annotations.append(f'{first_exon} shortened by alternative splice donor')
+                                pblock.event = 'A5SS-del'
                                 e_first += 1
                             if next_anchor_exon is last_exon:
                                 pblock._annotations.append(f'{last_exon} shortened by alternative splice acceptor')
+                                pblock.event = 'A3SS-del'
                                 e_last -= 1
                             first_skipped_exon = anchor_transcript.exons[e_first-1]
                             last_skipped_exon = anchor_transcript.exons[e_last-1]
                             if first_skipped_exon is last_skipped_exon:
                                 pblock._annotations.append(f'{first_skipped_exon} skipped')
+                                pblock.event = 'SE'
                             elif e_first < e_last:
                                 pblock._annotations.append(f'exons {first_skipped_exon} to {last_skipped_exon} skipped')
+                                pblock.event = 'SE'
                 
                 elif tblock.category is TranscriptAlignCat.INSERTION:
                     first_exon = tblock[0].other.codon[2].exon
@@ -225,18 +263,23 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         next_other_exon = tblock._next_match_or_frame_tblock[0].other.codon[2].exon
                         if prev_other_exon is next_other_exon:
                             pblock._annotations.append(f'retained intron between {prev_anchor_exon} and {next_anchor_exon}')
+                            pblock.event = 'IR'
                         else:
                             number_of_included_exons = last_exon.position - first_exon.position + 1
                             if prev_other_exon is first_exon:
                                 pblock._annotations.append(f'{prev_anchor_exon} lengthened by alternative splice donor')
+                                pblock.event = 'A5SS-ins'
                                 number_of_included_exons -= 1
                             if next_other_exon is last_exon:
                                 pblock._annotations.append(f'{next_anchor_exon} lengthened by alternative splice acceptor')
+                                pblock.event = 'A3SS-ins'
                                 number_of_included_exons -= 1
                             if number_of_included_exons == 1:
                                 pblock._annotations.append(f'exon included between {prev_anchor_exon} and {next_anchor_exon}')
+                                pblock.event = 'IE'
                             elif number_of_included_exons > 1:
                                 pblock._annotations.append(f'{number_of_included_exons} exons included between {prev_anchor_exon} and {next_anchor_exon}')
+                                pblock.event = 'IE'
                 
                 elif tblock.category is TranscriptAlignCat.EDGE_MISMATCH:
                     pblock._annotations.append(f'{tblock[0].anchor} replaced with {tblock[0].other} due to use of alternate junction')
@@ -248,6 +291,7 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                         pblock._annotations.append(f'{first_exon} translated in different frame')
                     else:
                         pblock._annotations.append(f'{first_exon} to {last_exon} translated in different frame')
+                    pblock.event = 'FS'
         
         # classify N-terminal changes (if any)
         if nterminal_pblock.category is not ProteinAlignCat.MATCH:
@@ -272,39 +316,58 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                     # mutually shared start codons
                     if other_transcript is downstream_start_transcript:
                         nterminal_pblock._annotations.append('usage of downstream alternative TIS')  # TODO: indicate anchor exon
+                        nterminal_pblock.event = 'dnTIS'
                     else:
                         nterminal_pblock._annotations.append('usage of upstream alternative TIS')  # TODO: indicate anchor exon
+                        nterminal_pblock.event = 'upTIS'
                 else:
                     # shared upstream start, exclusive downstream start
                     if other_transcript is downstream_start_transcript:
-                        nterminal_pblock._annotations.append('usage of downstream TIS revealed by splicing')  # TODO: indicate surrounding anchor exons
+                        nterminal_pblock._annotations.append('usage of downstream alternative TIS revealed by splicing')  # TODO: indicate surrounding anchor exons
+                        nterminal_pblock.event = 'dnTIS'
                     else:
-                        nterminal_pblock._annotations.append('usage of upstream alternative TIS due to removal of anchor TIS by splicing')  # TODO: indicate anchor exon
+                        nterminal_pblock._annotations.append('downstream start codon spliced out leading to usage of upstream start codon')  # TODO: indicate anchor exon
+                        nterminal_pblock.event = 'UIC-splice'
             else:
                 if downstream_start_codon_shared_nts == 3:
                     # exclusive upstream start, shared downstream start
                     if strand is Strand.PLUS:
-                        cause = 'alternative TSS' if upstream_start_codon[0] < downstream_start_transcript.start else 'splicing'
+                        caused_by_alt_tss = upstream_start_codon[0] < downstream_start_transcript.start
                     elif strand is Strand.MINUS:
-                        cause = 'alternative TSS' if upstream_start_codon[0] > downstream_start_transcript.stop else 'splicing'
+                        caused_by_alt_tss = upstream_start_codon[0] > downstream_start_transcript.stop
                     if other_transcript is downstream_start_transcript:
-                        nterminal_pblock._annotations.append('usage of downstream alternative TIS due to removal of anchor TIS by ' + cause)  # TODO: indicate anchor exon
+                        if caused_by_alt_tss:
+                            nterminal_pblock._annotations.append('alternative TSS leading to usage of downstream start codon')  # TODO: indicate anchor exon
+                            nterminal_pblock.event = 'DIC-TSS'
+                        else:
+                            nterminal_pblock._annotations.append('upstream start codon spliced out leading to usage of downstream start codon')  # TODO: indicate anchor exon
+                            nterminal_pblock.event = 'DIC-splice'
                     else:
-                        nterminal_pblock._annotations.append('usage of upstream TIS revealed by ' + cause)  # TODO: indicate surrounding anchor exons
+                        if caused_by_alt_tss:
+                            nterminal_pblock._annotations.append('usage of upstream alternative TIS revealed by alternative TSS')  # TODO: indicate surrounding anchor exons
+                        else:
+                            nterminal_pblock._annotations.append('usage of upstream alternative TIS revealed by splicing')  # TODO: indicate surrounding anchor exons
+                        nterminal_pblock.event = 'upTIS'
+
                 else:
                     # mutually exclusive start codons
+                    # TODO: detect if downstream transcript's UTR overlaps upstream transcript's CDS
                     if alternative_tss:
                         nterminal_pblock._annotations.append('alternative TSS leading to mutually exclusive start codons')
+                        nterminal_pblock.event = 'MXIC-TSS'
                     else:
                         nterminal_pblock._annotations.append('5\' UTR splicing leading to mutually exclusive start codons')
+                        nterminal_pblock.event = 'MXIC-splice'
         
         # classify C-terminal changes (if any)
         if cterminal_pblock.category is not ProteinAlignCat.MATCH:
             if upstream_cterm_res_aln.category in FRAMESHIFT:
                 if upstream_cterm_res_aln.anchor.amino_acid is AminoAcid.STOP:
                     cterminal_pblock._annotations.append('splicing-induced frameshift leading to usage of downstream stop codon')  # TODO: indicate location of other stop codon
+                    cterminal_pblock.event = 'SIF-DTC'
                 else:
                     cterminal_pblock._annotations.append('splicing-induced frameshift leading to usage of upstream stop codon')  # TODO: indicate location of other stop codon
+                    cterminal_pblock.event = 'SIF-UTC'
             elif upstream_cterm_res_aln.category is TranscriptAlignCat.DELETION:
                 if strand is Strand.PLUS:
                     alt_cterm_exons = upstream_cterm_res_aln.anchor.exons[-1].stop < self.other.orf.exons[-1].start
@@ -312,8 +375,10 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                     alt_cterm_exons = upstream_cterm_res_aln.anchor.exons[-1].start > self.other.orf.exons[-1].stop
                 if alt_cterm_exons:
                     cterminal_pblock._annotations.append('alternative C-terminal exon')
+                    cterminal_pblock.event = 'ACTE'
                 else:
-                    cterminal_pblock._annotations.append('anchor stop codon spliced out leading to usage of downstream stop codon')  # TODO: indicate location of other stop codon
+                    cterminal_pblock._annotations.append('upstream stop codon spliced out leading to usage of downstream stop codon')  # TODO: indicate location of other stop codon
+                    cterminal_pblock.event = 'DTC-splice'
             elif upstream_cterm_res_aln.category is TranscriptAlignCat.INSERTION:
                 exon_extension_introduces_stop = upstream_cterm_tblock._prev_match_or_frame_tblock[-1].other.codon[0].exon is upstream_cterm_res_aln.other.codon[2].exon
                 if strand is Strand.PLUS:
@@ -323,14 +388,19 @@ class TranscriptBasedAlignment(Alignment, Sequence):
                 if exon_extension_introduces_stop:
                     lengthened_exon = upstream_cterm_tblock._prev_match_or_frame_tblock[-1].anchor.codon[0].exon
                     cterminal_pblock._annotations.append(f'upstream stop codon introduced by extension of {lengthened_exon}')
+                    cterminal_pblock.event = 'EXITC'
                 elif alt_cterm_exons:
                     cterminal_pblock._annotations.append('alternative C-terminal exon')
+                    cterminal_pblock.event = 'ACTE'
                 else:
                     cterminal_pblock._annotations.append('upstream stop codon introduced by splicing')  # TODO: indicate surrounding anchor exons
+                    cterminal_pblock.event = 'UTC-splice'
             else:
                 cterminal_pblock._annotations.append('complex C-terminal event')
+                cterminal_pblock.event = 'complex'
             if self.other.orf.nmd:
                 cterminal_pblock._annotations.append('NMD candidate')
+                cterminal_pblock.event = 'NMD'
 
 
 def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> List['ResidueAlignment']:
@@ -389,6 +459,8 @@ def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> Li
                         event_type = TranscriptAlignCat.FRAME_AHEAD
                     elif coord_diff > 0:
                         event_type = TranscriptAlignCat.FRAME_BEHIND
+                    elif anchor_current.amino_acid is other_current.amino_acid:
+                        event_type = TranscriptAlignCat.EDGE_MATCH
                     elif anchor_current.amino_acid is not other_current.amino_acid:
                         event_type = TranscriptAlignCat.EDGE_MISMATCH
                 elif overlap == 3 and anchor_current.amino_acid is other_current.amino_acid:
@@ -476,6 +548,7 @@ def get_transcript_blocks(aln: Iterable['ResidueAlignment']) -> List['Transcript
 
 
 def get_protein_blocks(parent: 'TranscriptBasedAlignment') -> List['ProteinAlignmentBlock']:
+    EDGE = {TranscriptAlignCat.EDGE_MATCH, TranscriptAlignCat.EDGE_MISMATCH}
     # TODO: account for amino acid sequence
     pblocks = []
     for i, (is_match, tblock_group) in enumerate(groupby(parent.transcript_blocks, key=lambda tblock: tblock.category is TranscriptAlignCat.MATCH)):
@@ -483,7 +556,7 @@ def get_protein_blocks(parent: 'TranscriptBasedAlignment') -> List['ProteinAlign
         if is_match:
             pblock_category = ProteinAlignCat.MATCH
         else:
-            categories = {tblock.category for tblock in tblock_group if tblock.category is not TranscriptAlignCat.EDGE_MISMATCH}
+            categories = {tblock.category for tblock in tblock_group if tblock.category not in EDGE}
             pblock_category = ProteinAlignCat.SUBSTITUTION
             if len(categories) == 1:
                 single_category = list(categories)[0]
@@ -494,3 +567,16 @@ def get_protein_blocks(parent: 'TranscriptBasedAlignment') -> List['ProteinAlign
         pblocks.append(ProteinAlignmentBlock(parent, i, tblock_group, pblock_category))
     return pblocks
     
+### helper functions ###
+
+def pairwise_align_protein_sets(setA: Iterable['Protein'], setB: Iterable['Protein']):
+    return [TranscriptBasedAlignment(protA, protB) for protA, protB in product(setA, setB)]
+
+
+def export_annotated_pblocks_to_tsv(output_path, pblocks: Iterable['ProteinAlignmentBlock']):
+    with open(output_path, 'w') as f:
+        writer = csv.DictWriter(f, fieldnames=PBLOCK_FIELDS, delimiter='\t', quotechar='"')
+        writer.writeheader()
+        for pblock in pblocks:
+            if pblock.annotation:
+                writer.writerow(pblock.to_dict())

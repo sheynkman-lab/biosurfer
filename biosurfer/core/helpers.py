@@ -1,6 +1,7 @@
 # utility functions that don't fit in other modules
 from bisect import bisect
 from collections.abc import Mapping
+from dataclasses import dataclass, field, fields
 from copy import copy
 from enum import Enum
 from operator import itemgetter
@@ -131,3 +132,14 @@ class BisectDict(Mapping, Generic[T]):
     
     def __len__(self):
         return len(self.breakpoints)
+
+
+def frozendataclass(cls):
+    frozencls = dataclass(cls, frozen=True)
+    field_names = {field.name for field in fields(frozencls)}
+    def replace(self, **kwargs):
+        """Return new instance of frozendataclass with updated values."""
+        new_field_values = {name: kwargs.get(name, getattr(self, name)) for name in field_names}
+        return frozencls(**new_field_values)
+    frozencls.replace = replace
+    return frozencls
