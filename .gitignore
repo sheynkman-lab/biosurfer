@@ -1,3 +1,5 @@
+# Database 
+*.sqlite3
 # VSCode
 .vscode/*
 !.vscode/settings.json
