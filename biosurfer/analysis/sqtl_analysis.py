@@ -22,6 +22,8 @@ if __name__ == '__main__':
     junc = gene.transcripts[1].junctions[3]
     # junc = Junction(69072023, 69072627, gene.chromosome, gene.strand)
     using, not_using = split_transcripts_on_junction_usage(junc, gene.transcripts)
+    using = sorted(using, key=attrgetter('appris'))
+    not_using = sorted(not_using, key=attrgetter('appris'))
     print(junc)
     print(f'using: {using}')
     print(f'not using: {not_using}')
@@ -35,7 +37,8 @@ if __name__ == '__main__':
     export_annotated_pblocks_to_tsv('test_sQTL_annotations.tsv', pblocks_containing_junc)
     print('done')
 
-    isoplot = IsoformPlot(sorted(gene.transcripts, key=attrgetter('appris')))
+    isoplot = IsoformPlot(using + not_using)
     isoplot.draw_all_isoforms()
     isoplot.draw_frameshifts()
+    isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='yellow')
     isoplot.fig.set_size_inches(9, 0.5*len(gene.transcripts))

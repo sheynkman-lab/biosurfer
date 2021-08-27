@@ -169,6 +169,30 @@ class IsoformPlot:
         subaxes = self._get_subaxes((start, stop))
         for ax in subaxes:
             ax.add_artist(copy(artist))
+    
+    def draw_background_rect(self, start: int, stop: int,
+                            track_first: int = None, track_last: int = None,
+                            padding: float = None, **kwargs):
+        """Draw a rectangle in the background of the plot."""
+        if track_first is None:
+            track_first = 0
+        if track_last is None:
+            track_last = len(self.transcripts) - 1
+        if padding is None:
+            padding = self.opts.max_track_width
+        top = track_first - padding
+        bottom = track_last + padding
+        artist = mpatches.Rectangle(
+            xy = (start, top),
+            width = stop - start,
+            height = bottom - top,
+            zorder = 0.5,
+            **kwargs
+        )
+
+        subaxes = self._get_subaxes((start, stop))
+        for ax in subaxes:
+            ax.add_artist(copy(artist))
 
     # TODO: implement draw_track_label
     def draw_track_label(self):
