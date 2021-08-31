@@ -1,4 +1,4 @@
-from enum import auto, Enum
+from enum import Flag, auto, Enum
 
 from biosurfer.core.helpers import OrderedEnum, StringEnum
 
@@ -112,6 +112,34 @@ class TranscriptLevelAlignmentCategory(StringEnum):
     EDGE_MISMATCH = 'g'
     COMPLEX = 'x'
     UNKNOWN = '?'
+
+
+class AnnotationFlag(Flag):
+    NONE = 0
+    SE = auto()
+    IE = auto()
+    A5SS = auto()
+    A3SS = auto()
+    IR = auto()
+    IX = auto()
+    SIF = auto()
+
+    MXIC = auto()
+    UIC = auto()
+    DIC = auto()
+    TIS = auto()
+    UP_TIS = UIC | TIS
+    DN_TIS = DIC | TIS
+    TSS = auto()
+
+    ACTE = auto()
+    UTC = auto()
+    DTC = auto()
+    EXITC = auto()
+
+    def __str__(self):
+        raw = super().__str__()
+        return raw.split('.')[1]
 
 
 class ProteinRegion(OrderedEnum):

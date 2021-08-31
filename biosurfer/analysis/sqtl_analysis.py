@@ -1,16 +1,17 @@
 from itertools import filterfalse, tee
 from operator import attrgetter
+from os.path import isfile
 from typing import Iterable
 from warnings import filterwarnings
 
-from IPython.display import display
-import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-
-from biosurfer.core.alignments import pairwise_align_protein_sets, export_annotated_pblocks_to_tsv
+import pandas as pd
+from biosurfer.core.alignments import (export_annotated_pblocks_to_tsv,
+                                       pairwise_align_protein_sets)
 from biosurfer.core.models import Chromosome, Gene, Junction, Transcript
 from biosurfer.plots.plotting import IsoformPlot
+from IPython.display import display
+from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
@@ -49,12 +50,13 @@ if __name__ == '__main__':
             pblocks_containing_junc.extend(pblock for pblock in aln.protein_blocks if {up_exon, down_exon} & pblock.other_exons)
         export_annotated_pblocks_to_tsv(f'{working_dir}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks_containing_junc)
 
-        isoplot = IsoformPlot(using + not_using)
-        isoplot.draw_all_isoforms()
-        isoplot.draw_frameshifts()
-        isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#ffffb7')
-        isoplot.fig.set_size_inches(9, 0.5*len(gene.transcripts))
         fig_path = f'{working_dir}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
-        plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
-        print('\tsaved '+fig_path)
-        plt.close(isoplot.fig)
+        if not isfile(fig_path):
+            isoplot = IsoformPlot(using + not_using)
+            isoplot.draw_all_isoforms()
+            isoplot.draw_frameshifts()
+            isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#ffffb7')
+            isoplot.fig.set_size_inches(9, 0.5*len(gene.transcripts))
+            plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
+            print('\tsaved '+fig_path)
+            plt.close(isoplot.fig)
