@@ -10,12 +10,12 @@ from typing import (TYPE_CHECKING, Collection, Dict, Iterable, List, Literal,
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
-from brokenaxes import BrokenAxes
-
 from biosurfer.core.alignments import TranscriptBasedAlignment
 from biosurfer.core.constants import TranscriptLevelAlignmentCategory
 from biosurfer.core.helpers import Interval, IntervalTree
-from biosurfer.core.models import ORF, Gene, Protein, Strand, Transcript
+from biosurfer.core.models import (ORF, Gene, Junction, Protein, Strand,
+                                   Transcript)
+from brokenaxes import BrokenAxes
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
