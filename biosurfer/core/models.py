@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod, abstractproperty
 from collections import Counter
 from operator import attrgetter
 from typing import Dict, List, Optional, Tuple
@@ -14,7 +15,7 @@ from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
 
-from biosurfer.core.constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
+from biosurfer.core.constants import APPRIS, AminoAcid, Nucleobase, Strand
 from biosurfer.core.helpers import BisectDict, frozendataclass
 
 working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
@@ -352,8 +353,16 @@ class ORF(Base):
     def init_on_load(self):
         self._first_exon_index = self.transcript.get_exon_index_containing_position(self.transcript_start)
         self._last_exon_index = self.transcript.get_exon_index_containing_position(self.transcript_stop)
-        self.utr5 = UTR(self, UTRType.FIVE_PRIME, self._first_exon_index)
-        self.utr3 = UTR(self, UTRType.THREE_PRIME, self._last_exon_index)
+        
+        utr5_boundary_exon_index = self._first_exon_index
+        utr3_boundary_exon_index = self._last_exon_index
+        if self.transcript.exons[utr5_boundary_exon_index].transcript_start == self.transcript_start:
+            utr5_boundary_exon_index -= 1
+        if self.transcript.exons[utr3_boundary_exon_index].transcript_stop == self.transcript_stop:
+            utr3_boundary_exon_index += 1
+
+        self.utr5 = FivePrimeUTR(self, utr5_boundary_exon_index) if utr5_boundary_exon_index >= 0 else None
+        self.utr3 = ThreePrimeUTR(self, utr3_boundary_exon_index) if utr3_boundary_exon_index < len(self.transcript.exons) else None
 
         # ORFs with stop codons at least 50 bp upstream of the last splice site in the mature transcript
         # (i.e. the beginning of the last exon) are considered candidates for nonsense-mediated decay (NMD)
@@ -408,20 +417,17 @@ class ORF(Base):
         return self.transcript.junctions[self._first_exon_index:self._last_exon_index]
 
 
-class UTR:
-    def __init__(self, orf: 'ORF', type: 'UTRType', boundary_exon_index: int):
+class UTR(ABC):
+    def __init__(self, orf: 'ORF', boundary_exon_index: int):
         self.orf = orf
         self.transcript: 'Transcript' = orf.transcript
-        self.type = type
         self._boundary_exon_index = boundary_exon_index
+        self.transcript_start = None
+        self.transcript_stop = None
 
-        if type is UTRType.FIVE_PRIME:
-            self.transcript_start = 1
-            self.transcript_stop = orf.transcript_start - 1
-        elif type is UTRType.THREE_PRIME:
-            self.transcript_start = orf.transcript_stop + 1
-            self.transcript_stop = self.transcript.length
-        self.length = self.transcript_stop - self.transcript_start + 1
+    @property
+    def length(self):
+        return self.transcript_stop - self.transcript_start + 1
 
     @property
     def nucleotides(self) -> List['Nucleotide']:
@@ -440,14 +446,41 @@ class UTR:
         return self.transcript.nucleotides[self.transcript_stop-1].coordinate
     
     @property
+    @abstractmethod
+    def exons(self):
+        raise NotImplementedError
+
+    @abstractmethod    
+    def __repr__(self):
+        raise NotImplementedError
+
+
+class FivePrimeUTR(UTR):
+    def __init__(self, orf: 'ORF', boundary_exon_index: int):
+        super().__init__(orf, boundary_exon_index)
+        self.transcript_start = 1
+        self.transcript_stop = orf.transcript_start - 1
+
+    @property
     def exons(self) -> List['Exon']:
-        if self.type is UTRType.FIVE_PRIME:
-            return self.transcript.exons[:self._boundary_exon_index+1]
-        elif self.type is UTRType.THREE_PRIME:
-            return self.transcript.exons[self._boundary_exon_index:]
+        return self.transcript.exons[:self._boundary_exon_index+1]
+
+    def __repr__(self):
+        return f'{self.transcript}:utr5({self.transcript_start}-{self.transcript_stop})'
+
+
+class ThreePrimeUTR(UTR):
+    def __init__(self, orf: 'ORF', boundary_exon_index: int):
+        super().__init__(orf, boundary_exon_index)
+        self.transcript_start = orf.transcript_stop + 1
+        self.transcript_stop = self.transcript.length
+    
+    @property
+    def exons(self) -> List['Exon']:
+        return self.transcript.exons[self._boundary_exon_index:]
     
     def __repr__(self):
-        return f'{self.transcript}:{self.type}({self.transcript_start}-{self.transcript_stop})'
+        return f'{self.transcript}:utr3({self.transcript_start}-{self.transcript_stop})'
 
 
 class Protein(Base, AccessionMixin):

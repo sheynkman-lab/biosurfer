@@ -83,17 +83,6 @@ class AminoAcid(StringEnum):
     GAP = '-'
 
 
-class UTRType(OrderedEnum):
-    FIVE_PRIME = auto()
-    THREE_PRIME = auto()
-
-    def __str__(self):
-        if self is UTRType.FIVE_PRIME:
-            return '5utr'
-        elif self is UTRType.THREE_PRIME:
-            return '3utr'
-
-
 class ProteinLevelAlignmentCategory(StringEnum):
     MATCH = 'M'
     INSERTION = 'I'
