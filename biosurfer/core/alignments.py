@@ -169,7 +169,6 @@ class ProteinAlignmentBlock(AlignmentBlock):
     def to_dict(self):
         return {field: getattr(self, field) for field in PBLOCK_FIELDS}
 
-
 class TranscriptBasedAlignment(ResidueAlignmentSequence):
     def __init__(self, anchor: 'Protein', other: 'Protein'):
         if anchor.orf.gene is not other.orf.gene:

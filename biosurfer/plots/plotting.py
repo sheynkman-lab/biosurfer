@@ -145,10 +145,10 @@ class IsoformPlot:
         """Draw a feature that spans a region. Appearance types are rectangle and line."""
         # TODO: make type an enum?
         if type == 'rect':
-            if y_offset is None:
-                y_offset = -0.5*self.opts.max_track_width
             if height is None:
                 height = self.opts.max_track_width
+            if y_offset is None:
+                y_offset = -0.5*height
             artist = mpatches.Rectangle(
                 xy = (start, track + y_offset),
                 width = stop - start,
@@ -226,24 +226,49 @@ class IsoformPlot:
             zorder = 1.5
         )
 
-        # TODO: plot thin UTRs and thick CDS
         # plot exons
+        utr_kwargs = {
+            'type': 'rect',
+            'edgecolor': 'k',
+            'facecolor': 'lightsteelblue',
+            'height': 0.5*self.opts.max_track_width,
+            'zorder': 1.5
+        }
+        cds_kwargs = {
+            'type': 'rect',
+            'edgecolor': 'k',
+            'facecolor': 'steelblue',
+            'zorder': 1.5
+        }
+        orf = tx.orfs[0]
+        if orf.utr5:
+            for exon in orf.utr5.exons:
+                if self.strand is Strand.PLUS:
+                    start = exon.start
+                    stop = min(exon.stop, orf.start)
+                elif self.strand is Strand.MINUS:
+                    start = max(exon.start, orf.stop)
+                    stop = exon.stop
+                self.draw_region(track, start=start, stop=stop, **utr_kwargs)
+        for exon in orf.exons:
+            start = max(exon.start, orf.start)
+            stop = min(exon.stop, orf.stop)
+            self.draw_region(track, start=start, stop=stop, **cds_kwargs)
+        if orf.utr3:
+            for exon in orf.utr3.exons:
+                if self.strand is Strand.PLUS:
+                    start = max(exon.start, orf.stop)
+                    stop = exon.stop
+                elif self.strand is Strand.MINUS:
+                    start = exon.start
+                    stop = min(exon.stop, orf.start)
+                self.draw_region(track, start=start, stop=stop, **utr_kwargs)
+        
         for exon in tx.exons:
-            color = 'C0'
             # label every 5th exon in anchor isoform for easier navigation
             if track == 0 and exon.position % 5 == 0:
-                self.draw_text((exon.start + exon.stop)//2, track - self.opts.max_track_width, f'E{exon.position}', ha='center', va='baseline')
-            # alpha_val = ABS_FRAME_ALPHA[exon.abs_frm] if self.opts.show_abs_frame else 1.0
-            self.draw_region(
-                track,
-                start = exon.start,
-                stop = exon.stop,
-                type = 'rect',
-                edgecolor = 'k',
-                facecolor = color,
-                zorder = 1.5
-            )
-            
+                self.draw_text((exon.start + exon.stop)//2, track - self.opts.max_track_width, f'E{exon.position}', ha='center', va='baseline')            
+                        
             # add subtle splice (delta) amounts, if option turned on
             # first, make sure the exon contains a (coding) cds object
             # if exon.cds:
