@@ -15,17 +15,22 @@ from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
+
 def split_transcripts_on_junction_usage(junction: 'Junction', transcripts: Iterable['Transcript']):
+    def contains_both_splice_sites(transcript):
+        return (transcript.start <= junction.donor <= transcript.stop and
+                transcript.start <= junction.acceptor <= transcript.stop)
     def uses_junction(transcript):
         return junction in transcript.junctions
-    tx1, tx2 = tee(transcripts)
+    tx1, tx2 = tee(filter(contains_both_splice_sites, transcripts))
     transcripts_using = filter(uses_junction, tx1)
     transcripts_not_using = filterfalse(uses_junction, tx2)
     return set(transcripts_using), set(transcripts_not_using)
 
 if __name__ == '__main__':
-    working_dir = '../../data/bone'
-    sqtls = pd.read_csv(f'{working_dir}/fibroblast_coloc_sqtls.csv')
+    data_dir = '../../data/bone'
+    output_dir = '../../output/bone'
+    sqtls = pd.read_csv(f'{data_dir}/fibroblast_coloc_sqtls.csv')
     sqtls = sqtls[sqtls['gene_type'] == 'protein_coding']
     genes = {gene.name: gene for gene in Gene.query.where(Gene.name.in_(sqtls['gene_name']))}
 
@@ -47,10 +52,12 @@ if __name__ == '__main__':
         for aln in alns:
             aln.annotate()
             up_exon, down_exon = aln.other.transcript.get_exons_from_junction(junc)
-            pblocks_containing_junc.extend(pblock for pblock in aln.protein_blocks if {up_exon, down_exon} & pblock.other_exons)
-        export_annotated_pblocks_to_tsv(f'{working_dir}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks_containing_junc)
+            def pblock_is_related_to_junc(pblock):
+                return up_exon in pblock.other_exons or down_exon in pblock.other_exons
+            pblocks_containing_junc.extend(filter(pblock_is_related_to_junc, aln.protein_blocks))
+        export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks_containing_junc)
 
-        fig_path = f'{working_dir}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
+        fig_path = f'{output_dir}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
         if not isfile(fig_path):
             isoplot = IsoformPlot(using + not_using)
             isoplot.draw_all_isoforms()

@@ -171,10 +171,15 @@ class Transcript(Base, NameMixin, AccessionMixin):
         return self.gene.chromosome
     
     @hybrid_property
+    def primary_orf(self):
+        if not self.orfs:
+            return None
+        return max(self.orfs, key=attrgetter('length'))
+
+    @hybrid_property
     def protein(self):
         """Get the "primary" protein produced by this transcript, if it exists."""
-        # TODO: implement this
-        raise NotImplementedError
+        return self.primary_orf.protein
     
     @hybrid_property
     def junctions(self):
@@ -557,3 +562,16 @@ class Residue:
     def primary_exon(self) -> 'Exon':
         exons = Counter([nt.exon for nt in self.codon])
         return exons.most_common(1)[0][0]
+    
+    @property
+    def junction(self) -> Optional['Junction']:
+        exons = self.exons
+        if len(exons) < 2:
+            return None
+        transcript = exons[0].transcript
+        # this is a bit kludgy, may need to add properties to Exon class
+        return transcript.junctions[exons[0].position - 1]
+    
+    @property
+    def is_gap(self):
+        return self.amino_acid is AminoAcid.GAP

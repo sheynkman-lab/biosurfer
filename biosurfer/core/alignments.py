@@ -34,7 +34,7 @@ class GapResidue(Residue):
 
     @Residue.exons.getter
     def exons(self):
-        return [self.upstream_exon, self.downstream_exon]
+        return list(filter(None, [self.upstream_exon, self.downstream_exon]))
     
     @Residue.primary_exon.getter
     def primary_exon(self):
@@ -103,11 +103,23 @@ class AlignmentBlock(ResidueAlignmentSequence):
 
     @property
     def anchor_exons(self):
-        return {exon for res_aln in self for exon in res_aln.anchor.exons}
+        exons = {res_aln.anchor.primary_exon for res_aln in self if not res_aln.anchor.is_gap}
+        exons = exons | {exon for res_aln in self for exon in res_aln.anchor.exons if res_aln.anchor.is_gap}
+        return exons
+
+    @property
+    def anchor_junctions(self):
+        return {res_aln.anchor.junction for res_aln in self if res_aln.anchor.junction}
 
     @property
     def other_exons(self):
-        return {exon for res_aln in self for exon in res_aln.other.exons}
+        exons = {res_aln.other.primary_exon for res_aln in self if not res_aln.other.is_gap}
+        exons = exons | {exon for res_aln in self for exon in res_aln.other.exons if res_aln.other.is_gap}
+        return exons
+
+    @property
+    def other_junctions(self):
+        return {res_aln.other.junction for res_aln in self if res_aln.other.junction}
 
 
 class TranscriptAlignmentBlock(AlignmentBlock):
