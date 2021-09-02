@@ -69,24 +69,20 @@ class Chromosome(Base, NameMixin):
 
 
 class Gene(Base, NameMixin, AccessionMixin):
-    chromosome_id = Column(Integer, ForeignKey('chromosome.name'))
+    strand = Column(Enum(Strand))
+    chromosome_id = Column(String, ForeignKey('chromosome.name'))
     chromosome = relationship('Chromosome', back_populates='genes')
     transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name')
 
     def __repr__(self) -> str:
         return self.name
-    
-    @hybrid_property
-    def strand(self) -> Strand:
-        strands = Counter(transcript.strand for transcript in self.transcripts)
-        return strands.most_common(1)[0][0]
 
 
 class Transcript(Base, NameMixin, AccessionMixin):
     strand = Column(Enum(Strand))
     type = Column(String)
     sequence = Column(String)
-    gene_id = Column(Integer, ForeignKey('gene.accession'))
+    gene_id = Column(String, ForeignKey('gene.accession'))
     gene = relationship('Gene', back_populates='transcripts')
     exons = relationship(
         'Exon',
@@ -237,7 +233,7 @@ class Exon(Base, AccessionMixin):
     transcript_start = Column(Integer)
     transcript_stop = Column(Integer)
     # sequence = Column(String, default='')
-    transcript_id = Column(Integer, ForeignKey('transcript.accession'), primary_key=True)
+    transcript_id = Column(String, ForeignKey('transcript.accession'), primary_key=True)
     transcript = relationship(
         'Transcript', 
         back_populates='exons'
@@ -335,7 +331,7 @@ class ORF(Base):
     # transcript coordinates
     transcript_start = Column(Integer, primary_key=True)
     transcript_stop = Column(Integer, primary_key=True)
-    transcript_id = Column(Integer, ForeignKey('transcript.accession'), primary_key=True)
+    transcript_id = Column(String, ForeignKey('transcript.accession'), primary_key=True)
     transcript = relationship(
         'Transcript', 
         back_populates='orfs'

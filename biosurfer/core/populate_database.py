@@ -79,6 +79,7 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 gene = {
                     'accession': gene_id,
                     'name': gene_name,
+                    'strand': Strand.from_symbol(strand),
                     'chromosome_id': chr
                 }
                 if gene_id in existing_genes:
