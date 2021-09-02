@@ -72,7 +72,7 @@ class Gene(Base, NameMixin, AccessionMixin):
     strand = Column(Enum(Strand))
     chromosome_id = Column(String, ForeignKey('chromosome.name'))
     chromosome = relationship('Chromosome', back_populates='genes')
-    transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name')
+    transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name', lazy='selectin')
 
     def __repr__(self) -> str:
         return self.name
@@ -89,7 +89,8 @@ class Transcript(Base, NameMixin, AccessionMixin):
         order_by='Exon.transcript_start',
         collection_class=ordering_list('position', count_from=1),
         back_populates='transcript',
-        uselist=True
+        uselist=True,
+        lazy='selectin'
     )
     orfs = relationship(
         'ORF',
