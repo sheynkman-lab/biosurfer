@@ -43,7 +43,7 @@ gene_names = (
     'TTC23L',
     'WIPF1',
 )
-genes = [Gene.from_name(name) for name in gene_names]
+genes = Gene.from_names(gene_names).values()
 display(genes)
 
 #%%
@@ -56,7 +56,7 @@ for gene in genes:
     for other in isoforms[1:]:
         aln_dict[other.orf.transcript.name] = TranscriptBasedAlignment(anchor, other)
 
-    fig_path = f'../data/plots/{gene.name}_isoforms.png'
+    fig_path = f'../output/plots/{gene.name}_isoforms.png'
     if force_plotting or not os.path.isfile(fig_path):
         fig = plt.figure()
         isoplot = IsoformPlot(transcript_list)
