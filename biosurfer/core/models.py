@@ -1,10 +1,13 @@
-from abc import ABC, abstractmethod, abstractproperty
+from abc import ABC, abstractmethod
 from collections import Counter
+from functools import cached_property
 from operator import attrgetter
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 from warnings import warn
 
 from Bio.Seq import Seq
+from biosurfer.core.constants import APPRIS, AminoAcid, Nucleobase, Strand
+from biosurfer.core.helpers import BisectDict, frozendataclass
 from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
                         create_engine)
 from sqlalchemy.ext.declarative import (declarative_base, declared_attr,
@@ -14,9 +17,6 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
-
-from biosurfer.core.constants import APPRIS, AminoAcid, Nucleobase, Strand
-from biosurfer.core.helpers import BisectDict, frozendataclass
 
 working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
 db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
@@ -48,6 +48,10 @@ class NameMixin:
         except NoResultFound:
             return None
 
+    @classmethod
+    def from_names(cls, names: Iterable[str]):
+        return {inst.name: inst for inst in cls.query.where(cls.name.in_(names))}
+
 
 class AccessionMixin:
     accession = Column(String, primary_key=True, index=True)
@@ -58,6 +62,10 @@ class AccessionMixin:
             return cls.query.where(cls.accession == accession).one()
         except NoResultFound:
             return None
+    
+    @classmethod
+    def from_accessions(cls, accessions: Iterable[str]):
+        return {inst.name: inst for inst in cls.query.where(cls.accession.in_(accessions))}
 
 
 class Chromosome(Base, NameMixin):
@@ -72,7 +80,12 @@ class Gene(Base, NameMixin, AccessionMixin):
     strand = Column(Enum(Strand))
     chromosome_id = Column(String, ForeignKey('chromosome.name'))
     chromosome = relationship('Chromosome', back_populates='genes')
-    transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name', lazy='selectin')
+    transcripts = relationship(
+        'Transcript',
+        back_populates='gene',
+        order_by='Transcript.name',
+        lazy='selectin'  # always load transcripts along with gene
+    )
 
     def __repr__(self) -> str:
         return self.name
@@ -90,7 +103,7 @@ class Transcript(Base, NameMixin, AccessionMixin):
         collection_class=ordering_list('position', count_from=1),
         back_populates='transcript',
         uselist=True,
-        lazy='selectin'
+        lazy='selectin'  # always load exons along with transcript
     )
     orfs = relationship(
         'ORF',
@@ -104,49 +117,49 @@ class Transcript(Base, NameMixin, AccessionMixin):
         'polymorphic_identity': 'transcript'
     }
 
-    def _init_inner(self):
-        self._nucleotides = None
-        self._nucleotide_mapping = None
-        self._junction_mapping: Dict['Junction', Tuple['Exon', 'Exon']] = dict()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.init_on_load()
+
+    @reconstructor
+    def init_on_load(self):
+        self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
+
+    # The reason we use cached properties here instead of setting things up in __init__ or init_on_load
+    # is to make sure the ORM eagerly loads all exons first.
+    @cached_property
+    def _exon_mapping(self) -> BisectDict:
+        return BisectDict((exon.transcript_stop+1, i) for i, exon in enumerate(self.exons))
+
+    @cached_property
+    def _junction_mapping(self) -> Dict['Junction', Tuple['Exon', 'Exon']]:
+        mapping = dict()
         for i in range(1, len(self.exons)):
             up_exon = self.exons[i-1]
             down_exon = self.exons[i]
             donor = up_exon.nucleotides[-1].coordinate
             acceptor = down_exon.nucleotides[0].coordinate
             junction = Junction(donor, acceptor, self.chromosome, self.strand)
-            self._junction_mapping[junction] = (up_exon, down_exon)
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._init_inner()
-
-    @reconstructor
-    def init_on_load(self):
-        self._init_inner()
-        if self.exons and all(exon.transcript_stop for exon in self.exons):
-            self._exon_mapping = BisectDict((exon.transcript_stop+1, i) for i, exon in enumerate(self.exons))
-        else:
-            self._exon_mapping = None
+            mapping[junction] = (up_exon, down_exon)
+        return mapping
     
-    @hybrid_property
+    @cached_property
     def nucleotides(self):
         if not self.sequence:
             raise AttributeError(f'{self.name} has no sequence')
-        elif self._nucleotides is None:
-            assert sum(exon.stop - exon.start + 1 for exon in self.exons) == len(self.sequence)
-            self._nucleotides = []
-            self._nucleotide_mapping = dict()
-            i = 0
-            for exon in self.exons:
-                coords = range(exon.start, exon.stop+1)
-                if self.strand is Strand.MINUS:
-                    coords = reversed(coords)
-                for coord in coords:
-                    nt = Nucleotide(self, coord, i+1, self.sequence[i])
-                    self._nucleotides.append(nt)
-                    self._nucleotide_mapping[coord] = nt
-                    i += 1
-        return self._nucleotides
+        assert sum(exon.length for exon in self.exons) == self.length
+        nucleotides = []
+        i = 0
+        for exon in self.exons:
+            coords = range(exon.start, exon.stop+1)
+            if self.strand is Strand.MINUS:
+                coords = reversed(coords)
+            for coord in coords:
+                nt = Nucleotide(self, coord, i+1, self.sequence[i])
+                nucleotides.append(nt)
+                self._nucleotide_mapping[coord] = nt
+                i += 1
+        return nucleotides
 
     def __repr__(self) -> str:
         return self.name
