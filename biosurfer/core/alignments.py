@@ -102,8 +102,12 @@ class AlignmentBlock(ResidueAlignmentSequence):
         return self[0].other.protein
 
     @property
+    def anchor_residues(self) -> List['Residue']:
+        return [res_aln.anchor for res_aln in self if not res_aln.anchor.is_gap]
+
+    @property
     def anchor_exons(self):
-        exons = {res_aln.anchor.primary_exon for res_aln in self if not res_aln.anchor.is_gap}
+        exons = {anchor_res.primary_exon for anchor_res in self.anchor_residues}
         exons = exons | {exon for res_aln in self for exon in res_aln.anchor.exons if res_aln.anchor.is_gap}
         return exons
 
@@ -112,8 +116,12 @@ class AlignmentBlock(ResidueAlignmentSequence):
         return {res_aln.anchor.junction for res_aln in self if res_aln.anchor.junction}
 
     @property
+    def other_residues(self) -> List['Residue']:
+        return [res_aln.other for res_aln in self if not res_aln.other.is_gap]
+
+    @property
     def other_exons(self):
-        exons = {res_aln.other.primary_exon for res_aln in self if not res_aln.other.is_gap}
+        exons = {other_res.primary_exon for other_res in self.other_residues}
         exons = exons | {exon for res_aln in self for exon in res_aln.other.exons if res_aln.other.is_gap}
         return exons
 
