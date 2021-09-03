@@ -64,7 +64,7 @@ class ResidueAlignmentSequence(Sequence[ResidueAlignment]):  # this might break 
 
 
 class AlignmentBlock(ResidueAlignmentSequence):
-    def __init__(self, parent, position, start, end):
+    def __init__(self, parent: 'TranscriptBasedAlignment', position: int, start: int, end: int):
         self.parent = parent
         self.position = position
         self.start = start  # 0-based, inclusive
