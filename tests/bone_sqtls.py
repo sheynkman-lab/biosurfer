@@ -14,12 +14,6 @@ from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
-colors = {
-    ProteinLevelAlignmentCategory.DELETION: 'mediumvioletred',
-    ProteinLevelAlignmentCategory.INSERTION: 'goldenrod',
-    ProteinLevelAlignmentCategory.SUBSTITUTION: 'lightseagreen'
-}
-
 data_dir = '../data/bone'
 output_dir = '../output/bone'
 sqtls = pd.read_csv(f'{data_dir}/fibroblast_coloc_sqtls.csv')
@@ -45,26 +39,8 @@ for index, row in sqtls.iterrows():
         isoplot.draw_all_isoforms()
         isoplot.draw_frameshifts()
         isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#ffffb7')
-
         for pblock in pblocks:
-            anchor = isoplot.transcripts.index(pblock.parent.anchor.transcript)
-            other = isoplot.transcripts.index(pblock.parent.other.transcript)
-            if pblock.category is ProteinLevelAlignmentCategory.DELETION:
-                start = pblock.anchor_residues[0].codon[1].coordinate
-                stop = pblock.anchor_residues[-1].codon[1].coordinate
-            else:
-                start = pblock.other_residues[0].codon[1].coordinate
-                stop = pblock.other_residues[-1].codon[1].coordinate
-            isoplot.draw_region(
-                other,
-                start = start,
-                stop = stop,
-                y_offset = 0.5*isoplot.opts.max_track_width,
-                height = 0.4*isoplot.opts.max_track_width,
-                edgecolor = 'none',
-                facecolor = colors[pblock.category]
-            )
-
+            isoplot.draw_protein_block(pblock)
         isoplot.fig.set_size_inches(9, 0.5*len(gene.transcripts))
         plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
         print('\tsaved '+fig_path)

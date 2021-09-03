@@ -24,21 +24,22 @@ def get_pblocks_related_to_junction(junction: 'Junction', transcripts: Iterable[
         aln.annotate()
         up_exon, down_exon = aln.other.transcript.get_exons_from_junction(junction)
         def is_related_to_junc(pblock):
-            if pblock.region is ProteinRegion.INTERNAL:
-                if pblock.category is ProteinLevelAlignmentCategory.DELETION:
-                    start = pblock.anchor_residues[0].codon[1].coordinate
-                    stop = pblock.anchor_residues[-1].codon[1].coordinate
-                else:
-                    start = pblock.other_residues[0].codon[1].coordinate
-                    stop = pblock.other_residues[-1].codon[1].coordinate
-                if junction.strand is Strand.PLUS:
-                    return junction.donor <= stop + 1 and start - 1 <= junction.acceptor
-                elif junction.strand is Strand.MINUS:
-                    return junction.donor >= stop - 1 and start + 1 >= junction.acceptor
-            elif pblock.region is ProteinRegion.NTERMINUS:
-                return down_exon in pblock.other_exons
-            elif pblock.region is ProteinRegion.CTERMINUS:
-                return up_exon in pblock.other_exons or down_exon in pblock.other_exons
+            result = False
+            if pblock.category is ProteinLevelAlignmentCategory.DELETION:
+                start = pblock.anchor_residues[0].codon[1].coordinate
+                stop = pblock.anchor_residues[-1].codon[1].coordinate
+            else:
+                start = pblock.other_residues[0].codon[1].coordinate
+                stop = pblock.other_residues[-1].codon[1].coordinate
+            if junction.strand is Strand.PLUS:
+                result = junction.donor <= stop + 1 and start - 1 <= junction.acceptor
+            elif junction.strand is Strand.MINUS:
+                result = junction.donor >= stop - 1 and start + 1 >= junction.acceptor
+            if pblock.region is ProteinRegion.NTERMINUS:
+                result |= down_exon in pblock.other_exons
+            return result
         pblocks.extend(pblock for pblock in aln.protein_blocks 
                        if pblock.category is not ProteinLevelAlignmentCategory.MATCH and is_related_to_junc(pblock))
     return pblocks, using, not_using
+
+

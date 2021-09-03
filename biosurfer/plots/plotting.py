@@ -11,13 +11,15 @@ import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from biosurfer.core.alignments import TranscriptBasedAlignment
-from biosurfer.core.constants import TranscriptLevelAlignmentCategory
+from biosurfer.core.constants import (ProteinLevelAlignmentCategory,
+                                      TranscriptLevelAlignmentCategory)
 from biosurfer.core.helpers import Interval, IntervalTree
 from biosurfer.core.models import (ORF, Gene, Junction, Protein, Strand,
                                    Transcript)
 from brokenaxes import BrokenAxes
 
 if TYPE_CHECKING:
+    from biosurfer.core.alignments import ProteinAlignmentBlock
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
@@ -30,6 +32,12 @@ ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 REL_FRAME_STYLE = {
     TranscriptLevelAlignmentCategory.FRAME_AHEAD: '////',
     TranscriptLevelAlignmentCategory.FRAME_BEHIND: 'xxxx'
+}
+
+PBLOCK_COLORS = {
+    ProteinLevelAlignmentCategory.DELETION: 'mediumvioletred',
+    ProteinLevelAlignmentCategory.INSERTION: 'goldenrod',
+    ProteinLevelAlignmentCategory.SUBSTITUTION: 'lightseagreen'
 }
 
 
@@ -347,3 +355,37 @@ class IsoformPlot:
                         zorder = 1.5,
                         hatch = REL_FRAME_STYLE[category]
                     )
+    
+    def draw_protein_block(self, pblock: 'ProteinAlignmentBlock'):
+        if pblock.category is ProteinLevelAlignmentCategory.DELETION:
+            other_start = pblock.anchor_residues[0].codon[1].coordinate
+            other_stop = pblock.anchor_residues[-1].codon[1].coordinate
+        else:
+            other_start = pblock.other_residues[0].codon[1].coordinate
+            other_stop = pblock.other_residues[-1].codon[1].coordinate
+        if pblock.category is ProteinLevelAlignmentCategory.INSERTION:
+            anchor_start = pblock.other_residues[0].codon[1].coordinate
+            anchor_stop = pblock.other_residues[-1].codon[1].coordinate
+        else:
+            anchor_start = pblock.anchor_residues[0].codon[1].coordinate
+            anchor_stop = pblock.anchor_residues[-1].codon[1].coordinate
+        self.draw_region(
+            self.transcripts.index(pblock.parent.anchor.transcript),
+            start = anchor_start,
+            stop = anchor_stop,
+            y_offset = -0.5*self.opts.max_track_width,
+            height = -0.4*self.opts.max_track_width,
+            edgecolor = 'none',
+            facecolor = PBLOCK_COLORS[pblock.category],
+            alpha = 0.33
+        )
+        self.draw_region(
+            self.transcripts.index(pblock.parent.other.transcript),
+            start = other_start,
+            stop = other_stop,
+            y_offset = 0.5*self.opts.max_track_width,
+            height = 0.4*self.opts.max_track_width,
+            edgecolor = 'none',
+            facecolor = PBLOCK_COLORS[pblock.category],
+            alpha = 0.33
+        )
