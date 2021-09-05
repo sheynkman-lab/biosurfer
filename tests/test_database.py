@@ -76,11 +76,11 @@ with open(annotations_output, 'w') as f:
     writer = csv.writer(f, delimiter='\t', quotechar='"')
     writer.writerow(['anchor', 'other', 'category', 'region', 'event', 'annotation'])
     for aln in aln_dict.values():
-        try:
-            aln.annotate()
-        except Exception as e:
-            print(aln)
-            traceback.print_exc()
+        # try:
+        #     aln.annotate()
+        # except Exception as e:
+        #     print(aln)
+        #     traceback.print_exc()
         for pblock in aln.protein_blocks:
             if pblock.annotation:
                 writer.writerow([str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.event, pblock.annotation])

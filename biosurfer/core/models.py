@@ -181,15 +181,15 @@ class Transcript(Base, NameMixin, AccessionMixin):
         return self.gene.chromosome
     
     @hybrid_property
-    def primary_orf(self):
+    def primary_orf(self) -> Optional['ORF']:
         if not self.orfs:
             return None
         return max(self.orfs, key=attrgetter('length'))
 
     @hybrid_property
-    def protein(self):
+    def protein(self) -> Optional['Protein']:
         """Get the "primary" protein produced by this transcript, if it exists."""
-        return self.primary_orf.protein
+        return self.primary_orf.protein if self.primary_orf else None
     
     @hybrid_property
     def junctions(self):
@@ -525,6 +525,10 @@ class Protein(Base, AccessionMixin):
     @hybrid_property
     def transcript(self):
         return self.orf.transcript
+    
+    @hybrid_property
+    def length(self):
+        return len(self.sequence)
 
     def _link_aa_to_orf_nt(self):
         aa_sequence = Seq(self.sequence)

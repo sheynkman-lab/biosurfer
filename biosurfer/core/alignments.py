@@ -116,6 +116,10 @@ class AlignmentBlock(ResidueAlignmentSequence):
         return {res_aln.anchor.junction for res_aln in self if res_aln.anchor.junction}
 
     @property
+    def anchor_sequence(self) -> str:
+        return ''.join(str(res.amino_acid) for res in self.anchor_residues)
+
+    @property
     def other_residues(self) -> List['Residue']:
         return [res_aln.other for res_aln in self if not res_aln.other.is_gap]
 
@@ -128,6 +132,14 @@ class AlignmentBlock(ResidueAlignmentSequence):
     @property
     def other_junctions(self):
         return {res_aln.other.junction for res_aln in self if res_aln.other.junction}
+
+    @property
+    def other_sequence(self) -> str:
+        return ''.join(str(res.amino_acid) for res in self.other_residues)
+    
+    @property
+    def delta_length(self) -> int:
+        return len(self.other_residues) - len(self.anchor_residues)
 
 
 class TranscriptAlignmentBlock(AlignmentBlock):
@@ -203,6 +215,7 @@ class TranscriptBasedAlignment(ResidueAlignmentSequence):
         refine_alignment(self._chain)
         self.transcript_blocks = get_transcript_blocks(self)
         self.protein_blocks = get_protein_blocks(self)
+        self._annotate()
 
     def __repr__(self):
         return f'{self.anchor}|{self.other}'
@@ -215,7 +228,7 @@ class TranscriptBasedAlignment(ResidueAlignmentSequence):
     
     # TODO: use Annotation classes in the future
     # TODO: detect NAGNAG splicing
-    def annotate(self) -> None:
+    def _annotate(self) -> None:
         FRAMESHIFT = {TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}
         # DELETE_INSERT = {TranscriptAlignCat.DELETION, TranscriptAlignCat.INSERTION}
 
