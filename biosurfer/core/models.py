@@ -17,6 +17,7 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy.sql import select, func
 
 working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
 db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
@@ -89,7 +90,16 @@ class Gene(Base, NameMixin, AccessionMixin):
 
     def __repr__(self) -> str:
         return self.name
-
+    
+    # FIXME: make this work in SQL queries
+    @property
+    def start(self) -> int:
+        return min(exon.start for transcript in self.transcripts for exon in transcript.exons)
+    
+    @property
+    def stop(self) -> int:
+        return max(exon.stop for transcript in self.transcripts for exon in transcript.exons)
+    
 
 class Transcript(Base, NameMixin, AccessionMixin):
     strand = Column(Enum(Strand))
@@ -164,34 +174,39 @@ class Transcript(Base, NameMixin, AccessionMixin):
     def __repr__(self) -> str:
         return self.name
 
-    @hybrid_property
+    # FIXME: make this work in SQL queries
+    @property
     def start(self) -> int:
         return min(exon.start for exon in self.exons)
     
-    @hybrid_property
+    @property
     def stop(self) -> int:
         return max(exon.stop for exon in self.exons)
     
     @hybrid_property
     def length(self):
         return len(self.sequence)
+    
+    @length.expression
+    def length(cls):
+        return func.length(cls.sequence)
 
-    @hybrid_property
+    @property
     def chromosome(self) -> 'Chromosome':
         return self.gene.chromosome
     
-    @hybrid_property
+    @property
     def primary_orf(self) -> Optional['ORF']:
         if not self.orfs:
             return None
         return max(self.orfs, key=attrgetter('length'))
 
-    @hybrid_property
+    @property
     def protein(self) -> Optional['Protein']:
         """Get the "primary" protein produced by this transcript, if it exists."""
         return self.primary_orf.protein if self.primary_orf else None
     
-    @hybrid_property
+    @property
     def junctions(self):
         return list(self._junction_mapping.keys())
 
@@ -269,27 +284,27 @@ class Exon(Base, AccessionMixin):
     def length(self):
         return self.stop - self.start + 1
     
-    @hybrid_property
+    @property
     def gene(self):
         return self.transcript.gene
         
-    @hybrid_property
+    @property
     def chromosome(self):
         return self.gene.chromosome
     
-    @hybrid_property
+    @property
     def strand(self) -> 'Strand':
         return self.transcript.strand
     
-    @hybrid_property
+    @property
     def sequence(self):
         return self.transcript.sequence[self.transcript_start-1:self.transcript_stop]
 
-    @hybrid_property
+    @property
     def nucleotides(self):
         return self.transcript.nucleotides[self.transcript_start-1:self.transcript_stop]
 
-    @hybrid_property
+    @property
     def coding_nucleotides(self):
         return [nt for nt in self.nucleotides if nt.residue]
 
@@ -386,7 +401,8 @@ class ORF(Base):
     def __repr__(self) -> str:
         return f'{self.transcript}:orf({self.transcript_start}-{self.transcript_stop})'
 
-    @hybrid_property
+    # FIXME: make this work in SQL queries
+    @property
     def start(self):
         if self.transcript.strand is Strand.PLUS:
             transcript_coord = self.transcript_start
@@ -396,7 +412,7 @@ class ORF(Base):
             return None
         return self.transcript.nucleotides[transcript_coord - 1].coordinate
 
-    @hybrid_property
+    @property
     def stop(self):
         if self.transcript.strand is Strand.PLUS:
             transcript_coord = self.transcript_stop
@@ -410,23 +426,23 @@ class ORF(Base):
     def length(self) -> int:
         return self.transcript_stop - self.transcript_start + 1
 
-    @hybrid_property
+    @property
     def sequence(self) -> str:
         return self.transcript.sequence[self.transcript_start - 1:self.transcript_stop]
     
-    @hybrid_property
+    @property
     def nucleotides(self) -> List['Nucleotide']:
         return self.transcript.nucleotides[self.transcript_start - 1:self.transcript_stop]
     
-    @hybrid_property
+    @property
     def gene(self) -> 'Gene':
         return self.transcript.gene
     
-    @hybrid_property
+    @property
     def exons(self) -> List['Exon']:
         return self.transcript.exons[self._first_exon_index:self._last_exon_index+1]
     
-    @hybrid_property
+    @property
     def junctions(self) -> List['Junction']:
         return self.transcript.junctions[self._first_exon_index:self._last_exon_index]
 
@@ -518,11 +534,11 @@ class Protein(Base, AccessionMixin):
     def __repr__(self):
         return f'{self.orf.transcript}:protein'
     
-    @hybrid_property
+    @property
     def gene(self):
         return self.orf.transcript.gene
     
-    @hybrid_property
+    @property
     def transcript(self):
         return self.orf.transcript
     
