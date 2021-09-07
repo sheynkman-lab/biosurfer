@@ -1,10 +1,12 @@
 from collections import Counter
+import copy
 from operator import attrgetter
+from os import access
 from typing import List, Optional, Tuple
 from warnings import warn
 
 from Bio.Seq import Seq
-from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
+from sqlalchemy import (Boolean, Column,  Table, Enum, ForeignKey, Integer, String,
                         create_engine)
 from sqlalchemy.ext.declarative import (declarative_base, declared_attr,
                                         has_inherited_table)
@@ -14,10 +16,12 @@ from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
 
-from constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
-from helpers import BisectDict
+from biosurfer.core.constants import APPRIS, AminoAcid, Nucleobase, Strand, UTRType
+from biosurfer.core.helpers import BisectDict
 
 db_path = 'sqlite:///gencode.sqlite3'
+current_dir = '/Users/bj8th/Documents/Sheynkman-Lab/GitHub/biosurfer/biosurfer/core'
+db_path = f'sqlite:///{current_dir}/gencode.sqlite3'
 engine = create_engine(db_path, convert_unicode=True)
 db_session = scoped_session(sessionmaker(autocommit=False,
                                          autoflush=False,
@@ -67,7 +71,7 @@ class Chromosome(Base, NameMixin):
 
 
 class Gene(Base, NameMixin, AccessionMixin):
-    chromosome_id = Column(Integer, ForeignKey('chromosome.name'))
+    chromosome_id = Column(String, ForeignKey('chromosome.name'))
     chromosome = relationship('Chromosome', back_populates='genes')
     transcripts = relationship('Transcript', back_populates='gene', order_by='Transcript.name')
 
@@ -84,7 +88,8 @@ class Transcript(Base, NameMixin, AccessionMixin):
     strand = Column(Enum(Strand))
     type = Column(String)
     sequence = Column(String)
-    gene_id = Column(Integer, ForeignKey('gene.accession'))
+    gene_id = Column(String, ForeignKey('gene.accession'))
+
     gene = relationship('Gene', back_populates='transcripts')
     exons = relationship(
         'Exon',
@@ -177,6 +182,8 @@ class Transcript(Base, NameMixin, AccessionMixin):
     
     def get_nucleotide_from_coordinate(self, coordinate: int) -> 'Nucleotide':
         """Given a genomic coordinate (1-based) included in the transcript, return the Nucleotide object corresponding to that coordinate."""
+        if self._nucleotide_mapping is None:
+            _ = self.nucleotides
         if coordinate in self._nucleotide_mapping:
             return self._nucleotide_mapping[coordinate]
         else:
@@ -457,7 +464,7 @@ class Protein(Base, AccessionMixin):
             aa.codon = tuple(nt_list[3*i:3*i + 3])
             for nt in aa.codon:
                 nt.residue = aa
-
+    
 
 OptNucleotide = Optional['Nucleotide']
 Codon = Tuple[OptNucleotide, OptNucleotide, OptNucleotide]
@@ -485,3 +492,5 @@ class Residue:
     def primary_exon(self) -> 'Exon':
         exons = Counter([nt.exon for nt in self.codon])
         return exons.most_common(1)[0][0]
+
+    

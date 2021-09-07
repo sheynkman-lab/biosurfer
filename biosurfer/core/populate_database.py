@@ -5,8 +5,8 @@ from operator import itemgetter
 
 from Bio import SeqIO
 
-from constants import APPRIS, Strand
-from models import (ORF, Base, Chromosome, Exon, GencodeExon,
+from biosurfer.core.constants import APPRIS, Strand
+from biosurfer.core.models import (ORF, Base, Chromosome, Exon, GencodeExon,
                     GencodeTranscript, Gene, Protein, Transcript, db_session,
                     engine)
 
@@ -238,7 +238,7 @@ def load_translation_fasta(translation_fasta):
     db_session.bulk_insert_mappings(Protein, proteins_to_insert)     
     db_session.commit()
 
-path = '/home/redox/sheynkman-lab/biosurfer/data/biosurfer_demo_data/'
+path = '../../data/'
 gtf_file = 'gencode.v38.basic.annotation.gtf'
 tx_file = 'gencode.v38.pc_transcripts.fa'
 tl_file = 'gencode.v38.pc_translations.fa'
@@ -263,4 +263,6 @@ start = time.time()
 load_translation_fasta(path + tl_file)
 end = time.time()
 print(f"time to load translation fasta\t{end - start:0.3g}s / {(end - start)/60:0.3g}min")
+# %%
+
 # %%
