@@ -7,7 +7,6 @@ from warnings import filterwarnings
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from sqlalchemy.orm import contains_eager
 from sqlalchemy.sql.expression import and_, or_
 from biosurfer.analysis.sqtl import (get_event_counts,
                                      get_pblocks_related_to_junction,
@@ -33,8 +32,7 @@ with open(f'{data_dir}/GWAS_sQTL.tsv') as csvfile:
     next(reader)  # skip header
     sqtls_raw = [row[0].split(':') for row in reader]
 chromosomes = Chromosome.from_names({f'chr{sqtl[0]}' for sqtl in sqtls_raw})
-genes = {gene.name: gene for gene in Gene.query.join(Gene.transcripts).\
-    join(Transcript.exons).\
+genes = {gene.name: gene for gene in Gene.query.join(Gene.transcripts).join(Transcript.exons).\
     where(
         and_(
             Transcript.sequence != None,  # filter out noncoding transcripts
@@ -56,7 +54,8 @@ for chr_number, start, stop, cluster in sqtls_raw:
         donor, acceptor = acceptor, donor
     junc = Junction(donor, acceptor, chr, strand)
     gene = [gene for gene in genes.values()
-        if any(transcript.sequence for transcript in gene.transcripts) and 
+        if any(transcript.sequence for transcript in gene.transcripts) and
+            gene.chromosome is chr and
             gene.start <= acceptor and donor <= gene.stop][0]
     coding_transcripts = [transcript for transcript in gene.transcripts if transcript.sequence and transcript.orfs]
 
@@ -72,11 +71,11 @@ for chr_number, start, stop, cluster in sqtls_raw:
     using, not_using = split_transcripts_on_junction_usage(junc, coding_transcripts)
     using = sorted(using, key=attrgetter('appris'))
     not_using = sorted(not_using, key=attrgetter('appris'))
-    if not all((using, not_using)):
-        continue
     print(junc)
     print(f'\t{len(using)} transcripts using: {using}')
     print(f'\t{len(not_using)} transcripts not using: {not_using}')
+    if not all((using, not_using)):
+        continue
     
     pairs = list(product(not_using, using))
     n_pairs = len(pairs)
@@ -122,4 +121,4 @@ for chr_number, start, stop, cluster in sqtls_raw:
 
 sqtls_augmented = pd.DataFrame.from_records(records)
 display(sqtls_augmented)
-sqtls_augmented.to_csv(f'{output_dir}/copd_sqtls_annotated.tsv', sep='\t')
+sqtls_augmented.to_csv(f'{output_dir}/copd_sqtls_annotated.tsv', sep='\t', index=False)
