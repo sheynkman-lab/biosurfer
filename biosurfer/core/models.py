@@ -355,6 +355,19 @@ class Junction:
     
     def __repr__(self) -> str:
         return f'{self.chromosome}({self.strand}):{self.donor}^{self.acceptor}'
+    
+    def __eq__(self, other: 'Junction') -> bool:
+        if not isinstance(other, Junction):
+            raise TypeError(f'Cannot compare Junction with {type(other)}')
+        if self.chromosome is not other.chromosome:
+            return False
+        if self.strand is not other.strand:
+            return False
+        delta_donor = abs(self.donor - other.donor)
+        delta_acceptor = abs(self.acceptor - other.acceptor)
+        if 0 < delta_donor <= 2 or 0 < delta_acceptor <= 2:
+            warn(f'possible off-by-one error for junctions {self} and {other}')
+        return delta_donor == 0 and delta_acceptor == 0
 
 
 class ORF(Base):
