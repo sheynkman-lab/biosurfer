@@ -12,14 +12,8 @@ from biosurfer.core.constants import ProteinRegion, Strand
 from biosurfer.core.constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
 from biosurfer.core.models import Exon, Nucleotide, Protein, Residue, Transcript
 
-# def get_first_nt_adjusted_coord(res: 'Residue', strand: 'Strand' = Strand.PLUS) -> int:
-#             if len(res.exons) == 1 or res.codon[0].exon is res.codon[1].exon:
-#                 return res.codon[0].coordinate
-#             # if codon's primary exon is downstream, "abacus" the coord of the 1st nucleotide
-#             elif strand is Strand.PLUS:
-#                 return res.codon[1].coordinate - 1
-#             elif strand is Strand.MINUS:
-#                 return res.codon[1].coordinate + 1
+
+PBLOCK_FIELDS = ('anchor', 'other', 'region', 'category', 'delta_length', 'event', 'flags', 'annotation')
 
 
 class GapResidue(Residue):
@@ -155,8 +149,6 @@ class TranscriptAlignmentBlock(AlignmentBlock):
     def __repr__(self):
         return f'{self.parent}:tblock{self.position}-{self.category}'
 
-
-PBLOCK_FIELDS = ('anchor', 'other', 'region', 'category', 'event', 'flags', 'annotation')
 
 class ProteinAlignmentBlock(AlignmentBlock):
     def __init__(self, parent, position, tblocks: Sequence['TranscriptAlignmentBlock'], category: 'ProteinAlignCat'):
