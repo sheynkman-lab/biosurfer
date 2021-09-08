@@ -373,8 +373,8 @@ class IsoformPlot:
             self.transcripts.index(pblock.parent.anchor.transcript),
             start = anchor_start,
             stop = anchor_stop,
-            y_offset = -0.5*self.opts.max_track_width,
-            height = -0.4*self.opts.max_track_width,
+            y_offset = -0.9*self.opts.max_track_width,
+            height = 0.4*self.opts.max_track_width,
             edgecolor = 'none',
             facecolor = PBLOCK_COLORS[pblock.category],
             alpha = 0.33
