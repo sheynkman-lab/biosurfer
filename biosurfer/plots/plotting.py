@@ -10,14 +10,16 @@ from typing import (TYPE_CHECKING, Collection, Dict, Iterable, List, Literal,
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+from biosurfer.core.alignments import TranscriptBasedAlignment
+from biosurfer.core.constants import (ProteinLevelAlignmentCategory,
+                                      TranscriptLevelAlignmentCategory)
+from biosurfer.core.helpers import Interval, IntervalTree
+from biosurfer.core.models import (ORF, Gene, Junction, Protein, Strand,
+                                   Transcript)
 from brokenaxes import BrokenAxes
 
-from biosurfer.core.alignments import TranscriptBasedAlignment
-from biosurfer.core.constants import TranscriptLevelAlignmentCategory
-from biosurfer.core.helpers import Interval, IntervalTree
-from biosurfer.core.models import ORF, Gene, Protein, Strand, Transcript
-
 if TYPE_CHECKING:
+    from biosurfer.core.alignments import ProteinAlignmentBlock
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
@@ -30,6 +32,12 @@ ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 REL_FRAME_STYLE = {
     TranscriptLevelAlignmentCategory.FRAME_AHEAD: '////',
     TranscriptLevelAlignmentCategory.FRAME_BEHIND: 'xxxx'
+}
+
+PBLOCK_COLORS = {
+    ProteinLevelAlignmentCategory.DELETION: 'mediumvioletred',
+    ProteinLevelAlignmentCategory.INSERTION: 'goldenrod',
+    ProteinLevelAlignmentCategory.SUBSTITUTION: 'lightseagreen'
 }
 
 
@@ -165,6 +173,30 @@ class IsoformPlot:
             )
         else:
             raise ValueError(f'Region type "{type}" is not defined')
+
+        subaxes = self._get_subaxes((start, stop))
+        for ax in subaxes:
+            ax.add_artist(copy(artist))
+    
+    def draw_background_rect(self, start: int, stop: int,
+                            track_first: int = None, track_last: int = None,
+                            padding: float = None, **kwargs):
+        """Draw a rectangle in the background of the plot."""
+        if track_first is None:
+            track_first = 0
+        if track_last is None:
+            track_last = len(self.transcripts) - 1
+        if padding is None:
+            padding = self.opts.max_track_width
+        top = track_first - padding
+        bottom = track_last + padding
+        artist = mpatches.Rectangle(
+            xy = (start, top),
+            width = stop - start,
+            height = bottom - top,
+            zorder = 0.5,
+            **kwargs
+        )
 
         subaxes = self._get_subaxes((start, stop))
         for ax in subaxes:
@@ -323,3 +355,37 @@ class IsoformPlot:
                         zorder = 1.5,
                         hatch = REL_FRAME_STYLE[category]
                     )
+    
+    def draw_protein_block(self, pblock: 'ProteinAlignmentBlock'):
+        if pblock.category is ProteinLevelAlignmentCategory.DELETION:
+            other_start = pblock.anchor_residues[0].codon[1].coordinate
+            other_stop = pblock.anchor_residues[-1].codon[1].coordinate
+        else:
+            other_start = pblock.other_residues[0].codon[1].coordinate
+            other_stop = pblock.other_residues[-1].codon[1].coordinate
+        if pblock.category is ProteinLevelAlignmentCategory.INSERTION:
+            anchor_start = pblock.other_residues[0].codon[1].coordinate
+            anchor_stop = pblock.other_residues[-1].codon[1].coordinate
+        else:
+            anchor_start = pblock.anchor_residues[0].codon[1].coordinate
+            anchor_stop = pblock.anchor_residues[-1].codon[1].coordinate
+        self.draw_region(
+            self.transcripts.index(pblock.parent.anchor.transcript),
+            start = anchor_start,
+            stop = anchor_stop,
+            y_offset = -0.9*self.opts.max_track_width,
+            height = 0.4*self.opts.max_track_width,
+            edgecolor = 'none',
+            facecolor = PBLOCK_COLORS[pblock.category],
+            alpha = 0.33
+        )
+        self.draw_region(
+            self.transcripts.index(pblock.parent.other.transcript),
+            start = other_start,
+            stop = other_stop,
+            y_offset = 0.5*self.opts.max_track_width,
+            height = 0.4*self.opts.max_track_width,
+            edgecolor = 'none',
+            facecolor = PBLOCK_COLORS[pblock.category],
+            alpha = 0.33
+        )
