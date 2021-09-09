@@ -17,7 +17,9 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
+
 from sqlalchemy.sql import select, func
+
 
 working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
 db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
@@ -90,7 +92,7 @@ class Gene(Base, NameMixin, AccessionMixin):
 
     def __repr__(self) -> str:
         return self.name
-    
+
     # FIXME: make this work in SQL queries
     @property
     def start(self) -> int:
@@ -100,6 +102,7 @@ class Gene(Base, NameMixin, AccessionMixin):
     def stop(self) -> int:
         return max(exon.stop for transcript in self.transcripts for exon in transcript.exons)
     
+
 
 class Transcript(Base, NameMixin, AccessionMixin):
     strand = Column(Enum(Strand))
@@ -147,8 +150,10 @@ class Transcript(Base, NameMixin, AccessionMixin):
         for i in range(1, len(self.exons)):
             up_exon = self.exons[i-1]
             down_exon = self.exons[i]
+
             donor = up_exon.nucleotides[-1].coordinate
             acceptor = down_exon.nucleotides[0].coordinate
+
             junction = Junction(donor, acceptor, self.chromosome, self.strand)
             mapping[junction] = (up_exon, down_exon)
         return mapping
