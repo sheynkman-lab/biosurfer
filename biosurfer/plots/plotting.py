@@ -6,6 +6,7 @@ from itertools import groupby
 from operator import attrgetter, sub
 from typing import (TYPE_CHECKING, Collection, Dict, Iterable, List, Literal,
                     Optional, Set, Tuple, Union)
+from warnings import filterwarnings, warn
 
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
@@ -17,6 +18,7 @@ from biosurfer.core.helpers import Interval, IntervalTree
 from biosurfer.core.models import (ORF, Gene, Junction, Protein, Strand,
                                    Transcript)
 from brokenaxes import BrokenAxes
+from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 
 if TYPE_CHECKING:
     from biosurfer.core.alignments import ProteinAlignmentBlock
@@ -24,6 +26,8 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 StartStop = Tuple[int, int]
+
+filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
 # alpha values for different absolute reading frames
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
@@ -86,7 +90,7 @@ class IsoformPlot:
 
     @xlims.setter
     def xlims(self, xlims: Iterable[StartStop]):
-        xregions = IntervalTree.from_tuples((start, stop+1) for start, stop in xlims)  # condense xlims into single IntervalTree object
+        xregions = IntervalTree.from_tuples((min(start, stop), max(start, stop)+1) for start, stop in xlims)  # condense xlims into single IntervalTree object
         xregions.merge_equals()
         xregions.merge_overlaps()
         xregions.merge_neighbors()
@@ -143,8 +147,12 @@ class IsoformPlot:
         else:
             raise ValueError(f'Point type "{type}" is not defined')
         
-        subaxes = self._get_subaxes(pos)[0]
-        subaxes.add_artist(artist)
+        try:
+            subaxes = self._get_subaxes(pos)[0]
+        except ValueError as e:
+            warn(str(e))
+        else:
+            subaxes.add_artist(artist)
 
     def draw_region(self, track: int, start: int, stop: int,
                     y_offset: Optional[float] = None,
@@ -213,8 +221,12 @@ class IsoformPlot:
         # we can't know how much horizontal space text will take up ahead of time
         # so text is plotted using BrokenAxes' big_ax, since it spans the entire x-axis
         big_ax = self._bax.big_ax
-        subaxes = self._get_subaxes(x)[0]  # grab coord transform from correct subaxes
-        big_ax.text(x, y, text, transform=subaxes.transData, **kwargs)
+        try:
+            subaxes = self._get_subaxes(x)[0]  # grab coord transform from correct subaxes
+        except ValueError as e:
+            warn(str(e))
+        else:
+            big_ax.text(x, y, text, transform=subaxes.transData, **kwargs)
 
     def draw_isoform(self, tx: 'Transcript', track: int):
         """Plot a single isoform in the given track."""
