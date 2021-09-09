@@ -151,3 +151,6 @@ data
 output
 *.tsv
 *.csv
+
+# Temporary test scripts
+toy-scripts
