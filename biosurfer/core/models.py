@@ -6,6 +6,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 from warnings import warn
 
 from Bio.Seq import Seq
+from biosurfer.core.database import Base
 from biosurfer.core.constants import APPRIS, AminoAcid, Nucleobase, Strand
 from biosurfer.core.helpers import BisectDict, frozendataclass
 from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
@@ -17,28 +18,28 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
-
 from sqlalchemy.sql import select, func
 
 
-working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
-db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
-engine = create_engine(db_path, convert_unicode=True)
-db_session = scoped_session(sessionmaker(autocommit=False,
-                                         autoflush=False,
-                                         bind=engine))
+# working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
+# # db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
+# db_path = f'sqlite:///{working_dir}/wtc11.sqlite3'
+# engine = create_engine(db_path, convert_unicode=True)
+# db_session = scoped_session(sessionmaker(autocommit=False,
+#                                          autoflush=False,
+#                                          bind=engine))
 
-class Base:
-    @declared_attr
-    def __tablename__(cls):
-        if has_inherited_table(cls):
-            return None
-        return cls.__name__.lower()
+# class Base:
+#     @declared_attr
+#     def __tablename__(cls):
+#         if has_inherited_table(cls):
+#             return None
+#         return cls.__name__.lower()
     
-    # id = Column(Integer, primary_key=True)
+#     # id = Column(Integer, primary_key=True)
 
-Base = declarative_base(cls=Base)
-Base.query = db_session.query_property()
+# Base = declarative_base(cls=Base)
+# Base.query = db_session.query_property()
 
 
 class NameMixin:

@@ -1,21 +1,15 @@
 #%%
 import csv
 import os
-import traceback
 from operator import attrgetter
-from warnings import filterwarnings
 
 import matplotlib.pyplot as plt
-from IPython.display import display
-from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-from sqlalchemy.sql.expression import and_, func
-
 from biosurfer.core.alignments import TranscriptBasedAlignment
-from biosurfer.core.models import ORF, Gene, Protein, db_session
 from biosurfer.core.models import GencodeTranscript as Transcript
+from biosurfer.core.models import Gene, Protein
 from biosurfer.plots.plotting import IsoformPlot
-
-filterwarnings("ignore", category=MatplotlibDeprecationWarning)
+from IPython.display import display
+from sqlalchemy.sql.expression import and_, func
 
 #%%
 # proteins = db_session.query(Protein).join(ORF, Transcript).where(Transcript.basic).order_by(func.random()).limit(20).all()

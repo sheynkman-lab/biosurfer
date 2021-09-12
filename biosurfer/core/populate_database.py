@@ -4,11 +4,11 @@ import time
 from operator import itemgetter
 
 from Bio import SeqIO
-
 from biosurfer.core.constants import APPRIS, Strand
-from biosurfer.core.models import (ORF, Base, Chromosome, Exon, GencodeExon,
-                    GencodeTranscript, Gene, Protein, Transcript, db_session,
-                    engine)
+from biosurfer.core.database import Base, db_session, engine
+from biosurfer.core.models import (ORF, Chromosome, Exon, GencodeExon,
+                                   GencodeTranscript, Gene, Protein,
+                                   Transcript)
 
 
 def read_gtf_line(line: str) -> list:
@@ -46,14 +46,17 @@ def load_data_from_gtf(gtf_file: str) -> None:
     existing_genes = {row.accession for row in db_session.query(Gene.accession).all()}
     existing_transcripts = {row.accession for row in db_session.query(Transcript.accession).all()}
     existing_exons = {(row.accession, row.transcript_id) for row in db_session.query(Exon.accession, Exon.transcript_id).all()}
+    existing_orfs = {(row.transcript_id, row.transcript_start, row.transcript_stop) for row in db_session.query(ORF.transcript_id, ORF.transcript_start, ORF.transcript_stop).all()}
 
     chromosomes = {}
     genes_to_update, genes_to_insert = [], []
     transcripts_to_update, transcripts_to_insert = [], []
     exons_to_update, exons_to_insert = [], []
+    orfs_to_update, orfs_to_insert = [], []
 
-    transcripts_to_exons = {}
     minus_transcripts = set()
+    transcripts_to_exons = {}
+    transcripts_to_cdss = {}
 
     def update_and_insert(mapper, mappings_to_update, mappings_to_insert):
         db_session.bulk_update_mappings(mapper, mappings_to_update)
@@ -117,6 +120,7 @@ def load_data_from_gtf(gtf_file: str) -> None:
                     minus_transcripts.add(transcript_id)
                 
             elif feature == 'exon':
+                transcript_id = attributes['transcript_id']
                 exon_id = attributes['exon_id']
                 exon = {
                     'accession': exon_id,
@@ -134,6 +138,15 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 else:
                     transcripts_to_exons[transcript_id] = [exon,]
             
+            elif feature == 'CDS':
+                transcript_id = attributes['transcript_id']
+                protein_id = attributes['protein_id']
+                cds = (start, stop, protein_id)
+                if transcript_id in transcripts_to_cdss:
+                    transcripts_to_cdss[transcript_id].append(cds)
+                else:
+                    transcripts_to_cdss[transcript_id] = [cds,]
+            
             if i % 10000 == 0:
                 print(f'read {i//1000}k lines...')
                 update_and_insert(Gene, genes_to_update, genes_to_insert)
@@ -146,7 +159,8 @@ def load_data_from_gtf(gtf_file: str) -> None:
     for transcript_id, exon_list in transcripts_to_exons.items():
         exon_list.sort(key=itemgetter('start'), reverse=transcript_id in minus_transcripts)
         tx_idx = 1
-        for i, exon in enumerate(exon_list):
+        for i, exon in enumerate(exon_list, start=1):
+            exon['position'] = i
             exon_length = exon['stop'] - exon['start'] + 1
             exon['transcript_start'] = tx_idx
             exon['transcript_stop'] = tx_idx + exon_length - 1
@@ -154,40 +168,79 @@ def load_data_from_gtf(gtf_file: str) -> None:
     db_session.bulk_update_mappings(GencodeExon, exons_to_update)
     db_session.bulk_insert_mappings(GencodeExon, exons_to_insert)
 
+    print('calculating transcript-relative ORF coordinates...')
+    # assemble CDS intervals into ORFs
+    for transcript_id, cds_list in transcripts_to_cdss.items():
+        assert len({cds[2] for cds in cds_list}) == 1
+        exon_list = transcripts_to_exons[transcript_id]
+        cds_list.sort(key=itemgetter(0), reverse=transcript_id in minus_transcripts)
+        first_cds, last_cds = cds_list[0], cds_list[-1]
+        # assuming that the first and last CDSs are the ORF boundaries -- won't work when dealing with multiple ORFs
+        orf_start = first_cds[0]
+        orf_stop = last_cds[1]
+        if transcript_id in minus_transcripts:
+            orf_start, orf_stop = orf_stop, orf_start
+        first_exon = next((exon for exon in exon_list if exon['start'] <= first_cds[0] and first_cds[1] <= exon['stop']), None)
+        last_exon = next((exon for exon in reversed(exon_list) if exon['start'] <= last_cds[0] and last_cds[1] <= exon['stop']), None)
+        # find ORF start/end relative to exons
+        if transcript_id not in minus_transcripts:
+            first_offset = first_cds[0] - first_exon['start']
+            last_offset = last_exon['stop'] - last_cds[1]
+        else:
+            first_offset = first_exon['stop'] - first_cds[1]
+            last_offset = last_cds[0] - last_exon['start']
+        # convert to transcript-relative coords
+        orf_tx_start = first_exon['transcript_start'] + first_offset
+        orf_tx_stop = last_exon['transcript_stop'] - last_offset
+        orf_tx_stop += 3  # account for stop codon
+        orf = {
+            'transcript_id': transcript_id,
+            'transcript_start': orf_tx_start,
+            'transcript_stop': orf_tx_stop,
+            'start': orf_start,
+            'stop': orf_stop
+        }
+        if (transcript_id, orf_tx_start, orf_tx_stop) in existing_orfs:
+            orfs_to_update.append(orf)
+        else:
+            orfs_to_insert.append(orf)
+    db_session.bulk_update_mappings(ORF, orfs_to_update)
+    db_session.bulk_insert_mappings(ORF, orfs_to_insert)
+
     db_session.commit()
 
 def load_transcript_fasta(transcript_fasta):
     existing_transcripts = {row.accession for row in db_session.query(Transcript.accession)}
-    existing_orfs = set(db_session.query(ORF.transcript_id, ORF.transcript_start, ORF.transcript_stop))
+    # existing_orfs = set(db_session.query(ORF.transcript_id, ORF.transcript_start, ORF.transcript_stop))
 
     transcripts_to_update = []
-    orfs_to_insert = []
+    # orfs_to_insert = []
     for i, record in enumerate(SeqIO.parse(transcript_fasta, 'fasta')):
         fields = record.id.split('|')
         transcript_id = fields[0]
-        orf_coords = [field[4:] for field in fields if field.startswith('CDS:')][0]
-        orf_start = int(orf_coords.split('-')[0])
-        orf_stop = int(orf_coords.split('-')[1])
+        # orf_coords = [field[4:] for field in fields if field.startswith('CDS:')][0]
+        # orf_start = int(orf_coords.split('-')[0])
+        # orf_stop = int(orf_coords.split('-')[1])
         sequence = str(record.seq)
 
         if transcript_id in existing_transcripts:
             transcript = {'accession': transcript_id, 'sequence': sequence}
             transcripts_to_update.append(transcript)
-            orf = {
-                'transcript_id': transcript_id,
-                'transcript_start': orf_start,
-                'transcript_stop': orf_stop
-            }
-            if (transcript_id, orf_start, orf_stop) not in existing_orfs:
-                orfs_to_insert.append(orf)
+            # orf = {
+            #     'transcript_id': transcript_id,
+            #     'transcript_start': orf_start,
+            #     'transcript_stop': orf_stop
+            # }
+            # if (transcript_id, orf_start, orf_stop) not in existing_orfs:
+            #     orfs_to_insert.append(orf)
         if i % 10000 == 0:
             print(f'read {i//1000}k entries...')
             db_session.bulk_update_mappings(Transcript, transcripts_to_update)
-            db_session.bulk_insert_mappings(ORF, orfs_to_insert)
+            # db_session.bulk_insert_mappings(ORF, orfs_to_insert)
             transcripts_to_update[:] = []
-            orfs_to_insert[:] = []
+            # orfs_to_insert[:] = []
     db_session.bulk_update_mappings(Transcript, transcripts_to_update)
-    db_session.bulk_insert_mappings(ORF, orfs_to_insert)
+    # db_session.bulk_insert_mappings(ORF, orfs_to_insert)
     db_session.commit() #Attempt to commit all the records
 
 def load_translation_fasta(translation_fasta):
