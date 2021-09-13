@@ -46,11 +46,15 @@ class NameMixin:
     name = Column(String, index=True)
 
     @classmethod
-    def from_name(cls, name: str):
-        try:
-            return cls.query.where(cls.name == name).one()
-        except NoResultFound:
-            return None
+    def from_name(cls, name: str, unique: bool = True):
+        q = cls.query.where(cls.name == name)
+        if unique:
+            try:
+                return q.one()
+            except NoResultFound:
+                return None
+        else:
+            return q.all()
 
     @classmethod
     def from_names(cls, names: Iterable[str]):
@@ -263,6 +267,12 @@ class GencodeTranscript(Transcript):
         return ~(self.start_nf | self.end_nf)
 
 
+class PacBioTranscript(Transcript):
+    __mapper_args__ = {
+        'polymorphic_identity': 'pacbiotranscript'
+    }
+
+
 class Exon(Base, AccessionMixin):
     type = Column(String)
     position = Column(Integer)  # exon ordinal within parent transcript
@@ -319,6 +329,12 @@ class Exon(Base, AccessionMixin):
 class GencodeExon(Exon):
     __mapper_args__ = {
         'polymorphic_identity': 'gencodeexon'
+    }
+
+
+class PacBioExon(Exon):
+    __mapper_args__ = {
+        'polymorphic_identity': 'pacbioexon'
     }
 
 

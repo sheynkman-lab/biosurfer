@@ -85,6 +85,7 @@ if not filecmp.cmp(annotations_output, annotations_temp):
     warn('Alignment annotations changed!')
 else:
     print('Alignment annotations match previous file')
+    os.remove(annotations_temp)
 
 # %%
 alignments_output = 'sample_alignments.txt'
