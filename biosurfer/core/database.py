@@ -4,7 +4,8 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 
 working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
 # db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
-db_path = f'sqlite:///{working_dir}/test.sqlite3'
+# db_path = f'sqlite:///{working_dir}/test.sqlite3'
+db_path = f'sqlite:///{working_dir}/bone.sqlite3'
 # db_path = f'sqlite:///{working_dir}/wtc11.sqlite3'
 # db_path = 'sqlite://'
 
