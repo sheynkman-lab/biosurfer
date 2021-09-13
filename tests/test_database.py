@@ -1,7 +1,9 @@
 #%%
 import csv
+import filecmp
 import os
 from operator import attrgetter
+from warnings import warn
 
 import matplotlib.pyplot as plt
 from biosurfer.core.alignments import TranscriptBasedAlignment
@@ -66,7 +68,8 @@ for gene in genes:
 
 # %%
 annotations_output = 'sample_annotations.tsv'
-with open(annotations_output, 'w') as f:
+annotations_temp = annotations_output + '.temp'
+with open(annotations_temp, 'w') as f:
     writer = csv.writer(f, delimiter='\t', quotechar='"')
     writer.writerow(['anchor', 'other', 'category', 'region', 'event', 'annotation'])
     for aln in aln_dict.values():
@@ -78,11 +81,21 @@ with open(annotations_output, 'w') as f:
         for pblock in aln.protein_blocks:
             if pblock.annotation:
                 writer.writerow([str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.event, pblock.annotation])
+if not filecmp.cmp(annotations_output, annotations_temp):
+    warn('Alignment annotations changed!')
+else:
+    print('Alignment annotations match previous file')
 
 # %%
 alignments_output = 'sample_alignments.txt'
+alignments_temp = alignments_output + '.temp'
 all_full = '\n\n\n'.join(str(aln)+'\n'+aln.full for aln in aln_dict.values())
-with open(alignments_output, 'w') as f:
-    f.write(all_full)
+with open(alignments_output, 'r') as f:
+    if all_full != f.read():
+        warn('Alignment representations changed!')
+        with open(alignments_temp, 'w') as ff:
+            ff.write(all_full)
+    else:
+        print('Alignment representations match previous file')
 
 # %%
