@@ -1,11 +1,13 @@
-from sqlalchemy import (Column, Integer, ForeignKey, String, Table)
+from sqlalchemy import select
+from sqlalchemy import (Column, Integer, ForeignKey, String, Table, Float)
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.orm import (reconstructor, relation, relationship)
 
 from Bio.Seq import Seq
 
-from biosurfer.core.models import (Transcript, Exon, ORF, Protein,
-        Nucleotide, Base, AccessionMixin)
+from biosurfer.core.models import (Transcript, Exon, ORF, Protein, Gene,
+        Nucleotide, Base, AccessionMixin, 
+        Variant, VariantTranscript, db_session)
 from biosurfer.core.constants import Nucleobase, Strand
 
 
@@ -14,42 +16,45 @@ from biosurfer.core.constants import Nucleobase, Strand
 
 
 
-variant_transcript_association_table = Table('variant_transcript_association', Base.metadata,
-    Column('variant_id', ForeignKey('variant.id'), primary_key=True),
-    Column('transcript_id', ForeignKey('transcript.accession'), primary_key=True)
-)
 
-class Variant(Base):
-    """Nucloetide Variant class
-    A variant is a modification of the anchor nucleotide
-     sequence to the variant nucloetide sequence
-    """
-    id = Column(Integer, primary_key=True)
-    chromosome_id = Column(Integer, ForeignKey('chromosome.name'))
-    chromosome_position = Column(Integer)
-    reference_nucleotide_sequence = Column(String)
-    variant_nucleotide_sequence = Column(String)
+def possible_variant_transcripts(variant:Variant):
+    possible_transcripts = (
+        db_session.query(Transcript)
+        .join(Gene)
+        .filter(Gene.chromosome_id == variant.chromosome_id)
+        .filter(Transcript.start >= variant.chromosome_position)
+        .filter(Transcript.stop <= variant.chromosome_position)
+        ).all()
+    return possible_transcripts
 
-    chromosome = relationship('Chromosome')
-
-    def __repr__(self) -> str:
-        return f'{self.chromosome}.{self.chromosome_position}'
-    variant_transcripts = relationship(
-        'VariantTranscript',
-        secondary=variant_transcript_association_table,
-        back_populates='variants' )
+        
 
 
-class VariantTranscript(Transcript):
-    __mapper_args__ = {
-        'polymorphic_identity': 'varianttranscript'
-    }
-    variants = relationship(
-        'Variant',
-        secondary=variant_transcript_association_table,
-        back_populates='variant_transcripts'
 
+def possible_variants(transcript:Transcript):
+    possible_variants = (
+        db_session.query(Variant)
+        .filter(Variant.chromosome_id == transcript.chromosome.name)
+        .filter(Variant.chromosome_position.between(transcript.start, transcript.stop))
+        .all()
     )
+    return possible_variants
+        # statement = select(Variant)
+        # statement = statement.filter(Variant.chromosome_id == transcript.chromosome.name)
+        
+        # statement = statement.filter(Variant.chromosome_position.between(transcript.start, transcript.stop))
+
+
+def get_transcript_accessions_with_variants():
+    possible_transcript_variants = (
+        db_session.query(Transcript.accession)
+        .join(Gene)
+        .join(Variant)
+        .filter(Variant.chromosome_id == Gene.chromosome_id)
+        .filter(Variant.chromosome_position.between(Transcript.start, Transcript.stop))
+        .group_by(Transcript.accession)
+    ).all()
+    return possible_transcript_variants
 
 
 class VariantBuilder:
