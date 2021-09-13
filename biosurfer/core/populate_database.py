@@ -448,9 +448,9 @@ path = '/home/redox/sheynkman-lab/biosurfer/data/'
 gencode_gtf = 'biosurfer_demo_data/gencode.v38.basic.annotation.gtf'
 gencode_tx = 'biosurfer_demo_data/gencode.v38.pc_transcripts.fa'
 gencode_tl = 'biosurfer_demo_data/gencode.v38.pc_translations.fa'
-pacbio_gtf = 'wtc11/wtc11_cds_high_confidence.gtf'
-pacbio_tx = 'wtc11/wtc11_corrected.fasta'
-pacbio_tl = 'wtc11/wtc11_hybrid.fasta'
+pacbio_gtf = 'bone/bone_cds_high_confidence.gtf'
+pacbio_tx = 'bone/filtered_bone_corrected.fasta'
+pacbio_tl = 'bone/bone_hybrid.fasta'
 
 def get_ids_from_gencode_fasta(header: str):
     fields = [field for field in header.split('|') if field and not field.startswith(('UTR', 'CDS'))]
