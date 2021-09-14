@@ -1,63 +1,109 @@
+# %%
+import multiprocessing as mp
 import os
+import sys
 from itertools import groupby, product
 from operator import attrgetter
 from statistics import median
-from warnings import filterwarnings
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+from sqlalchemy.orm import joinedload
 from biosurfer.analysis.sqtl import (get_event_counts,
                                      get_pblocks_related_to_junction,
                                      junction_causes_knockdown_in_pair,
                                      split_transcripts_on_junction_usage)
 from biosurfer.core.alignments import (TranscriptBasedAlignment,
                                        export_annotated_pblocks_to_tsv)
-from biosurfer.core.models import Chromosome, Gene, Junction
+from biosurfer.core.database import db_session
+from biosurfer.core.helpers import ExceptionLogger
+from biosurfer.core.models import Chromosome, GencodeTranscript, Gene, Junction, Transcript, ORF
 from biosurfer.plots.plotting import IsoformPlot
 from IPython.display import display
-from matplotlib._api.deprecation import MatplotlibDeprecationWarning
+from sqlalchemy.sql.expression import and_, or_
+from tqdm import tqdm
 
-filterwarnings("ignore", category=MatplotlibDeprecationWarning)
-
+# %%
 data_dir = '../data/bone'
 output_dir = '../output/bone'
-sqtls = pd.read_csv(f'{data_dir}/fibroblast_coloc_sqtls.csv')
-sqtls = sqtls[sqtls['gene_type'] == 'protein_coding']
-chromosomes = Chromosome.from_names(set(sqtls['chr']))
-genes = Gene.from_names(set(sqtls['gene_name']))
+print('Loading sQTL table...')
+sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t')
+sqtls = sqtls_raw[sqtls_raw['gene_type'] == 'protein_coding']
+def optional_list(things):
+    list_things = sorted(set(things))
+    if len(list_things) == 1:
+        return list_things[0]
+    return list_things
+sqtls = sqtls.groupby('event_id').agg(optional_list)
 
-records = []
-for index, row in sqtls.iterrows():
-    gene = genes[row['gene_name']]
-    junc = Junction(row['event_start'], row['event_end'], chromosomes[row['chr']], gene.strand)
+chromosomes = Chromosome.from_names(set(sqtls['chr']))
+
+def stem(accession):
+    return accession.split('.')[0]
+def similar(acc1, acc2):
+    return stem(acc1) == stem(acc2)
+gene_id_stems = {stem(gene_id) for gene_id in sqtls['gene']}
+gene_ids = {row.accession for row in
+    db_session.query(Gene.accession).where(
+        or_(
+            False,
+            *(Gene.accession.startswith(gene_id_stem) 
+                for gene_id_stem in gene_id_stems)
+        )
+    )
+}
+gene_query = db_session.query(Gene).join(Gene.transcripts).\
+    where(
+        and_(
+            Transcript.sequence != None,
+            Gene.accession.in_(gene_ids)
+        )
+    )
+# print(str(gene_query))
+print('Loading objects...')
+genes = {stem(gene.accession): gene for gene in gene_query}
+
+# %%
+def get_augmented_sqtl_record(row):
+    chr, gene_id, start, end, h4 = row
+    try:
+        gene = genes[stem(gene_id)]
+    except KeyError:
+        return None
+    if all(isinstance(tx, GencodeTranscript) for tx in gene.transcripts):
+        # skip genes for which we have no PacBio data
+        return None
+    junc = Junction(start, end, chromosomes[chr], gene.strand)
     junc_info = {
-        'chr': row['chr'],
+        'chr': chr,
         'strand': str(junc.strand),
-        'donor': row['event_start'],
-        'acceptor': row['event_end'],
+        'donor': start,
+        'acceptor': end,
         'gene': gene.name,
-        'H4': row['H4'],
+        'H4': h4,
         'pairs': 0
     }
-
     using, not_using = split_transcripts_on_junction_usage(junc, gene.transcripts)
-    using = sorted(using, key=attrgetter('appris'))
-    not_using = sorted(not_using, key=attrgetter('appris'))
+    using = sorted(using, key=attrgetter('name'))
+    not_using = sorted(not_using, key=attrgetter('name'))
     if not all((using, not_using)):
-        continue
-    print(junc)
-    print(f'\t{len(using)} transcripts using: {using}')
-    print(f'\t{len(not_using)} transcripts not using: {not_using}')
+        return None
     
     pairs = list(product(not_using, using))
     n_pairs = len(pairs)
-    alns = [TranscriptBasedAlignment(tx1.protein, tx2.protein) for tx1, tx2 in pairs]
+    alns = []
+    for tx1, tx2 in pairs:
+        with ExceptionLogger(f'Error for {tx1.name} and {tx2.name}'):
+            alns.append(TranscriptBasedAlignment(tx1.protein, tx2.protein))
     junc_info['pairs'] = n_pairs
 
     pblocks = get_pblocks_related_to_junction(junc, alns)
 
     # calculate fraction of pairs where junction-lacking isoform is not NMD but junction-using isoform is NMD
-    junc_info['NMD'] = sum(tx2.primary_orf.nmd and not tx1.primary_orf.nmd for tx1, tx2 in pairs) / n_pairs
+    junc_info['NMD'] = None
+    with ExceptionLogger(f'Error for {gene.name} {junc}'):
+        junc_info['NMD'] = sum(tx2.primary_orf.nmd and not tx1.primary_orf.nmd for tx1, tx2 in pairs) / n_pairs
 
     # calculate median change in sequence length for junction-related pblocks
     junc_info['median_delta_length'] = median(pblock.delta_length for pblock in pblocks) if pblocks else 0.0
@@ -72,25 +118,43 @@ for index, row in sqtls.iterrows():
     freqs = {event.name: count/n_pairs for event, count in counts.items()}
     junc_info.update(freqs)
 
-    records.append(junc_info)
-
     if not os.path.isdir(f'{output_dir}/{gene.name}'):
         os.mkdir(f'{output_dir}/{gene.name}')
     export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
+    should_plot = (
+        junc_info['knockdown_frequency'] > 0.9 or
+        junc_info['MXIC'] > 0.3 or
+        junc_info['SIF'] > 0.5 or
+        junc_info['IR'] > 0 or
+        junc_info['IX'] > 0
+    )
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
-    if not os.path.isfile(fig_path):
+    if should_plot and not os.path.isfile(fig_path):
         isoplot = IsoformPlot(using + not_using)
-        isoplot.draw_all_isoforms()
-        isoplot.draw_frameshifts()
-        isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#ffffb7')
-        for pblock in pblocks:
-            isoplot.draw_protein_block(pblock)
-        isoplot.fig.set_size_inches(9, 0.5*len(gene.transcripts))
-        plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
-        print('\tsaved '+fig_path)
+        with ExceptionLogger(f'Error plotting {gene.name} {junc}'):
+            isoplot.draw_all_isoforms()
+            isoplot.draw_frameshifts()
+            isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#ffffb7')
+            for pblock in pblocks:
+                isoplot.draw_protein_block(pblock)
+            isoplot.fig.set_size_inches(9, 0.5*len(gene.transcripts))
+            plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
+            tqdm.write('\tsaved '+fig_path)
         plt.close(isoplot.fig)
+    return junc_info
+
+rows = [(row.chr, row.gene, row.start, row.end, row.H4) for row in sqtls.itertuples()]
+t = tqdm(
+    map(get_augmented_sqtl_record, rows),
+    desc = 'Analyzing sQTL junctions',
+    total = sqtls.shape[0],
+    file = sys.stdout
+)
+records = list(record for record in t if record)
 
 sqtls_augmented = pd.DataFrame.from_records(records)
 display(sqtls_augmented)
-sqtls_augmented.to_csv(f'{output_dir}/fibroblast_sqtls_annotated.tsv', sep='\t')
+sqtls_augmented.to_csv(f'{output_dir}/coloc_sqtls_annotated.tsv', sep='\t', index=False)
+
+# %%
