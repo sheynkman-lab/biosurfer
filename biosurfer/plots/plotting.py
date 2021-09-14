@@ -159,6 +159,8 @@ class IsoformPlot:
                     height: Optional[float] = None,
                     type='rect', **kwargs):
         """Draw a feature that spans a region. Appearance types are rectangle and line."""
+        if start == stop:
+            return
         # TODO: make type an enum?
         if type == 'rect':
             if height is None:
@@ -190,6 +192,8 @@ class IsoformPlot:
                             track_first: int = None, track_last: int = None,
                             padding: float = None, **kwargs):
         """Draw a rectangle in the background of the plot."""
+        if start == stop:
+            return
         if track_first is None:
             track_first = 0
         if track_last is None:
