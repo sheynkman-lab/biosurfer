@@ -134,9 +134,9 @@ class Transcript(Base, NameMixin, AccessionMixin):
         super().__init__(**kwargs)
         self.init_on_load()
 
-    @reconstructor
-    def init_on_load(self):
-        self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
+    # @reconstructor
+    # def init_on_load(self):
+    #     self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
 
     # The reason we use cached properties here instead of setting things up in __init__ or init_on_load
     # is to make sure the ORM eagerly loads all exons first.
@@ -164,6 +164,7 @@ class Transcript(Base, NameMixin, AccessionMixin):
             raise AttributeError(f'{self.name} has no sequence')
         assert sum(exon.length for exon in self.exons) == self.length
         nucleotides = []
+        self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
         i = 0
         for exon in self.exons:
             coords = range(exon.start, exon.stop+1)
@@ -543,12 +544,19 @@ class Protein(Base, AccessionMixin):
         super().__init__(**kwargs)
         self.residues = []
 
-    @reconstructor
-    def init_on_load(self):
-        self.residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence + '*', start=1)]
-        if self.orf and self.orf.nucleotides:
-            self._link_aa_to_orf_nt()
+    # @reconstructor
+    # def init_on_load(self):
+    #     self.residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence + '*', start=1)]
+    #     if self.orf and self.orf.nucleotides:
+    #         self._link_aa_to_orf_nt()
     
+    @cached_property
+    def residues(self):
+        _residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence + '*', start=1)]
+        if self.orf and self.orf.nucleotides:
+            self._link_aa_to_orf_nt(_residues)
+        return _residues
+
     def __repr__(self):
         return f'{self.orf.transcript}:protein'
     
@@ -564,7 +572,7 @@ class Protein(Base, AccessionMixin):
     def length(self):
         return len(self.sequence)
 
-    def _link_aa_to_orf_nt(self):
+    def _link_aa_to_orf_nt(self, residue_list):
         aa_sequence = Seq(self.sequence)
 
         nt_sequence = Seq(self.orf.sequence)
@@ -578,7 +586,7 @@ class Protein(Base, AccessionMixin):
         
         nt_match_index = aa_match_index*3
         nt_list = self.orf.nucleotides[nt_match_index:]
-        for i, aa in enumerate(self.residues):
+        for i, aa in enumerate(residue_list):
             aa.codon = tuple(nt_list[3*i:3*i + 3])
             for nt in aa.codon:
                 nt.residue = aa
