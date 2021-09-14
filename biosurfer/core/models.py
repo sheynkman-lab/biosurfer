@@ -388,7 +388,7 @@ class Junction:
             return False
         delta_donor = abs(self.donor - other.donor)
         delta_acceptor = abs(self.acceptor - other.acceptor)
-        if 0 < delta_donor <= 2 or 0 < delta_acceptor <= 2:
+        if delta_donor <= 2 and delta_acceptor <= 2 and (delta_donor != 0 or delta_acceptor != 0):
             warn(f'possible off-by-one error for junctions {self} and {other}')
         return delta_donor == 0 and delta_acceptor == 0
 
