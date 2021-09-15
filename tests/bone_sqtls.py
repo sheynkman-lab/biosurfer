@@ -100,10 +100,10 @@ def get_augmented_sqtl_record(row):
 
     pblocks = get_pblocks_related_to_junction(junc, alns)
 
-    # calculate fraction of pairs where junction-lacking isoform is not NMD but junction-using isoform is NMD
+    # calculate fraction of pairs where one isoform is NMD and other is not
     junc_info['NMD'] = None
     with ExceptionLogger(f'Error for {gene.name} {junc}'):
-        junc_info['NMD'] = sum(tx2.primary_orf.nmd and not tx1.primary_orf.nmd for tx1, tx2 in pairs) / n_pairs
+        junc_info['NMD'] = sum(tx1.primary_orf.nmd ^ tx2.primary_orf.nmd for tx1, tx2 in pairs) / n_pairs
 
     # calculate median change in sequence length for junction-related pblocks
     junc_info['median_delta_length'] = median(pblock.delta_length for pblock in pblocks) if pblocks else 0.0
@@ -124,8 +124,8 @@ def get_augmented_sqtl_record(row):
 
     should_plot = (
         junc_info['knockdown_frequency'] > 0.9 or
-        junc_info['MXIC'] > 0.3 or
-        junc_info['SIF'] > 0.5 or
+        junc_info['MXIC'] >= 0.5 or
+        junc_info['SIF'] >= 0.5 or
         junc_info['IR'] > 0 or
         junc_info['IX'] > 0
     )
