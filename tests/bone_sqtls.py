@@ -9,26 +9,42 @@ from statistics import median
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sqlalchemy.orm import joinedload
 from biosurfer.analysis.sqtl import (get_event_counts,
                                      get_pblocks_related_to_junction,
                                      junction_causes_knockdown_in_pair,
                                      split_transcripts_on_junction_usage)
 from biosurfer.core.alignments import (TranscriptBasedAlignment,
                                        export_annotated_pblocks_to_tsv)
+from biosurfer.core.constants import APPRIS, Strand
 from biosurfer.core.database import db_session
 from biosurfer.core.helpers import ExceptionLogger
-from biosurfer.core.models import Chromosome, GencodeTranscript, Gene, Junction, Transcript, ORF
+from biosurfer.core.models import (Chromosome, GencodeTranscript, Gene,
+                                   Junction, PacBioTranscript, Transcript)
 from biosurfer.plots.plotting import IsoformPlot
 from IPython.display import display
+from matplotlib.gridspec import GridSpec
 from sqlalchemy.sql.expression import and_, or_
+import seaborn as sns
 from tqdm import tqdm
+from tqdm.contrib.concurrent import process_map
 
-# %%
 data_dir = '../data/bone'
 output_dir = '../output/bone'
+
+# %%
+print('Loading isoform expression table...')
+expr_raw = pd.read_csv(f'{data_dir}/all_transcriptome_cupcake.mapped_fl_count.csv', index_col=0)
+all_pb_ids = set(row.accession for row in db_session.query(PacBioTranscript.accession))
+expression = expr_raw.filter(items=all_pb_ids, axis=0).rename(lambda name: name.split('_')[0], axis=1)
+expression['total'] = expression.sum(axis=1)
+expression['frac_total'] = expression['total'] / sum(expression['total'])
+for days in (0, 2, 4, 10):
+    expression[f't{days}'] = expression[[f't{days}{x}' for x in 'abc']].sum(axis=1)
+over3cpm = set(expression.query('total > 3').index)
+
+# %%
 print('Loading sQTL table...')
-sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t')
+sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=100)
 sqtls = sqtls_raw[sqtls_raw['gene_type'] == 'protein_coding']
 def optional_list(things):
     list_things = sorted(set(things))
@@ -61,18 +77,32 @@ gene_query = db_session.query(Gene).join(Gene.transcripts).\
         )
     )
 # print(str(gene_query))
-print('Loading objects...')
+print('Loading database objects...')
 genes = {stem(gene.accession): gene for gene in gene_query}
 
 # %%
+def gencode_or_abundant(transcript):
+    return (isinstance(transcript, GencodeTranscript) # and transcript.appris is not APPRIS.NONE 
+        or transcript.accession in over3cpm)
+
+def sortkey(transcript):
+    is_pac_bio = isinstance(transcript, PacBioTranscript)
+    return is_pac_bio, -expression.total[transcript.accession] if is_pac_bio else transcript.appris
+
+def get_abundance(transcript):
+    if transcript.accession in expression.index:
+        return f'{expression.total.loc[transcript.accession]:.5g}'
+    else:
+        return None
+
 def get_augmented_sqtl_record(row):
     chr, gene_id, start, end, h4 = row
     try:
         gene = genes[stem(gene_id)]
     except KeyError:
         return None
-    if all(isinstance(tx, GencodeTranscript) for tx in gene.transcripts):
-        # skip genes for which we have no PacBio data
+    if not any(tx.accession in over3cpm for tx in gene.transcripts):
+        # skip genes for which we have no high-abundance PacBio data
         return None
     junc = Junction(start, end, chromosomes[chr], gene.strand)
     junc_info = {
@@ -84,9 +114,9 @@ def get_augmented_sqtl_record(row):
         'H4': h4,
         'pairs': 0
     }
-    using, not_using = split_transcripts_on_junction_usage(junc, gene.transcripts)
-    using = sorted(using, key=attrgetter('name'))
-    not_using = sorted(not_using, key=attrgetter('name'))
+    using, not_using = split_transcripts_on_junction_usage(junc, filter(gencode_or_abundant, gene.transcripts))
+    using = sorted(using, key=sortkey)
+    not_using = sorted(not_using, key=sortkey)
     if not all((using, not_using)):
         return None
     
@@ -130,15 +160,34 @@ def get_augmented_sqtl_record(row):
         junc_info['IX'] > 0
     )
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
-    if should_plot and not os.path.isfile(fig_path):
-        isoplot = IsoformPlot(using + not_using)
+    # if should_plot and not os.path.isfile(fig_path):
+    if True:
+        isoplot = IsoformPlot(using + not_using, columns={'total CPM': get_abundance})
         with ExceptionLogger(f'Error plotting {gene.name} {junc}'):
-            isoplot.draw_all_isoforms()
+            gs = GridSpec(1, 2)
+            isoplot.draw_all_isoforms(subplot_spec=gs[0])
             isoplot.draw_frameshifts()
-            isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#ffffb7')
+            isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(using) - 0.5, start=gene.start, stop=gene.stop)
+            isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#f0f0f0')
             for pblock in pblocks:
-                isoplot.draw_protein_block(pblock)
-            isoplot.fig.set_size_inches(9, 0.5*len(gene.transcripts))
+                isoplot.draw_protein_block(pblock, alpha=n_pairs**-0.5)
+            heatmap_ax = isoplot.fig.add_subplot(gs[1])
+            all_accessions = [tx.accession for tx in isoplot.transcripts]
+            pb_accessions = [tx.accession for tx in isoplot.transcripts if isinstance(tx, PacBioTranscript)]
+            expression_sub = expression.loc[pb_accessions].iloc[:, -4:]
+            expression_sub = expression_sub.reindex(expression_sub.index.union(all_accessions))
+            heatmap = sns.heatmap(
+                expression_sub,
+                ax = heatmap_ax,
+                robust = True,
+                xticklabels = True,
+                yticklabels = False,
+                linecolor = '#dedede',
+                linewidths = 0.5,
+                cmap = sns.cubehelix_palette(as_cmap=True, light=1.0),
+                cbar_kws={'label': 'CPM'})
+            heatmap.set_ylabel(None)
+            isoplot.fig.set_size_inches(18, 0.5*len(gene.transcripts))
             plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
             tqdm.write('\tsaved '+fig_path)
         plt.close(isoplot.fig)
@@ -154,7 +203,8 @@ t = tqdm(
 records = list(record for record in t if record)
 
 sqtls_augmented = pd.DataFrame.from_records(records)
-display(sqtls_augmented)
+# display(sqtls_augmented)
+print(f'Annotated {sqtls_augmented.shape[0]} sQTL junctions')
 sqtls_augmented.to_csv(f'{output_dir}/coloc_sqtls_annotated.tsv', sep='\t', index=False)
 
 # %%

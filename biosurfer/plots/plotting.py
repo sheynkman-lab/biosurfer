@@ -4,8 +4,8 @@ from copy import copy
 from dataclasses import dataclass
 from itertools import groupby
 from operator import attrgetter, sub
-from typing import (TYPE_CHECKING, Collection, Dict, Iterable, List, Literal,
-                    Optional, Set, Tuple, Union)
+from typing import (TYPE_CHECKING, Any, Callable, Collection, Dict, Iterable,
+                    List, Literal, Optional, Set, Tuple, Union)
 from warnings import filterwarnings, warn
 
 import matplotlib.lines as mlines
@@ -15,10 +15,12 @@ from biosurfer.core.alignments import TranscriptBasedAlignment
 from biosurfer.core.constants import (ProteinLevelAlignmentCategory,
                                       TranscriptLevelAlignmentCategory)
 from biosurfer.core.helpers import Interval, IntervalTree
-from biosurfer.core.models import (ORF, Gene, Junction, Protein, Strand,
+from biosurfer.core.models import (ORF, GencodeTranscript, Gene, Junction,
+                                   PacBioTranscript, Protein, Strand,
                                    Transcript)
 from brokenaxes import BrokenAxes
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
+from matplotlib.transforms import Bbox
 
 if TYPE_CHECKING:
     from biosurfer.core.alignments import ProteinAlignmentBlock
@@ -28,6 +30,12 @@ if TYPE_CHECKING:
 StartStop = Tuple[int, int]
 
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
+
+# colors for different transcript types
+TRANSCRIPT_COLORS = {
+    GencodeTranscript: ('#505477', '#9698AD'),
+    PacBioTranscript: ('#975D73', '#DBB9C5')
+}
 
 # alpha values for different absolute reading frames
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
@@ -39,9 +47,9 @@ REL_FRAME_STYLE = {
 }
 
 PBLOCK_COLORS = {
-    ProteinLevelAlignmentCategory.DELETION: 'mediumvioletred',
-    ProteinLevelAlignmentCategory.INSERTION: 'goldenrod',
-    ProteinLevelAlignmentCategory.SUBSTITUTION: 'lightseagreen'
+    ProteinLevelAlignmentCategory.DELETION: '#FF0082',
+    ProteinLevelAlignmentCategory.INSERTION: '#05E0FF',
+    ProteinLevelAlignmentCategory.SUBSTITUTION: '#FFD700'
 }
 
 
@@ -61,9 +69,10 @@ class IsoformPlotOptions:
         self.track_spacing = (1 - width)/width
 
 
+TableColumn = Callable[[Transcript], str]
 class IsoformPlot:
     """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
-    def __init__(self, transcripts: Iterable['Transcript'], **kwargs):
+    def __init__(self, transcripts: Iterable['Transcript'], columns: Dict[str, TableColumn] = None, **kwargs):
         self.transcripts: List['Transcript'] = list(transcripts)  # list of orf objects to be drawn
         gene = {tx.gene for tx in self.transcripts}
         if len(gene) > 1:
@@ -73,13 +82,15 @@ class IsoformPlot:
             raise ValueError("Can't plot isoforms from different strands")
         self.strand: Strand = list(strand)[0]
 
+        self.fig: Optional['Figure'] = None
         self._bax: Optional['BrokenAxes'] = None
+        self._columns: Dict[str, TableColumn] = columns if columns else dict()
         self.opts = IsoformPlotOptions(**kwargs)
         self.reset_xlims()
     
-    @property
-    def fig(self) -> Optional['Figure']:
-        return self._bax.fig if self._bax else None
+    # @property
+    # def fig(self) -> Optional['Figure']:
+    #     return self._bax.fig if self._bax else None
 
     # Internally, IsoformPlot stores _subaxes, which maps each genomic region to the subaxes that plots the region's features.
     # The xlims property provides a simple interface to allow users to control which genomic regions are plotted.
@@ -254,14 +265,14 @@ class IsoformPlot:
         utr_kwargs = {
             'type': 'rect',
             'edgecolor': 'k',
-            'facecolor': 'lightsteelblue',
+            'facecolor': TRANSCRIPT_COLORS[type(tx)][1],
             'height': 0.5*self.opts.max_track_width,
             'zorder': 1.5
         }
         cds_kwargs = {
             'type': 'rect',
             'edgecolor': 'k',
-            'facecolor': 'steelblue',
+            'facecolor': TRANSCRIPT_COLORS[type(tx)][0],
             'zorder': 1.5
         }
         orf = tx.orfs[0]
@@ -314,10 +325,12 @@ class IsoformPlot:
         if hasattr(tx, 'end_nf') and tx.end_nf:
             self.draw_text(tx.stop if self.strand is Strand.PLUS else tx.start, track, ' !', ha='left', va='center', weight='bold', color='r')
 
-    def draw_all_isoforms(self):
+    def draw_all_isoforms(self, subplot_spec = None):
         """Plot all isoforms."""
-        
-        self._bax = BrokenAxes(xlims=self.xlims, ylims=((len(self.transcripts), -2*self.opts.max_track_width),), wspace=0, d=0.008)
+        R = len(self.transcripts)
+        C = len(self._columns)
+        self.fig = plt.figure()
+        self._bax = BrokenAxes(fig=self.fig, xlims=self.xlims, ylims=((R-0.5, -0.5),), wspace=0, d=0.008, subplot_spec=subplot_spec)
 
         # process orfs to get ready for plotting
         # find_and_set_subtle_splicing_status(self.transcripts, self.opts.subtle_splicing_threshold)
@@ -325,16 +338,28 @@ class IsoformPlot:
         for i, tx in enumerate(self.transcripts):
             self.draw_isoform(tx, i)
         
-        # set title
+        # plot genomic region label
         gene = self.transcripts[0].gene
         start, end = self.xlims[0][0], self.xlims[-1][1]
-        self._bax.set_title(f'{gene.chromosome}({self.strand}):{start}-{end}')
+        self._bax.big_ax.text(s=f'{gene.chromosome}({self.strand}):{start}-{end}', x=0.5, y=(R+1)/R, ha='center', va='top', transform=self._bax.big_ax.transAxes)
         
-        # hide y axis spine and replace tick labels with ORF ids
+        # hide y axis spine
         left_subaxes = self._bax.axs[0]
         left_subaxes.spines['left'].set_visible(False)
-        left_subaxes.set_yticks(list(range(len(self.transcripts))))
-        left_subaxes.set_yticklabels([tx.name for tx in self.transcripts])
+        left_subaxes.set_yticks([])
+        
+        # plot table
+        # https://stackoverflow.com/a/57169705
+        table = self._bax.big_ax.table(
+            rowLabels = [tx.name for tx in self.transcripts],
+            colLabels = list(self._columns.keys()),
+            cellText = [[f(transcript) for f in self._columns.values()] for transcript in self.transcripts],
+            cellLoc = 'center',
+            edges = 'open',
+            bbox = (-0.1*C, 0.0, 0.1*C, (R+1)/R)
+        )
+        # table.auto_set_font_size(False)
+        # table.set_fontsize(10)
         
         # rotate x axis tick labels for better readability
         for subaxes in self._bax.axs:
@@ -372,7 +397,7 @@ class IsoformPlot:
                         hatch = REL_FRAME_STYLE[category]
                     )
     
-    def draw_protein_block(self, pblock: 'ProteinAlignmentBlock'):
+    def draw_protein_block(self, pblock: 'ProteinAlignmentBlock', alpha: float = 0.5):
         if pblock.category is ProteinLevelAlignmentCategory.DELETION:
             other_start = pblock.anchor_residues[0].codon[1].coordinate
             other_stop = pblock.anchor_residues[-1].codon[1].coordinate
@@ -393,7 +418,7 @@ class IsoformPlot:
             height = 0.4*self.opts.max_track_width,
             edgecolor = 'none',
             facecolor = PBLOCK_COLORS[pblock.category],
-            alpha = 0.33
+            alpha = alpha
         )
         self.draw_region(
             self.transcripts.index(pblock.parent.other.transcript),
@@ -403,5 +428,5 @@ class IsoformPlot:
             height = 0.4*self.opts.max_track_width,
             edgecolor = 'none',
             facecolor = PBLOCK_COLORS[pblock.category],
-            alpha = 0.33
+            alpha = alpha
         )
