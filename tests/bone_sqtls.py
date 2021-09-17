@@ -15,7 +15,7 @@ from biosurfer.analysis.sqtl import (get_event_counts,
                                      split_transcripts_on_junction_usage)
 from biosurfer.core.alignments import (TranscriptBasedAlignment,
                                        export_annotated_pblocks_to_tsv)
-from biosurfer.core.constants import APPRIS, Strand
+from biosurfer.core.constants import APPRIS, SQANTI, Strand
 from biosurfer.core.database import db_session
 from biosurfer.core.helpers import ExceptionLogger
 from biosurfer.core.models import (Chromosome, GencodeTranscript, Gene,
@@ -26,7 +26,6 @@ from matplotlib.gridspec import GridSpec
 from sqlalchemy.sql.expression import and_, or_
 import seaborn as sns
 from tqdm import tqdm
-from tqdm.contrib.concurrent import process_map
 
 data_dir = '../data/bone'
 output_dir = '../output/bone'
@@ -40,7 +39,7 @@ expression['total'] = expression.sum(axis=1)
 expression['frac_total'] = expression['total'] / sum(expression['total'])
 for days in (0, 2, 4, 10):
     expression[f't{days}'] = expression[[f't{days}{x}' for x in 'abc']].sum(axis=1)
-over3cpm = set(expression.query('total > 3').index)
+over3counts = set(expression.query('total > 3').index)
 
 # %%
 print('Loading sQTL table...')
@@ -81,15 +80,13 @@ print('Loading database objects...')
 genes = {stem(gene.accession): gene for gene in gene_query}
 
 # %%
-def gencode_or_abundant(transcript):
-    return (isinstance(transcript, GencodeTranscript) # and transcript.appris is not APPRIS.NONE 
-        or transcript.accession in over3cpm)
+def abundant_and_coding(transcript: 'Transcript'):
+    return transcript.accession in over3counts and len(transcript.orfs) > 0
 
-def sortkey(transcript):
-    is_pac_bio = isinstance(transcript, PacBioTranscript)
-    return is_pac_bio, -expression.total[transcript.accession] if is_pac_bio else transcript.appris
+def sortkey(transcript: 'Transcript'):
+    return expression.total[transcript.accession], getattr(transcript, 'sqanti', SQANTI.OTHER)
 
-def get_abundance(transcript):
+def abundance_str(transcript: 'Transcript'):
     if transcript.accession in expression.index:
         return f'{expression.total.loc[transcript.accession]:.5g}'
     else:
@@ -101,9 +98,11 @@ def get_augmented_sqtl_record(row):
         gene = genes[stem(gene_id)]
     except KeyError:
         return None
-    if not any(tx.accession in over3cpm for tx in gene.transcripts):
+    if not any(tx.accession in over3counts for tx in gene.transcripts):
         # skip genes for which we have no high-abundance PacBio data
         return None
+    if gene.strand is Strand.MINUS:
+        start, end = end, start
     junc = Junction(start, end, chromosomes[chr], gene.strand)
     junc_info = {
         'chr': chr,
@@ -114,7 +113,8 @@ def get_augmented_sqtl_record(row):
         'H4': h4,
         'pairs': 0
     }
-    using, not_using = split_transcripts_on_junction_usage(junc, filter(gencode_or_abundant, gene.transcripts))
+    pb_transcripts = {tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript)}
+    using, not_using = split_transcripts_on_junction_usage(junc, filter(abundant_and_coding, pb_transcripts))
     using = sorted(using, key=sortkey)
     not_using = sorted(not_using, key=sortkey)
     if not all((using, not_using)):
@@ -165,23 +165,24 @@ def get_augmented_sqtl_record(row):
         isoplot = IsoformPlot(
             using + not_using,
             columns = {
-                'novelty': lambda tx: str(tx.sqanti) if isinstance(tx, PacBioTranscript) else '',
-                'total CPM': get_abundance,
+                'novelty': lambda tx: str(tx.sqanti),
+                'GENCODE': lambda tx: tx.gencode.name if tx.gencode else '',
+                'total counts': abundance_str,
             }
         )
         with ExceptionLogger(f'Error plotting {gene.name} {junc}'):
-            gs = GridSpec(1, 2)
-            isoplot.draw_all_isoforms(subplot_spec=gs[0])
+            gs = GridSpec(1, 3)
+            isoplot.draw_all_isoforms(subplot_spec=gs[:2])
             isoplot.draw_frameshifts()
             isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(using) - 0.5, start=gene.start, stop=gene.stop)
             isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#f0f0f0')
             for pblock in pblocks:
                 isoplot.draw_protein_block(pblock, alpha=n_pairs**-0.5)
-            heatmap_ax = isoplot.fig.add_subplot(gs[1])
-            all_accessions = [tx.accession for tx in isoplot.transcripts]
+            heatmap_ax = isoplot.fig.add_subplot(gs[-1])
+            # all_accessions = [tx.accession for tx in isoplot.transcripts]
             pb_accessions = [tx.accession for tx in isoplot.transcripts if isinstance(tx, PacBioTranscript)]
             expression_sub = expression.loc[pb_accessions].iloc[:, -4:]
-            expression_sub = expression_sub.reindex(index=all_accessions, fill_value=0)
+            # expression_sub = expression_sub.reindex(index=all_accessions, fill_value=0)
             heatmap = sns.heatmap(
                 expression_sub,
                 ax = heatmap_ax,
@@ -191,11 +192,11 @@ def get_augmented_sqtl_record(row):
                 linecolor = '#dedede',
                 linewidths = 0.5,
                 cmap = sns.cubehelix_palette(as_cmap=True, light=1.0),
-                cbar_kws = {'label': 'CPM'}
+                cbar_kws = {'label': 'counts'}
             )
             heatmap.set_ylabel(None)
-            isoplot.fig.set_size_inches(18, 0.3*len(gene.transcripts))
-            plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
+            isoplot.fig.set_size_inches(18, 0.25*len(gene.transcripts))
+            plt.savefig(fig_path, facecolor='w', transparent=False, dpi=200, bbox_inches='tight')
             tqdm.write('\tsaved '+fig_path)
         plt.close(isoplot.fig)
     return junc_info

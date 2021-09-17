@@ -341,7 +341,7 @@ class IsoformPlot:
         # plot genomic region label
         gene = self.transcripts[0].gene
         start, end = self.xlims[0][0], self.xlims[-1][1]
-        self._bax.big_ax.text(s=f'{gene.chromosome}({self.strand}):{start}-{end}', x=0.5, y=(R+1)/R, ha='center', va='top', transform=self._bax.big_ax.transAxes)
+        self._bax.set_title(f'{gene.chromosome}({self.strand}):{start}-{end}')
         
         # hide y axis spine
         left_subaxes = self._bax.axs[0]
