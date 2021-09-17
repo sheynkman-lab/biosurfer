@@ -15,11 +15,20 @@ from biosurfer.core.models import (ORF, Chromosome, Exon, GencodeExon,
 from tqdm import tqdm
 
 
+CHUNK_SIZE = 10000
+
 @dataclass
 class FastaHeaderFields:
     transcript_id: str = None
     protein_id: str = None
 
+def update_and_insert(mapper, mappings_to_update, mappings_to_insert):
+    if mappings_to_update:
+        db_session.bulk_update_mappings(mapper, mappings_to_update)
+        mappings_to_update[:] = []
+    if mappings_to_insert:
+        db_session.bulk_insert_mappings(mapper, mappings_to_insert)
+        mappings_to_insert[:] = []
 
 def read_gtf_line(line: str) -> list:
     """Read and parse a single gtf line
@@ -53,7 +62,7 @@ def read_gtf_line(line: str) -> list:
 def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
     if overwrite:
         Base.metadata.drop_all(engine)
-        print(f'dropped all tables from {engine.url}')
+        print(f'Dropped all tables from {engine.url}')
     Base.metadata.create_all(engine)
 
     existing_genes = {row.accession for row in db_session.query(Gene.accession).all()}
@@ -71,20 +80,16 @@ def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
     transcripts_to_exons = {}
     transcripts_to_cdss = {}
 
-    def update_and_insert(mapper, mappings_to_update, mappings_to_insert):
-        db_session.bulk_update_mappings(mapper, mappings_to_update)
-        db_session.bulk_insert_mappings(mapper, mappings_to_insert)
-        mappings_to_update[:] = []
-        mappings_to_insert[:] = []
-
     with open(gtf_file) as gtf:
-        t = tqdm(gtf, desc='Reading GENCODE gtf', unit='lines')
+        t = tqdm(gtf, desc=f'Reading {gtf_file} as GENCODE', unit='lines')
         for i, line in enumerate(t, start=1):
             if line.startswith("#"): 
                 continue
             chr, source, feature, start, stop, score, strand, phase, attributes, tags = read_gtf_line(line)
             gene_id = attributes['gene_id']
             gene_name = attributes['gene_name']
+            if attributes['gene_type'] != 'protein_coding':
+                continue
             
             if feature == 'gene':
                 if chr not in chromosomes:
@@ -161,7 +166,7 @@ def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
                 else:
                     transcripts_to_cdss[transcript_id] = [cds,]
             
-            if i % 20000 == 0:
+            if i % CHUNK_SIZE == 0:
                 update_and_insert(Gene, genes_to_update, genes_to_insert)
                 update_and_insert(GencodeTranscript, transcripts_to_update, transcripts_to_insert)
         update_and_insert(Gene, genes_to_update, genes_to_insert)
@@ -185,7 +190,7 @@ def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
             exon['transcript_stop'] = tx_idx + exon_length - 1
             tx_idx += exon_length
 
-        if i % 20000 == 0:
+        if i % CHUNK_SIZE == 0:
             update_and_insert(GencodeExon, exons_to_update, exons_to_insert)
     update_and_insert(GencodeExon, exons_to_update, exons_to_insert)
     db_session.commit()
@@ -232,7 +237,7 @@ def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
         else:
             orfs_to_insert.append(orf)
         
-        if i % 20000 == 0:
+        if i % CHUNK_SIZE == 0:
             update_and_insert(ORF, orfs_to_update, orfs_to_insert)
     update_and_insert(ORF, orfs_to_update, orfs_to_insert)
     db_session.commit()
@@ -240,7 +245,7 @@ def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
 def load_pacbio_gtf(gtf_file: str, overwrite=False) -> None:
     if overwrite:
         Base.metadata.drop_all(engine)
-        print(f'dropped all tables from {engine.url}')
+        print(f'Dropped all tables from {engine.url}')
     Base.metadata.create_all(engine)
 
     existing_genes = {row.name: row.accession for row in db_session.query(Gene.name, Gene.accession).all()}
@@ -258,14 +263,8 @@ def load_pacbio_gtf(gtf_file: str, overwrite=False) -> None:
     transcripts_to_exons = {}
     transcripts_to_cdss = {}
 
-    def update_and_insert(mapper, mappings_to_update, mappings_to_insert):
-        db_session.bulk_update_mappings(mapper, mappings_to_update)
-        db_session.bulk_insert_mappings(mapper, mappings_to_insert)
-        mappings_to_update[:] = []
-        mappings_to_insert[:] = []
-
     with open(gtf_file) as gtf:
-        t = tqdm(gtf, desc='Reading PacBio gtf', unit='lines')
+        t = tqdm(gtf, desc=f'Reading {gtf_file} as PacBio', unit='lines')
         for i, line in enumerate(t, start=1):
             if line.startswith("#"): 
                 continue
@@ -323,7 +322,7 @@ def load_pacbio_gtf(gtf_file: str, overwrite=False) -> None:
                 else:
                     transcripts_to_cdss[transcript_id] = [cds,]
             
-            if i % 20000 == 0:
+            if i % CHUNK_SIZE == 0:
                 update_and_insert(Gene, genes_to_update, genes_to_insert)
                 update_and_insert(PacBioTranscript, transcripts_to_update, transcripts_to_insert)
         update_and_insert(Gene, genes_to_update, genes_to_insert)
@@ -352,7 +351,7 @@ def load_pacbio_gtf(gtf_file: str, overwrite=False) -> None:
             exon['transcript_stop'] = tx_idx + exon_length - 1
             tx_idx += exon_length
 
-        if i % 20000 == 0:
+        if i % CHUNK_SIZE == 0:
             update_and_insert(PacBioExon, exons_to_update, exons_to_insert)
     update_and_insert(PacBioExon, exons_to_update, exons_to_insert)
     db_session.commit()
@@ -398,7 +397,7 @@ def load_pacbio_gtf(gtf_file: str, overwrite=False) -> None:
         else:
             orfs_to_insert.append(orf)
 
-        if i % 20000 == 0:
+        if i % CHUNK_SIZE == 0:
             update_and_insert(ORF, orfs_to_update, orfs_to_insert)
     update_and_insert(ORF, orfs_to_update, orfs_to_insert)
     db_session.commit()
@@ -408,7 +407,7 @@ def load_transcript_fasta(transcript_fasta: str, id_extractor: Callable[[str], F
 
     transcripts_to_update = []
     t = tqdm(SeqIO.parse(transcript_fasta, 'fasta'), desc='Reading transcripts fasta', unit='seq')
-    for i, record in enumerate(t, start=1):
+    for record in t:
         if id_filter(record.id):
             continue
         ids = id_extractor(record.id)
@@ -418,7 +417,7 @@ def load_transcript_fasta(transcript_fasta: str, id_extractor: Callable[[str], F
         if transcript_id in existing_transcripts:
             transcript = {'accession': transcript_id, 'sequence': sequence}
             transcripts_to_update.append(transcript)
-        if i % 20000 == 0:
+        if len(transcripts_to_update) == CHUNK_SIZE:
             db_session.bulk_update_mappings(Transcript, transcripts_to_update)
             transcripts_to_update[:] = []
     db_session.bulk_update_mappings(Transcript, transcripts_to_update)
@@ -462,16 +461,11 @@ def load_translation_fasta(translation_fasta: str, id_extractor: Callable[[str],
                         'protein_id': protein_id
                     })
                     break
-        if i % 20000 == 0:
-            db_session.bulk_update_mappings(ORF, orfs_to_update)
-            db_session.bulk_update_mappings(Protein, proteins_to_update)
-            db_session.bulk_insert_mappings(Protein, proteins_to_insert)
-            orfs_to_update[:] = []
-            proteins_to_update[:] = []
-            proteins_to_insert[:] = []
-    db_session.bulk_update_mappings(ORF, orfs_to_update)
-    db_session.bulk_update_mappings(Protein, proteins_to_update)
-    db_session.bulk_insert_mappings(Protein, proteins_to_insert)     
+        if i % CHUNK_SIZE == 0:
+            update_and_insert(ORF, orfs_to_update, [])
+            update_and_insert(Protein, proteins_to_update, proteins_to_insert)
+    update_and_insert(ORF, orfs_to_update, [])
+    update_and_insert(Protein, proteins_to_update, proteins_to_insert)  
     db_session.commit()
 
 SQANTI_DICT = {
@@ -492,82 +486,15 @@ def load_sqanti_classifications(sqanti_file: str):
             if row['isoform'] in existing_pacbio_transcripts:
                 tx = {
                     'accession': row['isoform'],
-                    'sqanti': SQANTI_DICT.get(row['structural_category'], SQANTI.NONE)
+                    'sqanti': SQANTI_DICT.get(row['structural_category'], SQANTI.OTHER)
                 }
                 associated_tx = row['associated_transcript']
                 if tx['sqanti'] in {SQANTI.FSM, SQANTI.ISM} and associated_tx in existing_gencode_transcripts:
                     tx['gencode_id'] = associated_tx
                 transcripts_to_update.append(tx)
             
-            if len(transcripts_to_update) == 20000:
+            if len(transcripts_to_update) == CHUNK_SIZE:
                 db_session.bulk_update_mappings(PacBioTranscript, transcripts_to_update)
                 transcripts_to_update[:] = []
         db_session.bulk_update_mappings(PacBioTranscript, transcripts_to_update)
         db_session.commit()
-
-path = '/home/redox/sheynkman-lab/biosurfer/data/'
-gencode_gtf = 'biosurfer_demo_data/gencode.v38.basic.annotation.gtf'
-gencode_tx = 'biosurfer_demo_data/gencode.v38.pc_transcripts.fa'
-gencode_tl = 'biosurfer_demo_data/gencode.v38.pc_translations.fa'
-pacbio_gtf = 'bone/bone_cds_high_confidence.gtf'
-pacbio_tx = 'bone/filtered_bone_corrected.fasta'
-pacbio_tl = 'bone/bone_hybrid.fasta'
-sqanti = 'bone/SQANTI3_results_attempt2_classification.tsv'
-
-def get_ids_from_gencode_fasta(header: str):
-    fields = [field for field in header.split('|') if field and not field.startswith(('UTR', 'CDS'))]
-    transcript_id = next((field for field in fields if field.startswith('ENST')))
-    protein_id = next((field for field in fields if field.startswith('ENSP')), None)
-    return FastaHeaderFields(transcript_id, protein_id)
-
-def get_ids_from_pacbio_fasta(header: str):
-    return FastaHeaderFields(header, None)
-
-def get_ids_from_hybrid_fasta(header: str):
-    fields = header.split('|')
-    return FastaHeaderFields(fields[1], fields[1] + ':PROT1')
-
-def skip_par_y(header: str):  # these have duplicate ENSEMBL accessions and that makes SQLAlchemy very sad
-    return 'PAR_Y' in header
-
-def skip_gencode(header: str):
-    return header.startswith('gc')
-
-#%%
-start = time.time()
-load_gencode_gtf(path + gencode_gtf, overwrite=True)
-end = time.time()
-print(f"Time to load gtf file\t{end - start:0.3g}s")
-
-start = time.time()
-load_transcript_fasta(path + gencode_tx, get_ids_from_gencode_fasta, skip_par_y)
-end = time.time()
-print(f"time to load transcript fasta\t{end - start:0.3g}s")
-
-start = time.time()
-load_translation_fasta(path + gencode_tl, get_ids_from_gencode_fasta, skip_par_y)
-end = time.time()
-print(f"time to load translation fasta\t{end - start:0.3g}s")
-
-#%%
-start = time.time()
-load_pacbio_gtf(path + pacbio_gtf, overwrite=False)
-end = time.time()
-print(f"Time to load gtf file\t{end - start:0.3g}s")
-
-start = time.time()
-load_transcript_fasta(path + pacbio_tx, get_ids_from_pacbio_fasta)
-end = time.time()
-print(f"time to load transcript fasta\t{end - start:0.3g}s")
-
-start = time.time()
-load_translation_fasta(path + pacbio_tl, get_ids_from_hybrid_fasta, skip_gencode)
-end = time.time()
-print(f"time to load translation fasta\t{end - start:0.3g}s")
-# %%
-start = time.time()
-load_sqanti_classifications(path + sqanti)
-end = time.time()
-print(f'Time to load sqanti classifications\t{end - start:0.3g}s')
-
-# %%
