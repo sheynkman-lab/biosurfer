@@ -1,8 +1,11 @@
 # utility functions that don't fit in other modules
+import sys
+import traceback
 from bisect import bisect
 from collections.abc import Mapping
-from dataclasses import dataclass, field, fields
+from contextlib import AbstractContextManager
 from copy import copy
+from dataclasses import dataclass, field, fields
 from enum import Enum
 from operator import itemgetter
 from typing import Generic, Iterable, Iterator, Tuple, TypeVar
@@ -143,3 +146,17 @@ def frozendataclass(cls):
         return frozencls(**new_field_values)
     frozencls.replace = replace
     return frozencls
+
+
+class ExceptionLogger(AbstractContextManager):
+    def __init__(self, info=None):
+        self.info = info
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            sys.stderr.write('---------\n')
+            if self.info:
+                sys.stderr.write(str(self.info) + '\n')
+            traceback.print_exc()
+            sys.stderr.write('---------\n')
+            return True

@@ -149,3 +149,14 @@ class APPRIS(OrderedEnum):
     PRINCIPAL = 1
     ALTERNATIVE = 2
     NONE = 3
+
+
+class SQANTI(OrderedEnum):
+    FSM = auto()
+    ISM = auto()
+    NIC = auto()
+    NNC = auto()
+    OTHER = auto()
+
+    def __str__(self):
+        return self.name

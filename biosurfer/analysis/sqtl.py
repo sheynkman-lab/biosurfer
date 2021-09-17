@@ -15,12 +15,12 @@ if TYPE_CHECKING:
 
 
 def split_transcripts_on_junction_usage(junction: 'Junction', transcripts: Iterable['Transcript']):
-    def contains_both_splice_sites(transcript):
-        return (transcript.start <= junction.donor <= transcript.stop and
-                transcript.start <= junction.acceptor <= transcript.stop)
+    # def contains_both_splice_sites(transcript):
+    #     return (transcript.start <= junction.donor <= transcript.stop and
+    #             transcript.start <= junction.acceptor <= transcript.stop)
     def uses_junction(transcript):
         return junction in transcript.junctions
-    tx1, tx2 = tee(filter(contains_both_splice_sites, transcripts))
+    tx1, tx2 = tee(transcripts)
     transcripts_using = filter(uses_junction, tx1)
     transcripts_not_using = filterfalse(uses_junction, tx2)
     return set(transcripts_using), set(transcripts_not_using)

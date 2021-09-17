@@ -6,7 +6,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 from warnings import warn
 
 from Bio.Seq import Seq
-from biosurfer.core.constants import APPRIS, AminoAcid, Nucleobase, Strand
+from biosurfer.core.database import Base
+from biosurfer.core.constants import APPRIS, SQANTI, AminoAcid, Nucleobase, Strand
 from biosurfer.core.helpers import BisectDict, frozendataclass
 from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
                         create_engine)
@@ -17,39 +18,43 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
                             sessionmaker)
 from sqlalchemy.orm.exc import NoResultFound
-
 from sqlalchemy.sql import select, func
 
 
-working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
-db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
-engine = create_engine(db_path, convert_unicode=True)
-db_session = scoped_session(sessionmaker(autocommit=False,
-                                         autoflush=False,
-                                         bind=engine))
+# working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
+# # db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
+# db_path = f'sqlite:///{working_dir}/wtc11.sqlite3'
+# engine = create_engine(db_path, convert_unicode=True)
+# db_session = scoped_session(sessionmaker(autocommit=False,
+#                                          autoflush=False,
+#                                          bind=engine))
 
-class Base:
-    @declared_attr
-    def __tablename__(cls):
-        if has_inherited_table(cls):
-            return None
-        return cls.__name__.lower()
+# class Base:
+#     @declared_attr
+#     def __tablename__(cls):
+#         if has_inherited_table(cls):
+#             return None
+#         return cls.__name__.lower()
     
-    # id = Column(Integer, primary_key=True)
+#     # id = Column(Integer, primary_key=True)
 
-Base = declarative_base(cls=Base)
-Base.query = db_session.query_property()
+# Base = declarative_base(cls=Base)
+# Base.query = db_session.query_property()
 
 
 class NameMixin:
     name = Column(String, index=True)
 
     @classmethod
-    def from_name(cls, name: str):
-        try:
-            return cls.query.where(cls.name == name).one()
-        except NoResultFound:
-            return None
+    def from_name(cls, name: str, unique: bool = True):
+        q = cls.query.where(cls.name == name)
+        if unique:
+            try:
+                return q.one()
+            except NoResultFound:
+                return None
+        else:
+            return q.all()
 
     @classmethod
     def from_names(cls, names: Iterable[str]):
@@ -134,9 +139,9 @@ class Transcript(Base, NameMixin, AccessionMixin):
         super().__init__(**kwargs)
         self.init_on_load()
 
-    @reconstructor
-    def init_on_load(self):
-        self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
+    # @reconstructor
+    # def init_on_load(self):
+    #     self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
 
     # The reason we use cached properties here instead of setting things up in __init__ or init_on_load
     # is to make sure the ORM eagerly loads all exons first.
@@ -164,6 +169,7 @@ class Transcript(Base, NameMixin, AccessionMixin):
             raise AttributeError(f'{self.name} has no sequence')
         assert sum(exon.length for exon in self.exons) == self.length
         nucleotides = []
+        self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
         i = 0
         for exon in self.exons:
             coords = range(exon.start, exon.stop+1)
@@ -246,6 +252,11 @@ class GencodeTranscript(Transcript):
     appris = Column(Enum(APPRIS))
     start_nf = Column(Boolean)
     end_nf = Column(Boolean)
+    pacbio = relationship(
+        'PacBioTranscript',
+        back_populates = 'gencode',
+        uselist = True
+    )
     
     def __init__(self, **kwargs):
         if 'strand' in kwargs:
@@ -259,6 +270,21 @@ class GencodeTranscript(Transcript):
     @hybrid_property
     def basic(self):
         return ~(self.start_nf | self.end_nf)
+
+
+class PacBioTranscript(Transcript):
+    sqanti = Column(Enum(SQANTI))
+    gencode_id = Column(String, ForeignKey('transcript.accession'))
+    gencode = relationship(
+        'GencodeTranscript',
+        back_populates = 'pacbio',
+        uselist = False,
+        remote_side = [Transcript.accession]
+    )
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'pacbiotranscript'
+    }
 
 
 class Exon(Base, AccessionMixin):
@@ -320,6 +346,12 @@ class GencodeExon(Exon):
     }
 
 
+class PacBioExon(Exon):
+    __mapper_args__ = {
+        'polymorphic_identity': 'pacbioexon'
+    }
+
+
 # TODO: save memory usage with __slots__?
 class Nucleotide:
     def __init__(self, parent, coordinate: int, position: int, base: str) -> None:
@@ -370,8 +402,10 @@ class Junction:
             return False
         delta_donor = abs(self.donor - other.donor)
         delta_acceptor = abs(self.acceptor - other.acceptor)
-        if 0 < delta_donor <= 2 or 0 < delta_acceptor <= 2:
-            warn(f'possible off-by-one error for junctions {self} and {other}')
+        if delta_donor <= 2 and delta_acceptor <= 2 and (delta_donor != 0 or delta_acceptor != 0):
+            warn(f'Possible off-by-one error for junctions {self} and {other}')
+        if self.strand is Strand.MINUS and self.donor == other.acceptor and self.acceptor == other.donor:
+            warn(f'Reversed coords for junctions {self} and {other}')
         return delta_donor == 0 and delta_acceptor == 0
 
 
@@ -543,12 +577,19 @@ class Protein(Base, AccessionMixin):
         super().__init__(**kwargs)
         self.residues = []
 
-    @reconstructor
-    def init_on_load(self):
-        self.residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence + '*', start=1)]
-        if self.orf and self.orf.nucleotides:
-            self._link_aa_to_orf_nt()
+    # @reconstructor
+    # def init_on_load(self):
+    #     self.residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence + '*', start=1)]
+    #     if self.orf and self.orf.nucleotides:
+    #         self._link_aa_to_orf_nt()
     
+    @cached_property
+    def residues(self):
+        _residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence + '*', start=1)]
+        if self.orf and self.orf.nucleotides:
+            self._link_aa_to_orf_nt(_residues)
+        return _residues
+
     def __repr__(self):
         return f'{self.orf.transcript}:protein'
     
@@ -564,7 +605,7 @@ class Protein(Base, AccessionMixin):
     def length(self):
         return len(self.sequence)
 
-    def _link_aa_to_orf_nt(self):
+    def _link_aa_to_orf_nt(self, residue_list):
         aa_sequence = Seq(self.sequence)
 
         nt_sequence = Seq(self.orf.sequence)
@@ -578,7 +619,7 @@ class Protein(Base, AccessionMixin):
         
         nt_match_index = aa_match_index*3
         nt_list = self.orf.nucleotides[nt_match_index:]
-        for i, aa in enumerate(self.residues):
+        for i, aa in enumerate(residue_list):
             aa.codon = tuple(nt_list[3*i:3*i + 3])
             for nt in aa.codon:
                 nt.residue = aa

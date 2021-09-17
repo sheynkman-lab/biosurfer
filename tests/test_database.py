@@ -1,21 +1,17 @@
 #%%
 import csv
+import filecmp
 import os
-import traceback
 from operator import attrgetter
-from warnings import filterwarnings
+from warnings import warn
 
 import matplotlib.pyplot as plt
-from IPython.display import display
-from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-from sqlalchemy.sql.expression import and_, func
-
 from biosurfer.core.alignments import TranscriptBasedAlignment
-from biosurfer.core.models import ORF, Gene, Protein, db_session
 from biosurfer.core.models import GencodeTranscript as Transcript
+from biosurfer.core.models import Gene, Protein
 from biosurfer.plots.plotting import IsoformPlot
-
-filterwarnings("ignore", category=MatplotlibDeprecationWarning)
+from IPython.display import display
+from sqlalchemy.sql.expression import and_, func
 
 #%%
 # proteins = db_session.query(Protein).join(ORF, Transcript).where(Transcript.basic).order_by(func.random()).limit(20).all()
@@ -72,7 +68,8 @@ for gene in genes:
 
 # %%
 annotations_output = 'sample_annotations.tsv'
-with open(annotations_output, 'w') as f:
+annotations_temp = annotations_output + '.temp'
+with open(annotations_temp, 'w') as f:
     writer = csv.writer(f, delimiter='\t', quotechar='"')
     writer.writerow(['anchor', 'other', 'category', 'region', 'event', 'annotation'])
     for aln in aln_dict.values():
@@ -84,11 +81,22 @@ with open(annotations_output, 'w') as f:
         for pblock in aln.protein_blocks:
             if pblock.annotation:
                 writer.writerow([str(aln.anchor), str(aln.other), str(pblock.category), str(pblock.region), pblock.event, pblock.annotation])
+if not filecmp.cmp(annotations_output, annotations_temp):
+    warn('Alignment annotations changed!')
+else:
+    print('Alignment annotations match previous file')
+    os.remove(annotations_temp)
 
 # %%
 alignments_output = 'sample_alignments.txt'
+alignments_temp = alignments_output + '.temp'
 all_full = '\n\n\n'.join(str(aln)+'\n'+aln.full for aln in aln_dict.values())
-with open(alignments_output, 'w') as f:
-    f.write(all_full)
+with open(alignments_output, 'r') as f:
+    if all_full != f.read():
+        warn('Alignment representations changed!')
+        with open(alignments_temp, 'w') as ff:
+            ff.write(all_full)
+    else:
+        print('Alignment representations match previous file')
 
 # %%
