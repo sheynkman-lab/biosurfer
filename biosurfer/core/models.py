@@ -403,7 +403,9 @@ class Junction:
         delta_donor = abs(self.donor - other.donor)
         delta_acceptor = abs(self.acceptor - other.acceptor)
         if delta_donor <= 2 and delta_acceptor <= 2 and (delta_donor != 0 or delta_acceptor != 0):
-            warn(f'possible off-by-one error for junctions {self} and {other}')
+            warn(f'Possible off-by-one error for junctions {self} and {other}')
+        if self.strand is Strand.MINUS and self.donor == other.acceptor and self.acceptor == other.donor:
+            warn(f'Reversed coords for junctions {self} and {other}')
         return delta_donor == 0 and delta_acceptor == 0
 
 
