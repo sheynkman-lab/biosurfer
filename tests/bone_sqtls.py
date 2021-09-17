@@ -44,7 +44,7 @@ over3cpm = set(expression.query('total > 3').index)
 
 # %%
 print('Loading sQTL table...')
-sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=100)
+sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=None)
 sqtls = sqtls_raw[sqtls_raw['gene_type'] == 'protein_coding']
 def optional_list(things):
     list_things = sorted(set(things))
@@ -162,7 +162,13 @@ def get_augmented_sqtl_record(row):
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
     # if should_plot and not os.path.isfile(fig_path):
     if True:
-        isoplot = IsoformPlot(using + not_using, columns={'total CPM': get_abundance})
+        isoplot = IsoformPlot(
+            using + not_using,
+            columns = {
+                'novelty': lambda tx: str(tx.sqanti) if isinstance(tx, PacBioTranscript) else '',
+                'total CPM': get_abundance,
+            }
+        )
         with ExceptionLogger(f'Error plotting {gene.name} {junc}'):
             gs = GridSpec(1, 2)
             isoplot.draw_all_isoforms(subplot_spec=gs[0])
@@ -175,7 +181,7 @@ def get_augmented_sqtl_record(row):
             all_accessions = [tx.accession for tx in isoplot.transcripts]
             pb_accessions = [tx.accession for tx in isoplot.transcripts if isinstance(tx, PacBioTranscript)]
             expression_sub = expression.loc[pb_accessions].iloc[:, -4:]
-            expression_sub = expression_sub.reindex(expression_sub.index.union(all_accessions))
+            expression_sub = expression_sub.reindex(index=all_accessions, fill_value=0)
             heatmap = sns.heatmap(
                 expression_sub,
                 ax = heatmap_ax,
@@ -185,9 +191,10 @@ def get_augmented_sqtl_record(row):
                 linecolor = '#dedede',
                 linewidths = 0.5,
                 cmap = sns.cubehelix_palette(as_cmap=True, light=1.0),
-                cbar_kws={'label': 'CPM'})
+                cbar_kws = {'label': 'CPM'}
+            )
             heatmap.set_ylabel(None)
-            isoplot.fig.set_size_inches(18, 0.5*len(gene.transcripts))
+            isoplot.fig.set_size_inches(18, 0.3*len(gene.transcripts))
             plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
             tqdm.write('\tsaved '+fig_path)
         plt.close(isoplot.fig)
@@ -198,7 +205,8 @@ t = tqdm(
     map(get_augmented_sqtl_record, rows),
     desc = 'Analyzing sQTL junctions',
     total = sqtls.shape[0],
-    file = sys.stdout
+    file = sys.stdout,
+    unit = 'junctions'
 )
 records = list(record for record in t if record)
 

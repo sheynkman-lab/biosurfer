@@ -1,4 +1,5 @@
 #%%
+import csv
 import logging
 import time
 from dataclasses import dataclass
@@ -6,11 +7,12 @@ from operator import itemgetter
 from typing import Any, Callable, Iterable, Tuple, Type
 
 from Bio import SeqIO
-from biosurfer.core.constants import APPRIS, Strand
+from biosurfer.core.constants import APPRIS, SQANTI, Strand
 from biosurfer.core.database import Base, db_session, engine
 from biosurfer.core.models import (ORF, Chromosome, Exon, GencodeExon,
                                    GencodeTranscript, Gene, PacBioExon, PacBioTranscript, Protein,
                                    Transcript)
+from tqdm import tqdm
 
 
 @dataclass
@@ -76,7 +78,8 @@ def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
         mappings_to_insert[:] = []
 
     with open(gtf_file) as gtf:
-        for i, line in enumerate(gtf, start=1):
+        t = tqdm(gtf, desc='Reading GENCODE gtf', unit='lines')
+        for i, line in enumerate(t, start=1):
             if line.startswith("#"): 
                 continue
             chr, source, feature, start, stop, score, strand, phase, attributes, tags = read_gtf_line(line)
@@ -159,16 +162,20 @@ def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
                     transcripts_to_cdss[transcript_id] = [cds,]
             
             if i % 20000 == 0:
-                print(f'read {i//1000}k lines...')
                 update_and_insert(Gene, genes_to_update, genes_to_insert)
                 update_and_insert(GencodeTranscript, transcripts_to_update, transcripts_to_insert)
         update_and_insert(Gene, genes_to_update, genes_to_insert)
         update_and_insert(GencodeTranscript, transcripts_to_update, transcripts_to_insert)
     db_session.commit()
 
-    print('calculating transcript-relative exon coordinates...')
     # calculate the coordinates of each exon relative to the sequence of its parent transcript
-    for transcript_id, exon_list in transcripts_to_exons.items():
+    t = tqdm(
+        transcripts_to_exons.items(),
+        desc = 'Calculating transcript-relative exon coords',
+        total = len(transcripts_to_exons),
+        unit = 'transcripts'
+    )
+    for i, (transcript_id, exon_list) in enumerate(t):
         exon_list.sort(key=itemgetter('start'), reverse=transcript_id in minus_transcripts)
         tx_idx = 1
         for i, exon in enumerate(exon_list, start=1):
@@ -177,13 +184,20 @@ def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
             exon['transcript_start'] = tx_idx
             exon['transcript_stop'] = tx_idx + exon_length - 1
             tx_idx += exon_length
-    db_session.bulk_update_mappings(GencodeExon, exons_to_update)
-    db_session.bulk_insert_mappings(GencodeExon, exons_to_insert)
+
+        if i % 20000 == 0:
+            update_and_insert(GencodeExon, exons_to_update, exons_to_insert)
+    update_and_insert(GencodeExon, exons_to_update, exons_to_insert)
     db_session.commit()
 
-    print('calculating transcript-relative ORF coordinates...')
     # assemble CDS intervals into ORFs
-    for transcript_id, cds_list in transcripts_to_cdss.items():
+    t = tqdm(
+        transcripts_to_cdss.items(),
+        desc = 'Calculating transcript-relative ORF coords',
+        total = len(transcripts_to_cdss),
+        unit = 'transcripts'
+    )
+    for i, (transcript_id, cds_list) in enumerate(t):
         assert len({cds[2] for cds in cds_list}) == 1
         exon_list = transcripts_to_exons[transcript_id]
         cds_list.sort(key=itemgetter(0), reverse=transcript_id in minus_transcripts)
@@ -217,8 +231,10 @@ def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
             orfs_to_update.append(orf)
         else:
             orfs_to_insert.append(orf)
-    db_session.bulk_update_mappings(ORF, orfs_to_update)
-    db_session.bulk_insert_mappings(ORF, orfs_to_insert)
+        
+        if i % 20000 == 0:
+            update_and_insert(ORF, orfs_to_update, orfs_to_insert)
+    update_and_insert(ORF, orfs_to_update, orfs_to_insert)
     db_session.commit()
 
 def load_pacbio_gtf(gtf_file: str, overwrite=False) -> None:
@@ -249,7 +265,8 @@ def load_pacbio_gtf(gtf_file: str, overwrite=False) -> None:
         mappings_to_insert[:] = []
 
     with open(gtf_file) as gtf:
-        for i, line in enumerate(gtf, start=1):
+        t = tqdm(gtf, desc='Reading PacBio gtf', unit='lines')
+        for i, line in enumerate(t, start=1):
             if line.startswith("#"): 
                 continue
             chr, source, feature, start, stop, score, strand, phase, attributes, tags = read_gtf_line(line)
@@ -307,16 +324,20 @@ def load_pacbio_gtf(gtf_file: str, overwrite=False) -> None:
                     transcripts_to_cdss[transcript_id] = [cds,]
             
             if i % 20000 == 0:
-                print(f'read {i//1000}k lines...')
                 update_and_insert(Gene, genes_to_update, genes_to_insert)
                 update_and_insert(PacBioTranscript, transcripts_to_update, transcripts_to_insert)
         update_and_insert(Gene, genes_to_update, genes_to_insert)
         update_and_insert(PacBioTranscript, transcripts_to_update, transcripts_to_insert)
     db_session.commit()
 
-    print('calculating transcript-relative exon coordinates...')
     # calculate the coordinates of each exon relative to the sequence of its parent transcript
-    for transcript_id, exon_list in transcripts_to_exons.items():
+    t = tqdm(
+        transcripts_to_exons.items(),
+        desc = 'Calculating transcript-relative exon coords',
+        total = len(transcripts_to_exons),
+        unit = 'transcripts'
+    )
+    for i, (transcript_id, exon_list) in enumerate(t):
         exon_list.sort(key=itemgetter('start'), reverse=transcript_id in minus_transcripts)
         tx_idx = 1
         for i, exon in enumerate(exon_list, start=1):
@@ -330,13 +351,20 @@ def load_pacbio_gtf(gtf_file: str, overwrite=False) -> None:
             exon['transcript_start'] = tx_idx
             exon['transcript_stop'] = tx_idx + exon_length - 1
             tx_idx += exon_length
-    db_session.bulk_update_mappings(PacBioExon, exons_to_update)
-    db_session.bulk_insert_mappings(PacBioExon, exons_to_insert)
+
+        if i % 20000 == 0:
+            update_and_insert(PacBioExon, exons_to_update, exons_to_insert)
+    update_and_insert(PacBioExon, exons_to_update, exons_to_insert)
     db_session.commit()
 
-    print('calculating transcript-relative ORF coordinates...')
     # assemble CDS intervals into ORFs
-    for transcript_id, cds_list in transcripts_to_cdss.items():
+    t = tqdm(
+        transcripts_to_cdss.items(),
+        desc = 'Calculating transcript-relative ORF coords',
+        total = len(transcripts_to_cdss),
+        unit = 'transcripts'
+    )
+    for i, (transcript_id, cds_list) in enumerate(t):
         exon_list = transcripts_to_exons[transcript_id]
         cds_list.sort(key=itemgetter(0), reverse=transcript_id in minus_transcripts)
         first_cds, last_cds = cds_list[0], cds_list[-1]
@@ -369,15 +397,18 @@ def load_pacbio_gtf(gtf_file: str, overwrite=False) -> None:
             orfs_to_update.append(orf)
         else:
             orfs_to_insert.append(orf)
-    db_session.bulk_update_mappings(ORF, orfs_to_update)
-    db_session.bulk_insert_mappings(ORF, orfs_to_insert)
+
+        if i % 20000 == 0:
+            update_and_insert(ORF, orfs_to_update, orfs_to_insert)
+    update_and_insert(ORF, orfs_to_update, orfs_to_insert)
     db_session.commit()
 
 def load_transcript_fasta(transcript_fasta: str, id_extractor: Callable[[str], FastaHeaderFields], id_filter: Callable[[str], bool] = lambda x: False):
     existing_transcripts = {row.accession for row in db_session.query(Transcript.accession)}
 
     transcripts_to_update = []
-    for i, record in enumerate(SeqIO.parse(transcript_fasta, 'fasta'), start=1):
+    t = tqdm(SeqIO.parse(transcript_fasta, 'fasta'), desc='Reading transcripts fasta', unit='seq')
+    for i, record in enumerate(t, start=1):
         if id_filter(record.id):
             continue
         ids = id_extractor(record.id)
@@ -388,7 +419,6 @@ def load_transcript_fasta(transcript_fasta: str, id_extractor: Callable[[str], F
             transcript = {'accession': transcript_id, 'sequence': sequence}
             transcripts_to_update.append(transcript)
         if i % 20000 == 0:
-            print(f'read {i//1000}k entries...')
             db_session.bulk_update_mappings(Transcript, transcripts_to_update)
             transcripts_to_update[:] = []
     db_session.bulk_update_mappings(Transcript, transcripts_to_update)
@@ -406,7 +436,8 @@ def load_translation_fasta(translation_fasta: str, id_extractor: Callable[[str],
     orfs_to_update = []
     proteins_to_update = []
     proteins_to_insert = []
-    for i, record in enumerate(SeqIO.parse(translation_fasta, 'fasta'), start=1):
+    t = tqdm(SeqIO.parse(translation_fasta, 'fasta'), desc='Reading translations fasta', unit='seqs')
+    for i, record in enumerate(t, start=1):
         if id_filter(record.id):
             continue
         ids = id_extractor(record.id)
@@ -432,7 +463,6 @@ def load_translation_fasta(translation_fasta: str, id_extractor: Callable[[str],
                     })
                     break
         if i % 20000 == 0:
-            print(f'read {i//1000}k entries...')
             db_session.bulk_update_mappings(ORF, orfs_to_update)
             db_session.bulk_update_mappings(Protein, proteins_to_update)
             db_session.bulk_insert_mappings(Protein, proteins_to_insert)
@@ -444,6 +474,37 @@ def load_translation_fasta(translation_fasta: str, id_extractor: Callable[[str],
     db_session.bulk_insert_mappings(Protein, proteins_to_insert)     
     db_session.commit()
 
+SQANTI_DICT = {
+    'full-splice_match': SQANTI.FSM,
+    'incomplete-splice_match': SQANTI.ISM,
+    'novel_in_catalog': SQANTI.NIC,
+    'novel_not_in_catalog': SQANTI.NNC
+}
+
+def load_sqanti_classifications(sqanti_file: str):
+    existing_gencode_transcripts = {row.accession for row in db_session.query(GencodeTranscript.accession)}
+    existing_pacbio_transcripts = {row.accession for row in db_session.query(PacBioTranscript.accession)}
+
+    transcripts_to_update = []
+    with open(sqanti_file) as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        for row in tqdm(reader, desc='Reading SQANTI classifications', unit='lines'):
+            if row['isoform'] in existing_pacbio_transcripts:
+                tx = {
+                    'accession': row['isoform'],
+                    'sqanti': SQANTI_DICT.get(row['structural_category'], SQANTI.NONE)
+                }
+                associated_tx = row['associated_transcript']
+                if tx['sqanti'] in {SQANTI.FSM, SQANTI.ISM} and associated_tx in existing_gencode_transcripts:
+                    tx['gencode_id'] = associated_tx
+                transcripts_to_update.append(tx)
+            
+            if len(transcripts_to_update) == 20000:
+                db_session.bulk_update_mappings(PacBioTranscript, transcripts_to_update)
+                transcripts_to_update[:] = []
+        db_session.bulk_update_mappings(PacBioTranscript, transcripts_to_update)
+        db_session.commit()
+
 path = '/home/redox/sheynkman-lab/biosurfer/data/'
 gencode_gtf = 'biosurfer_demo_data/gencode.v38.basic.annotation.gtf'
 gencode_tx = 'biosurfer_demo_data/gencode.v38.pc_transcripts.fa'
@@ -451,6 +512,7 @@ gencode_tl = 'biosurfer_demo_data/gencode.v38.pc_translations.fa'
 pacbio_gtf = 'bone/bone_cds_high_confidence.gtf'
 pacbio_tx = 'bone/filtered_bone_corrected.fasta'
 pacbio_tl = 'bone/bone_hybrid.fasta'
+sqanti = 'bone/SQANTI3_results_attempt2_classification.tsv'
 
 def get_ids_from_gencode_fasta(header: str):
     fields = [field for field in header.split('|') if field and not field.startswith(('UTR', 'CDS'))]
@@ -502,4 +564,10 @@ start = time.time()
 load_translation_fasta(path + pacbio_tl, get_ids_from_hybrid_fasta, skip_gencode)
 end = time.time()
 print(f"time to load translation fasta\t{end - start:0.3g}s")
+# %%
+start = time.time()
+load_sqanti_classifications(path + sqanti)
+end = time.time()
+print(f'Time to load sqanti classifications\t{end - start:0.3g}s')
+
 # %%

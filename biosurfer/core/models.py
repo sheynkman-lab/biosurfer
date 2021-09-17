@@ -7,7 +7,7 @@ from warnings import warn
 
 from Bio.Seq import Seq
 from biosurfer.core.database import Base
-from biosurfer.core.constants import APPRIS, AminoAcid, Nucleobase, Strand
+from biosurfer.core.constants import APPRIS, SQANTI, AminoAcid, Nucleobase, Strand
 from biosurfer.core.helpers import BisectDict, frozendataclass
 from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
                         create_engine)
@@ -252,6 +252,11 @@ class GencodeTranscript(Transcript):
     appris = Column(Enum(APPRIS))
     start_nf = Column(Boolean)
     end_nf = Column(Boolean)
+    pacbio = relationship(
+        'PacBioTranscript',
+        back_populates = 'gencode',
+        uselist = True
+    )
     
     def __init__(self, **kwargs):
         if 'strand' in kwargs:
@@ -268,6 +273,15 @@ class GencodeTranscript(Transcript):
 
 
 class PacBioTranscript(Transcript):
+    sqanti = Column(Enum(SQANTI))
+    gencode_id = Column(String, ForeignKey('transcript.accession'))
+    gencode = relationship(
+        'GencodeTranscript',
+        back_populates = 'pacbio',
+        uselist = False,
+        remote_side = [Transcript.accession]
+    )
+
     __mapper_args__ = {
         'polymorphic_identity': 'pacbiotranscript'
     }
