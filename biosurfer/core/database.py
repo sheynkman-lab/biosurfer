@@ -10,7 +10,7 @@ db_path = f'sqlite:///{working_dir}/bone.sqlite3'
 # db_path = 'sqlite://'
 
 
-engine = create_engine(db_path, convert_unicode=True)
+engine = create_engine(db_path)
 db_session = scoped_session(sessionmaker(autocommit=False,
                                          autoflush=False,
                                          bind=engine))
