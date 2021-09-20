@@ -167,7 +167,7 @@ class Transcript(Base, NameMixin, AccessionMixin):
     def nucleotides(self):
         if not self.sequence:
             raise AttributeError(f'{self.name} has no sequence')
-        assert sum(exon.length for exon in self.exons) == self.length
+        # assert sum(exon.length for exon in self.exons) == self.length
         nucleotides = []
         self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
         i = 0
@@ -573,9 +573,9 @@ class Protein(Base, AccessionMixin):
         uselist=False
     )
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.residues = []
+    # def __init__(self, **kwargs):
+    #     super().__init__(**kwargs)
+    #     self.residues = []
 
     # @reconstructor
     # def init_on_load(self):
