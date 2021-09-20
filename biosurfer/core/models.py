@@ -135,9 +135,9 @@ class Transcript(Base, NameMixin, AccessionMixin):
         'polymorphic_identity': 'transcript'
     }
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.init_on_load()
+    # def __init__(self, **kwargs):
+    #     super().__init__(**kwargs)
+    #     self.init_on_load()
 
     # @reconstructor
     # def init_on_load(self):
