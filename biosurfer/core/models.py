@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import Counter
+
 from functools import cached_property
 from operator import attrgetter
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -10,6 +11,7 @@ from biosurfer.core.database import Base
 from biosurfer.core.constants import APPRIS, SQANTI, AminoAcid, Nucleobase, Strand
 from biosurfer.core.helpers import BisectDict, frozendataclass
 from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
+
                         create_engine)
 from sqlalchemy.ext.declarative import (declarative_base, declared_attr,
                                         has_inherited_table)
@@ -21,6 +23,7 @@ from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.sql import select, func
 
 
+
 # working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
 # # db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
 # db_path = f'sqlite:///{working_dir}/wtc11.sqlite3'
@@ -28,6 +31,7 @@ from sqlalchemy.sql import select, func
 # db_session = scoped_session(sessionmaker(autocommit=False,
 #                                          autoflush=False,
 #                                          bind=engine))
+
 
 # class Base:
 #     @declared_attr
@@ -85,7 +89,9 @@ class Chromosome(Base, NameMixin):
 
 
 class Gene(Base, NameMixin, AccessionMixin):
+
     strand = Column(Enum(Strand))
+
     chromosome_id = Column(String, ForeignKey('chromosome.name'))
     chromosome = relationship('Chromosome', back_populates='genes')
     transcripts = relationship(
@@ -114,6 +120,7 @@ class Transcript(Base, NameMixin, AccessionMixin):
     type = Column(String)
     sequence = Column(String)
     gene_id = Column(String, ForeignKey('gene.accession'))
+
     gene = relationship('Gene', back_populates='transcripts')
     exons = relationship(
         'Exon',
@@ -232,6 +239,8 @@ class Transcript(Base, NameMixin, AccessionMixin):
     
     def get_nucleotide_from_coordinate(self, coordinate: int) -> 'Nucleotide':
         """Given a genomic coordinate (1-based) included in the transcript, return the Nucleotide object corresponding to that coordinate."""
+        if self._nucleotide_mapping is None:
+            _ = self.nucleotides
         if coordinate in self._nucleotide_mapping:
             return self._nucleotide_mapping[coordinate]
         else:
@@ -623,7 +632,7 @@ class Protein(Base, AccessionMixin):
             aa.codon = tuple(nt_list[3*i:3*i + 3])
             for nt in aa.codon:
                 nt.residue = aa
-
+    
 
 OptNucleotide = Optional['Nucleotide']
 Codon = Tuple[OptNucleotide, OptNucleotide, OptNucleotide]
@@ -664,3 +673,4 @@ class Residue:
     @property
     def is_gap(self):
         return self.amino_acid is AminoAcid.GAP
+

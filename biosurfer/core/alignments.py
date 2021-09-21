@@ -13,6 +13,7 @@ from biosurfer.core.constants import TranscriptLevelAlignmentCategory as Transcr
 from biosurfer.core.models import Exon, Nucleotide, Protein, Residue, Transcript
 
 
+
 PBLOCK_FIELDS = ('anchor', 'other', 'region', 'category', 'delta_length', 'event', 'flags', 'annotation')
 
 

@@ -124,6 +124,8 @@ def load_gencode_gtf(gtf_file: str, overwrite=False) -> None:
                 transcript = {
                     'accession': transcript_id,
                     'name': transcript_name,
+                    'start': start,
+                    'stop' : stop,
                     'type': 'gencodetranscript',
                     'gene_id': gene_id,
                     'strand': Strand.from_symbol(strand),
@@ -468,12 +470,36 @@ def load_translation_fasta(translation_fasta: str, id_extractor: Callable[[str],
     update_and_insert(Protein, proteins_to_update, proteins_to_insert)  
     db_session.commit()
 
+
 SQANTI_DICT = {
     'full-splice_match': SQANTI.FSM,
     'incomplete-splice_match': SQANTI.ISM,
     'novel_in_catalog': SQANTI.NIC,
     'novel_not_in_catalog': SQANTI.NNC
 }
+
+def load_variants(vcf_file : str):
+    variants_to_insert = []
+    with open(vcf_file) as vcf:
+        for i, line in enumerate(vcf):
+            if line.startswith('#'):
+                continue
+            chr, pos, id, ref, alt, qual, filter, info, format, default = line.split('\t')
+            if filter == 'PASS':
+                for ref_nuc in ref.split(','):
+                    for alt_nuc in alt.split(','):
+                        if len(ref_nuc) == 1 and len(alt_nuc) == 1:
+                            variant = {
+                                'chromosome_id' : chr,
+                                'position' : pos,
+                                'reference_sequence' : ref_nuc,
+                                'variant_sequence' : alt_nuc
+                            }
+                            variants_to_insert.append(variant)
+    db_session.bulk_insert_mappings(Variant, variants_to_insert)     
+    db_session.commit()
+
+
 
 def load_sqanti_classifications(sqanti_file: str):
     existing_gencode_transcripts = {row.accession for row in db_session.query(GencodeTranscript.accession)}
@@ -498,3 +524,4 @@ def load_sqanti_classifications(sqanti_file: str):
                 transcripts_to_update[:] = []
         db_session.bulk_update_mappings(PacBioTranscript, transcripts_to_update)
         db_session.commit()
+
