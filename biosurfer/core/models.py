@@ -2,78 +2,82 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from functools import cached_property
 from operator import attrgetter
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Type
 from warnings import warn
 
 from Bio.Seq import Seq
-from biosurfer.core.database import Base
-from biosurfer.core.constants import APPRIS, SQANTI, AminoAcid, Nucleobase, Strand
+from biosurfer.core.constants import (APPRIS, SQANTI, AminoAcid, Nucleobase,
+                                      Strand)
 from biosurfer.core.helpers import BisectDict, frozendataclass
 from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
                         create_engine)
-from sqlalchemy.ext.declarative import (declarative_base, declared_attr,
+from sqlalchemy.ext.declarative import (DeclarativeMeta, declarative_base,
                                         has_inherited_table)
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
-from sqlalchemy.orm import (reconstructor, relationship, scoped_session,
-                            sessionmaker)
+from sqlalchemy.orm import reconstructor, relationship
 from sqlalchemy.orm.exc import NoResultFound
-from sqlalchemy.sql import select, func
+from sqlalchemy.sql import func, select
 
 
-# working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
-# # db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
-# db_path = f'sqlite:///{working_dir}/wtc11.sqlite3'
-# engine = create_engine(db_path, convert_unicode=True)
-# db_session = scoped_session(sessionmaker(autocommit=False,
-#                                          autoflush=False,
-#                                          bind=engine))
+class BaseMeta(DeclarativeMeta):
+    _session = None
 
-# class Base:
-#     @declared_attr
-#     def __tablename__(cls):
-#         if has_inherited_table(cls):
-#             return None
-#         return cls.__name__.lower()
+    def __init__(cls, classname, bases, dict_, **kwargs):
+        cls.__tablename__ = cls.__name__.lower() if not has_inherited_table(cls) else None
+        DeclarativeMeta.__init__(cls, classname, bases, dict_, **kwargs)
+
+    @property
+    def session(cls):
+        if BaseMeta._session is None:
+            raise AttributeError('Base.session has not been set')
+        return BaseMeta._session
     
-#     # id = Column(Integer, primary_key=True)
+    @session.setter
+    def session(cls, session):
+        BaseMeta._session = session
 
-# Base = declarative_base(cls=Base)
-# Base.query = db_session.query_property()
+
+Base = declarative_base(metaclass=BaseMeta)
 
 
 class NameMixin:
     name = Column(String, index=True)
 
     @classmethod
-    def from_name(cls, name: str, unique: bool = True):
-        q = cls.query.where(cls.name == name)
+    def from_name(cls: Type['Base'], name: str, unique: bool = True):
+        statement = select(cls).where(cls.name == name)
+        result = cls.session.execute(statement).scalars()
         if unique:
             try:
-                return q.one()
+                return result.one()
             except NoResultFound:
                 return None
         else:
-            return q.all()
+            return result.all()
 
     @classmethod
-    def from_names(cls, names: Iterable[str]):
-        return {inst.name: inst for inst in cls.query.where(cls.name.in_(names))}
+    def from_names(cls: Type['Base'], names: Iterable[str]):
+        statement = select(cls).where(cls.name.in_(names))
+        return {inst.name: inst for inst in cls.session.execute(statement).scalars()}
 
 
 class AccessionMixin:
     accession = Column(String, primary_key=True, index=True)
 
     @classmethod
-    def from_accession(cls, accession: str):
+    def from_accession(cls: Type['Base'], accession: str):
+        statement = select(cls).where(cls.accession == accession)
+        result = cls.session.execute(statement).scalars()
         try:
-            return cls.query.where(cls.accession == accession).one()
+            return result.one()
         except NoResultFound:
             return None
     
     @classmethod
-    def from_accessions(cls, accessions: Iterable[str]):
-        return {inst.name: inst for inst in cls.query.where(cls.accession.in_(accessions))}
+    def from_accessions(cls: Type['Base'], accessions: Iterable[str]):
+        statement = select(cls).where(cls.accession.in_(accessions))
+        return {inst.name: inst for inst in cls.session.execute(statement).scalars()}
 
 
 class Chromosome(Base, NameMixin):

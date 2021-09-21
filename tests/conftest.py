@@ -46,7 +46,15 @@ def dummy_transcript(dummy_utr5_seq, dummy_orf_seq, dummy_utr3_seq, dummy_exon_r
         name = 'DUMMY-1'
     )
     for i, (start, stop) in enumerate(dummy_exon_ranges, start=1):
-        Exon(position=i, transcript_start=start, transcript_stop=stop, transcript=transcript)
+        genome_start = 100000 + 1000*i + start
+        Exon(
+            position = i,
+            transcript_start = start,
+            transcript_stop = stop,
+            transcript = transcript,
+            start = genome_start,
+            stop = genome_start + (stop - start)
+        )
     return transcript
 
 @pytest.fixture(scope='module')
