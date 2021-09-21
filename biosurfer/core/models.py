@@ -501,6 +501,24 @@ class ORF(Base):
     @property
     def junctions(self) -> List['Junction']:
         return self.transcript.junctions[self._first_exon_index:self._last_exon_index]
+    
+    def _link_aa_to_nt(self, residue_list):
+        aa_sequence = Seq(self.protein.sequence)
+        nt_sequence = Seq(self.sequence)
+        translation = nt_sequence.translate(to_stop=True)
+        aa_match_index = aa_sequence.find(translation)
+        if aa_match_index == -1:
+            warn(
+                f'Could not match amino acid sequence to nucleotide sequence of {self}'
+            )
+            return
+        
+        nt_match_index = aa_match_index*3
+        nt_list = self.nucleotides[nt_match_index:]
+        for i, aa in enumerate(residue_list):
+            aa.codon = tuple(nt_list[3*i:3*i + 3])
+            for nt in aa.codon:
+                nt.residue = aa
 
 
 class UTR(ABC):
@@ -590,8 +608,8 @@ class Protein(Base, AccessionMixin):
     @cached_property
     def residues(self):
         _residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence + '*', start=1)]
-        if self.orf and self.orf.nucleotides:
-            self._link_aa_to_orf_nt(_residues)
+        if self.orf:
+            self.orf._link_aa_to_nt(_residues)
         return _residues
 
     def __repr__(self):
@@ -608,25 +626,6 @@ class Protein(Base, AccessionMixin):
     @hybrid_property
     def length(self):
         return len(self.sequence)
-
-    def _link_aa_to_orf_nt(self, residue_list):
-        aa_sequence = Seq(self.sequence)
-
-        nt_sequence = Seq(self.orf.sequence)
-        translation = nt_sequence.translate(to_stop=True)
-        aa_match_index = aa_sequence.find(translation)
-        if aa_match_index == -1:
-            warn(
-                f'Could not match amino acid sequence to nucleotide sequence of {self.orf}'
-            )
-            return
-        
-        nt_match_index = aa_match_index*3
-        nt_list = self.orf.nucleotides[nt_match_index:]
-        for i, aa in enumerate(residue_list):
-            aa.codon = tuple(nt_list[3*i:3*i + 3])
-            for nt in aa.codon:
-                nt.residue = aa
 
 
 OptNucleotide = Optional['Nucleotide']

@@ -1,74 +1,36 @@
+from itertools import chain
+from operator import attrgetter
 import pytest
-from Bio.Seq import Seq
-from biosurfer.core.models import Transcript, Exon, ORF, Protein
+from biosurfer.core.database import Database, DB_MEMORY, get_ids_from_gencode_fasta
+from biosurfer.core.models import Gene
+from sqlalchemy import select
 
-@pytest.fixture(scope='module')
-def dummy_utr5_seq():
-    return ('GTTTAAGGGATACTTGGTCCATAATGTGCGATACCGACTCATTCAGCCTATAAAGTCTGT'
-            'GCAGACTAGAGGCCATTGGAAGACCGAGCCCAACGTCGTA')
+db = Database(DB_MEMORY)
+db.load_gencode_gtf('../data/gencode/gencode.v38.toy.gtf', overwrite=True)
+db.load_transcript_fasta(
+    '../data/gencode/gencode.v38.toy.transcripts.fa',
+    id_extractor=get_ids_from_gencode_fasta,
+)
+db.load_translation_fasta(
+    '../data/gencode/gencode.v38.toy.translations.fa',
+    id_extractor=get_ids_from_gencode_fasta,
+)
+db_session = db.get_session()
 
-@pytest.fixture(scope='module')
-def dummy_orf_seq():
-    return ('ATGGGCTTTCGCTGCTATCAGATTATTAGCCGCAGCAACGCGATTCTGGTGGTGTGCGGC'
-            'CCGTTTCTGGAAGAAGCGGTGGTGTTTAGCCGCGGCAGCCTGTATGATCGCGCGACCTTT'
-            'TTTTATAGCGCGGGCATTGCGAGCTTTGAACTGTTTGAACCGCGCGAACATCCGGAACGC'
-            'TTTCTGCTGAGCTGCCGCGTGCATATTGTGATGAGCGTGGCGAAAGGCAAAGGCGCGCGC'
-            'GGCCGCGCGCAGGTGCAGGTGCCGCTGAGCCCGCGCCTGGCGAGCGGCATTCGCGGCATG'
-            'CTGCCGAACCTGGTGACCGCGTGGGCGCGCCGCCCGTGCGCGGATGAAGAATATCAGGGC'
-            'GGCAACTATGCGGGCAGCGAAGGCCTGCGCAGCCTGTTTACCAAATATTGGGGCTGCCGC'
-            'CTGTATCTGCCGATTCATCAGCGCCTGGCGAACGATGATCCGACCTATAGCTGCCATCCG'
-            'CGCGATCTGCAGCAGTTTATTCCGGGCAGCCTGCGCGGCCAGGGCGAAGCGAGCAGCGCG'
-            'GCGAGCGGCCCGCATGATAACCGCTGCGCGCGCACCGGCAAACTGATTGCGTGGCTGTGA')
+example_genes = db_session.execute(select(Gene)).scalars().all()
+example_transcripts = list(chain.from_iterable(gene.transcripts for gene in example_genes))
 
-@pytest.fixture(scope='module')
-def dummy_utr3_seq():
-    return ('AGATCTTTTCACTCCAAGACGTTCTTGTCTGTCATCTGCGCGATATCATAATTGGAAAGC'
-            'TGCCGCGCCGGTTGTTGTTGCGCGAACGGTGCCTCAGCTGCGATCCGGGCTCGCTTGTCG'
-            'CGTCCTTCCAAAGCTTGTAGTGGAAGTAGCTCGCCCGAGACAGAAGGGCACCTTATGGGG'
-            'TGATCTTTGCCTTAGTGAATAACTGATCCACGCTAACCGACCTGGAGTCTATTGAGTGTC'
-            'CGACTAGAATATCTAAGGCTCGCAGGCCGCATCCATTGTAACTACCGGACGCGCCGTCGA')
+@pytest.fixture(scope='session')
+def database():
+    return db
 
-@pytest.fixture(scope='module')
-def dummy_exon_ranges():
-    return [
-        (1, 151),
-        (152, 251),
-        (252, 386),
-        (387, 493),
-        (494, 649),
-        (650, 1000)
-    ]
+@pytest.fixture(scope='session')
+def session():
+    yield db_session
+    db_session.close()
 
-@pytest.fixture(scope='module')
-def dummy_transcript(dummy_utr5_seq, dummy_orf_seq, dummy_utr3_seq, dummy_exon_ranges):
-    transcript = Transcript(
-        sequence =  dummy_utr5_seq + dummy_orf_seq + dummy_utr3_seq,
-        name = 'DUMMY-1'
-    )
-    for i, (start, stop) in enumerate(dummy_exon_ranges, start=1):
-        genome_start = 100000 + 1000*i + start
-        Exon(
-            position = i,
-            transcript_start = start,
-            transcript_stop = stop,
-            transcript = transcript,
-            start = genome_start,
-            stop = genome_start + (stop - start)
-        )
-    return transcript
-
-@pytest.fixture(scope='module')
-def dummy_protein(dummy_orf_seq):
-    protein_seq = Seq(dummy_orf_seq).translate(to_stop=True)
-    return Protein(
-        sequence =  str(protein_seq),
-    )
-
-@pytest.fixture(scope='module')
-def dummy_orf(dummy_transcript, dummy_protein, dummy_orf_seq):
-    return ORF(
-        transcript = dummy_transcript,
-        protein = dummy_protein,
-        transcript_start = 1,
-        transcript_stop = len(dummy_orf_seq)
-    )
+def pytest_generate_tests(metafunc):
+    if 'gene' in metafunc.fixturenames:
+        metafunc.parametrize('gene', example_genes, ids=attrgetter('name'))
+    if 'transcript' in metafunc.fixturenames:
+        metafunc.parametrize('transcript', example_transcripts, ids=attrgetter('name'))
