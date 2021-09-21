@@ -9,6 +9,7 @@ from biosurfer.core.constants import APPRIS, Strand
 from biosurfer.core.models import (ORF, Base, Chromosome, Exon, GencodeExon,
                     GencodeTranscript, Gene, Protein, Transcript, db_session,
                     engine)
+from biosurfer.core.variant import Variant
 
 
 def read_gtf_line(line: str) -> list:
@@ -101,6 +102,8 @@ def load_data_from_gtf(gtf_file: str) -> None:
                 transcript = {
                     'accession': transcript_id,
                     'name': transcript_name,
+                    'start': start,
+                    'stop' : stop,
                     'type': 'gencodetranscript',
                     'gene_id': gene_id,
                     'strand': Strand.from_symbol(strand),
@@ -238,10 +241,32 @@ def load_translation_fasta(translation_fasta):
     db_session.bulk_insert_mappings(Protein, proteins_to_insert)     
     db_session.commit()
 
+def load_variants(vcf_file : str):
+    variants_to_insert = []
+    with open(vcf_file) as vcf:
+        for i, line in enumerate(vcf):
+            if line.startswith('#'):
+                continue
+            chr, pos, id, ref, alt, qual, filter, info, format, default = line.split('\t')
+            if filter == 'PASS':
+                for ref_nuc in ref.split(','):
+                    for alt_nuc in alt.split(','):
+                        if len(ref_nuc) == 1 and len(alt_nuc) == 1:
+                            variant = {
+                                'chromosome_id' : chr,
+                                'position' : pos,
+                                'reference_sequence' : ref_nuc,
+                                'variant_sequence' : alt_nuc
+                            }
+                            variants_to_insert.append(variant)
+    db_session.bulk_insert_mappings(Variant, variants_to_insert)     
+    db_session.commit()
+
 path = '../../data/'
 gtf_file = 'gencode.v38.basic.annotation.gtf'
 tx_file = 'gencode.v38.pc_transcripts.fa'
 tl_file = 'gencode.v38.pc_translations.fa'
+vcf_file = 'only_isoseq.vcf'
 # gtf_file = 'gencode.v38.annotation.gtf.toy'
 # tx_file = 'gencode.v38.pc_transcripts.fa.toy'
 # tl_file = 'gencode.v38.pc_translations.fa.toy'
@@ -264,5 +289,8 @@ load_translation_fasta(path + tl_file)
 end = time.time()
 print(f"time to load translation fasta\t{end - start:0.3g}s / {(end - start)/60:0.3g}min")
 # %%
-
+start = time.time()
+load_variants(path + vcf_file)
+end = time.time()
+print(f"time to load vcf file\t{end - start:0.3g}s / {(end - start)/60:0.3g}min")
 # %%
