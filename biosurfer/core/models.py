@@ -89,6 +89,8 @@ class Transcript(Base, NameMixin, AccessionMixin):
     type = Column(String)
     sequence = Column(String)
     gene_id = Column(String, ForeignKey('gene.accession'))
+    start = Column(Integer)
+    stop = Column(Integer)
 
     gene = relationship('Gene', back_populates='transcripts')
     exons = relationship(
@@ -149,13 +151,13 @@ class Transcript(Base, NameMixin, AccessionMixin):
     def __repr__(self) -> str:
         return self.name
 
-    @hybrid_property
-    def start(self):
-        return min(exon.start for exon in self.exons)
+    # @hybrid_property
+    # def start(self):
+    #     return min(exon.start for exon in self.exons)
     
-    @hybrid_property
-    def stop(self):
-        return max(exon.stop for exon in self.exons)
+    # @hybrid_property
+    # def stop(self):
+    #     return max(exon.stop for exon in self.exons)
     
     @hybrid_property
     def length(self):
@@ -494,3 +496,46 @@ class Residue:
         return exons.most_common(1)[0][0]
 
     
+variant_transcript_association_table = Table('variant_transcript_association', Base.metadata,
+    Column('variant_id', ForeignKey('variant.id'), primary_key=True),
+    Column('transcript_id', ForeignKey('transcript.accession'), primary_key=True)
+)
+
+class Variant(Base):
+    """Nucloetide Variant class
+    A variant is a modification of the anchor nucleotide
+     sequence to the variant nucloetide sequence
+    """
+    id = Column(Integer, primary_key=True)
+    chromosome_id = Column(Integer, ForeignKey('chromosome.name'))
+    position = Column(Integer)
+    reference_sequence = Column(String)
+    variant_sequence = Column(String)
+    # quality_score = Column(Float)
+
+
+    chromosome = relationship('Chromosome')
+
+    def __repr__(self) -> str:
+        return f'{self.chromosome}.{self.position}[{self.reference_sequence}->{self.variant_sequence}]'
+    variant_transcripts = relationship(
+        'VariantTranscript',
+        secondary=variant_transcript_association_table,
+        back_populates='variants')
+    
+
+
+class VariantTranscript(Transcript):
+    reference_transcript_id = Column(Integer, ForeignKey('transcript.accession'))
+    variants = relationship(
+        'Variant',
+        secondary=variant_transcript_association_table,
+        back_populates='variant_transcripts'
+    )
+    __mapper_args__ = {
+        'polymorphic_identity': 'varianttranscript'
+    }
+    @hybrid_property
+    def reference_transcript(self):
+        return Transcript.from_accession(self.reference_transcript_id)
+
