@@ -1,7 +1,8 @@
 from itertools import chain
 from operator import attrgetter
 import pytest
-from biosurfer.core.database import Database, DB_MEMORY, get_ids_from_gencode_fasta
+from biosurfer.core.database import Database, DB_MEMORY
+from biosurfer.core.helpers import get_ids_from_gencode_fasta
 from biosurfer.core.models import Gene
 from sqlalchemy import select
 

@@ -160,3 +160,61 @@ class ExceptionLogger(AbstractContextManager):
             traceback.print_exc()
             sys.stderr.write('---------\n')
             return True
+
+
+# Helper functions/classes for loading into database
+@dataclass
+class FastaHeaderFields:
+    transcript_id: str = None
+    protein_id: str = None
+
+
+def bulk_update_and_insert(session, mapper, mappings_to_update, mappings_to_insert):
+    with session.begin():
+        if mappings_to_update:
+            session.bulk_update_mappings(mapper, mappings_to_update)
+            mappings_to_update[:] = []
+        if mappings_to_insert:
+            session.bulk_insert_mappings(mapper, mappings_to_insert)
+            mappings_to_insert[:] = []
+
+
+def read_gtf_line(line: str) -> list:
+    """Read and parse a single gtf line
+
+    Args:
+        line (str): unbroken line of a gtf file
+
+    Returns:
+        list: gtf attributes
+        chromosome : str
+        source : str
+        feature : str
+        start : int
+        stop : int
+        score : str
+        strand : str
+        phase : str
+        attributes: dict
+        tags: list
+
+    """
+    chromosome, source, feature, start, stop, score, strand, phase, attributes = line.split('\t')
+    start = int(start)
+    stop = int(stop)
+    attributes = attributes.split(';')[:-1]
+    attributes = [att.strip(' ').split(' ') for att in attributes]
+    tags = [att[1].strip('"') for att in attributes if att[0] == 'tag']
+    attributes = {att[0]: att[1].strip('"') for att in attributes if att[0] != 'tag'}
+    return chromosome, source, feature, start, stop, score, strand, phase, attributes, tags
+
+
+def get_ids_from_gencode_fasta(header: str):
+    fields = [field for field in header.split('|') if field and not field.startswith(('UTR', 'CDS'))]
+    transcript_id = next((field for field in fields if field.startswith('ENST')))
+    protein_id = next((field for field in fields if field.startswith('ENSP')), None)
+    return FastaHeaderFields(transcript_id, protein_id)
+
+
+def skip_par_y(header: str):  # these have duplicate ENSEMBL accessions and that makes SQLAlchemy very sad
+    return 'PAR_Y' in header
