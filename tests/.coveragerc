@@ -1,0 +1,6 @@
+[run]
+source =
+    ../biosurfer/core
+    ../biosurfer/analysis
+omit = 
+    */__init__.py
