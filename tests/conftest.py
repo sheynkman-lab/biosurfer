@@ -20,10 +20,10 @@ def pytest_unconfigure(config):
     config.db_session.close()
     config.database.engine.dispose()
 
-@pytest.fixture
+@pytest.fixture(scope='session')
 def database(request):
     return request.config.database
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def session(request):
     return request.config.db_session
