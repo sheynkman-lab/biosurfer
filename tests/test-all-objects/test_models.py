@@ -1,4 +1,5 @@
 from itertools import chain
+from biosurfer.core.constants import AminoAcid
 
 def test_exon_lengths_correct(transcript):
     assert sum(exon.length for exon in transcript.exons) == transcript.length
@@ -16,3 +17,6 @@ def test_nucleotide_has_residue(transcript):
 def test_residue_has_nucleotide(transcript):
     orf = transcript.primary_orf
     assert list(chain.from_iterable(res.codon for res in orf.protein.residues)) == orf.nucleotides
+
+def test_feature_residues_correct(feature):
+    assert [(res.position, res.amino_acid) for res in feature.residues] == [(feature.protein_start + i, AminoAcid(aa)) for i, aa in enumerate(feature.sequence)]

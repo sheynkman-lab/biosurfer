@@ -24,6 +24,6 @@ def pytest_unconfigure(config):
 def database(request):
     return request.config.database
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='function')
 def session(request):
     return request.config.db_session

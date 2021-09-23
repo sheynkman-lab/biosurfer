@@ -628,6 +628,25 @@ class Protein(Base, AccessionMixin):
         return len(self.sequence)
 
 
+class ProteinFeature:
+    def __init__(self, feature_id, protein, protein_start, protein_stop):
+        self.id = feature_id
+        self.protein = protein
+        self.protein_start = protein_start
+        self.protein_stop = protein_stop
+    
+    def __repr__(self):
+        return f'{self.protein}:{self.id}({self.protein_start}-{self.protein_stop})'
+
+    @property
+    def sequence(self):
+        return self.protein.sequence[self.protein_start-1:self.protein_stop]
+    
+    @property
+    def residues(self):
+        return self.protein.residues[self.protein_start-1:self.protein_stop]
+
+
 OptNucleotide = Optional['Nucleotide']
 Codon = Tuple[OptNucleotide, OptNucleotide, OptNucleotide]
 
