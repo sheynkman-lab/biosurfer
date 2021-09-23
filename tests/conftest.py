@@ -13,6 +13,9 @@ def pytest_configure(config):
         '../data/gencode/gencode.v38.toy.translations.fa',
         id_extractor=get_ids_from_gencode_fasta,
     )
+    db.load_domain_mappings(
+        '../data/gencode/2019-07-04_HMMER_domain_mappings_to_GS_fasta_file.txt'
+    )
     config.database = db
     config.db_session = db.get_session()
 

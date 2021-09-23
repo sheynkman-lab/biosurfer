@@ -591,8 +591,13 @@ class Protein(Base, AccessionMixin):
     sequence = Column(String)
     orf = relationship(
         'ORF',
-        back_populates='protein',
-        uselist=False
+        back_populates = 'protein',
+        uselist = False
+    )
+    features = relationship(
+        'ProteinFeature',
+        back_populates = 'protein',
+        uselist = True
     )
 
     # def __init__(self, **kwargs):
@@ -628,22 +633,37 @@ class Protein(Base, AccessionMixin):
         return len(self.sequence)
 
 
-class ProteinFeature:
-    def __init__(self, feature_id, protein, protein_start, protein_stop):
-        self.id = feature_id
-        self.protein = protein
-        self.protein_start = protein_start
-        self.protein_stop = protein_stop
+class ProteinFeature(Base):
+    type = Column(String)
+    name = Column(String)
+    accession = Column(String, primary_key=True)
+    protein_id = Column(String, ForeignKey('protein.accession'), primary_key=True)
+    protein_start = Column(Integer, primary_key=True)
+    protein_stop = Column(Integer, primary_key=True)
+    protein = relationship(
+        'Protein',
+        back_populates = 'features',
+        uselist = False
+    )
+
+    __mapper_args__ = {
+        'polymorphic_on': type,
+        'polymorphic_identity': 'feature'
+    }
     
     def __repr__(self):
-        return f'{self.protein}:{self.id}({self.protein_start}-{self.protein_stop})'
+        return f'{self.protein}:{self.name}({self.protein_start}-{self.protein_stop})'
+
+    @hybrid_property
+    def length(self):
+        return self.protein_stop - self.protein_start + 1
 
     @property
-    def sequence(self):
+    def sequence(self) -> str:
         return self.protein.sequence[self.protein_start-1:self.protein_stop]
     
     @property
-    def residues(self):
+    def residues(self) -> List['Residue']:
         return self.protein.residues[self.protein_start-1:self.protein_stop]
 
 
