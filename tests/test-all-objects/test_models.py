@@ -6,6 +6,9 @@ def test_exon_lengths_correct(transcript):
 def test_exon_sequences_correct(transcript):
     assert ''.join(exon.sequence for exon in transcript.exons) == transcript.sequence
 
+def test_nucleotide_has_exon(transcript):
+    assert all(nt.exon is exon for exon in transcript.exons for nt in exon.nucleotides)
+
 def test_nucleotide_has_residue(transcript):
     orf = transcript.primary_orf
     assert list(chain.from_iterable((res, res, res) for res in orf.protein.residues)) == [nt.residue for nt in orf.nucleotides]
