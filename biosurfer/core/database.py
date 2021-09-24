@@ -3,6 +3,7 @@ from operator import itemgetter
 from typing import Callable
 
 from Bio import SeqIO
+from more_itertools import chunked
 from sqlalchemy import select
 from biosurfer.core.constants import APPRIS, SQANTI, Strand
 from biosurfer.core.helpers import (FastaHeaderFields, bulk_update_and_insert,
@@ -11,14 +12,14 @@ from biosurfer.core.models import (ORF, Base, Chromosome, Exon, GencodeExon,
                                    GencodeTranscript, Gene, PacBioExon,
                                    PacBioTranscript, Protein, ProteinFeature, Transcript)
 from sqlalchemy import create_engine
-from sqlalchemy.orm import contains_eager, joinedload, scoped_session, sessionmaker
+from sqlalchemy.orm import scoped_session, sessionmaker
 from tqdm import tqdm
 
 DB_GENCODE = 'sqlite:///gencode.sqlite3'
 DB_BONE = 'sqlite:///bone.sqlite3'
 DB_MEMORY = 'sqlite://'
 
-CHUNK_SIZE = 10000
+CHUNK_SIZE = 5000
 SQANTI_DICT = {
     'full-splice_match': SQANTI.FSM,
     'incomplete-splice_match': SQANTI.ISM,
@@ -187,10 +188,22 @@ class Database:
                     exon['transcript_start'] = tx_idx
                     exon['transcript_stop'] = tx_idx + exon_length - 1
                     tx_idx += exon_length
-
-                if i % CHUNK_SIZE == 0:
-                    bulk_update_and_insert(session, GencodeExon, exons_to_update, exons_to_insert)
-            bulk_update_and_insert(session, GencodeExon, exons_to_update, exons_to_insert)
+            t = tqdm(
+                exons_to_update,
+                desc = 'Updating existing exons',
+                total = len(exons_to_update),
+                unit = 'exons'
+            )
+            for exon_update_chunk in chunked(t, CHUNK_SIZE):
+                bulk_update_and_insert(session, GencodeExon, list(exon_update_chunk), [])
+            t = tqdm(
+                exons_to_insert,
+                desc = 'Inserting new exons',
+                total = len(exons_to_insert),
+                unit = 'exons'
+            )
+            for exon_insert_chunk in chunked(t, CHUNK_SIZE):
+                bulk_update_and_insert(session, GencodeExon, [], list(exon_insert_chunk))
 
             # assemble CDS intervals into ORFs
             t = tqdm(
@@ -487,7 +500,11 @@ class Database:
                         bulk_update_and_insert(session, PacBioTranscript, transcripts_to_update, [])
                 bulk_update_and_insert(session, PacBioTranscript, transcripts_to_update, [])
     
-    def load_domain_mappings(self, domain_file: str):
+    def load_domain_mappings(self, domain_mapping_file: str, domain_name_file: str):
+        with open(domain_name_file) as f:
+            reader = csv.DictReader(f, delimiter='\t')
+            t = tqdm(reader, desc='Reading domain names', unit='accessions')
+            domain_accession_to_name = {row['acc']: row['name'] for row in t}
         with self.get_session() as session:
             with session.begin():
                 transcript_name_to_protein_acc = {
@@ -498,13 +515,14 @@ class Database:
                         join(ORF.transcript)
                     )
                 }
-            with open(domain_file) as f:
+            with open(domain_mapping_file) as f:
                 reader = csv.DictReader(f, delimiter='\t')
                 t = tqdm(reader, desc='Reading domain mappings', unit='mappings')
                 domains_to_insert = [
                     {
                         'type': 'feature',
                         'accession': row['Pfam_acc'],
+                        'name': domain_accession_to_name.get(row['Pfam_acc'], None),
                         'protein_id': transcript_name_to_protein_acc[row['transcript_name(iso_acc)']],
                         'protein_start': row['start'],
                         'protein_stop': row['end']
