@@ -84,7 +84,7 @@ class IsoformPlot:
 
         self.fig: Optional['Figure'] = None
         self._bax: Optional['BrokenAxes'] = None
-        self._columns: Dict[str, TableColumn] = columns if columns else dict()
+        self._columns: Dict[str, TableColumn] = columns if columns else {'': lambda x: ''}
         self.opts = IsoformPlotOptions(**kwargs)
         self.reset_xlims()
     
@@ -275,29 +275,33 @@ class IsoformPlot:
             'facecolor': TRANSCRIPT_COLORS[type(tx)][0],
             'zorder': 1.5
         }
-        orf = tx.orfs[0]
-        if orf.utr5:
-            for exon in orf.utr5.exons:
-                if self.strand is Strand.PLUS:
-                    start = exon.start
-                    stop = min(exon.stop, orf.start)
-                elif self.strand is Strand.MINUS:
-                    start = max(exon.start, orf.stop)
-                    stop = exon.stop
-                self.draw_region(track, start=start, stop=stop, **utr_kwargs)
-        for exon in orf.exons:
-            start = max(exon.start, orf.start)
-            stop = min(exon.stop, orf.stop)
-            self.draw_region(track, start=start, stop=stop, **cds_kwargs)
-        if orf.utr3:
-            for exon in orf.utr3.exons:
-                if self.strand is Strand.PLUS:
-                    start = max(exon.start, orf.stop)
-                    stop = exon.stop
-                elif self.strand is Strand.MINUS:
-                    start = exon.start
-                    stop = min(exon.stop, orf.start)
-                self.draw_region(track, start=start, stop=stop, **utr_kwargs)
+        if tx.orfs:
+            orf = tx.primary_orf
+            if orf.utr5:
+                for exon in orf.utr5.exons:
+                    if self.strand is Strand.PLUS:
+                        start = exon.start
+                        stop = min(exon.stop, orf.start)
+                    elif self.strand is Strand.MINUS:
+                        start = max(exon.start, orf.stop)
+                        stop = exon.stop
+                    self.draw_region(track, start=start, stop=stop, **utr_kwargs)
+            for exon in orf.exons:
+                start = max(exon.start, orf.start)
+                stop = min(exon.stop, orf.stop)
+                self.draw_region(track, start=start, stop=stop, **cds_kwargs)
+            if orf.utr3:
+                for exon in orf.utr3.exons:
+                    if self.strand is Strand.PLUS:
+                        start = max(exon.start, orf.stop)
+                        stop = exon.stop
+                    elif self.strand is Strand.MINUS:
+                        start = exon.start
+                        stop = min(exon.stop, orf.start)
+                    self.draw_region(track, start=start, stop=stop, **utr_kwargs)
+        else:
+            for exon in tx.exons:
+                self.draw_region(track, start=exon.start, stop=exon.stop, **utr_kwargs)
         
         for exon in tx.exons:
             # label every 5th exon in anchor isoform for easier navigation
@@ -393,7 +397,7 @@ class IsoformPlot:
                         facecolor = 'none',
                         edgecolor = hatch_color,
                         linewidth = 0.0,
-                        zorder = 1.5,
+                        zorder = 1.9,
                         hatch = REL_FRAME_STYLE[category]
                     )
     
