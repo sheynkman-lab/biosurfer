@@ -1,8 +1,6 @@
 from pathlib import Path
 import json
 
-from _pytest.fixtures import fixture
-
 def pytest_configure(config):
     pwd = Path('.')
     config.cases = dict()

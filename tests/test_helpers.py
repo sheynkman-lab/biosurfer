@@ -18,7 +18,7 @@ def force_list_length_to_be_even(lst: List) -> List:
     return lst[:-1] if N % 2 else lst
     
 non_overlapping_intervals = (
-    lists(integers(min_value=0, max_value=9999), unique=True, min_size=2).
+    lists(integers(min_value=0), unique=True, min_size=2).
     map(force_list_length_to_be_even).
     map(sorted).
     map(lambda lst: chunked(lst, 2, strict=True)).
