@@ -167,39 +167,12 @@ transcripts = set(session.execute(
 
 # %%
 for gene, transcripts in groupby(sorted(transcripts, key=attrgetter('name')), key=attrgetter('gene')):
-    isoplot = IsoformPlot(transcripts)
-    with ExceptionLogger(f'{gene}'):
-        domain_names = list({domain.name for tx in isoplot.transcripts for domain in tx.protein.features})
-        cmap = sns.color_palette('pastel', len(domain_names), as_cmap=True)
-        domain_colors = dict(zip(domain_names, cmap))
+    isoplot = IsoformPlot(transcripts, track_spacing=1.0)
+    with ExceptionLogger(f'{gene.name}'):
         isoplot.draw_all_isoforms()
         isoplot.draw_frameshifts()
-        for track, tx in enumerate(isoplot.transcripts):
-            if not tx.orfs:
-                continue
-            for domain in tx.protein.features:
-                for i, (_, domain_exon) in enumerate(groupby(domain.residues, key=attrgetter('primary_exon'))):
-                    domain_exon = list(domain_exon)
-                    start = domain_exon[0].codon[1].coordinate
-                    stop = domain_exon[-1].codon[1].coordinate
-                    isoplot.draw_region(
-                        track,
-                        start = start,
-                        stop = stop,
-                        edgecolor = 'none',
-                        facecolor = domain_colors[domain.name],
-                        zorder = 1.8,
-                        label = domain.name
-                    )
-                    # isoplot.draw_text((start+stop)//2, track, text=domain.name, color='w', ha='center', size='xx-small')
-        isoplot._bax.big_ax.legend(
-            handles = [Patch(color=color, label=name) for name, color in domain_colors.items()],
-            ncol = 1,
-            loc = 'center left',
-            # mode = 'expand',
-            bbox_to_anchor = (1.05, 0.5)
-        )
-        isoplot.fig.set_size_inches(10, 0.5*len(isoplot.transcripts))
+        isoplot.draw_domains()
+        isoplot.fig.set_size_inches(10, 0.75*len(isoplot.transcripts))
         plt.savefig(f'../output/domains/{gene.name}_domains.png', facecolor='w', transparent=False, dpi=200, bbox_inches='tight')
     plt.close(isoplot.fig)
 # %%

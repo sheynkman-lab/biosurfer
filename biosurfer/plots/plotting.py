@@ -1,8 +1,7 @@
 # functions to create different visualizations of isoforms/clones/domains/muts
-
 from copy import copy
 from dataclasses import dataclass
-from itertools import groupby
+from itertools import chain, groupby
 from operator import attrgetter, sub
 from typing import (TYPE_CHECKING, Any, Callable, Collection, Dict, Iterable,
                     List, Literal, Optional, Set, Tuple, Union)
@@ -11,6 +10,8 @@ from warnings import filterwarnings, warn
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
 from biosurfer.core.alignments import TranscriptBasedAlignment
 from biosurfer.core.constants import (ProteinLevelAlignmentCategory,
                                       TranscriptLevelAlignmentCategory)
@@ -19,8 +20,9 @@ from biosurfer.core.models import (ORF, GencodeTranscript, Gene, Junction,
                                    PacBioTranscript, Protein, Strand,
                                    Transcript)
 from brokenaxes import BrokenAxes
+from graph_tool import Graph
+from graph_tool.topology import sequential_vertex_coloring
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-from matplotlib.transforms import Bbox
 
 if TYPE_CHECKING:
     from biosurfer.core.alignments import ProteinAlignmentBlock
@@ -434,3 +436,68 @@ class IsoformPlot:
             facecolor = PBLOCK_COLORS[pblock.category],
             alpha = alpha
         )
+    
+    def draw_domains(self):
+        h = self.opts.max_track_width
+        domain_names = sorted({domain.name for tx in self.transcripts for domain in tx.protein.features})
+        cmap = sns.color_palette('Set3', len(domain_names))
+        domain_colors = dict(zip(domain_names, cmap))
+        for track, tx in enumerate(self.transcripts):
+            if not tx.orfs:
+                continue
+            subtracks, n_subtracks = generate_subtracks(
+                ((domain.protein_start, domain.protein_stop) for domain in tx.protein.features),
+                (domain.name for domain in tx.protein.features)
+            )
+            for domain in tx.protein.features:
+                subtrack = subtracks[domain.name]
+                for i, (_, domain_exon) in enumerate(groupby(domain.residues, key=attrgetter('primary_exon'))):
+                    domain_exon = list(domain_exon)
+                    start = domain_exon[0].codon[1].coordinate
+                    stop = domain_exon[-1].codon[1].coordinate
+                    self.draw_region(
+                        track,
+                        start = start,
+                        stop = stop,
+                        y_offset = (-0.5 + subtrack/n_subtracks)*h,
+                        height = h/n_subtracks,
+                        edgecolor = 'none',
+                        facecolor = domain_colors[domain.name],
+                        zorder = 1.8,
+                        label = domain.name
+                    )
+                    # self.draw_text((start+stop)//2, track, text=domain.name, color='w', ha='center', size='xx-small')
+        self._bax.big_ax.legend(
+            handles = [mpatches.Patch(color=color, label=name) for name, color in domain_colors.items()],
+            ncol = 1,
+            loc = 'center left',
+            # mode = 'expand',
+            bbox_to_anchor = (1.05, 0.5)
+        )
+
+
+def generate_subtracks(intervals: Iterable[Tuple[int, int]], labels: Iterable):
+    # inspired by https://stackoverflow.com/a/19088519
+    labels = list(labels)
+    index_to_label = list(set(labels))
+    label_to_index = {label: i for i, label in enumerate(index_to_label)}
+    N = len(index_to_label)
+    active_labels = set()
+    # build graph of labels where labels are adjacent if their intervals overlap
+    g = Graph(directed=False)
+    boundaries = sorted(chain.from_iterable([(a, True, label), (b, False, label)] for (a, b), label in zip(intervals, labels)))
+    for _, start_of_interval, label in boundaries:
+        if start_of_interval:
+            for other_label in active_labels:
+                i = label_to_index[label]
+                j = label_to_index[other_label]
+                g.add_edge(i, j)
+            active_labels.add(label)
+        else:
+            active_labels.remove(label)
+    # find vertex coloring of graph
+    # all labels w/ same color can be put into same subtrack
+    coloring = sequential_vertex_coloring(g)
+    label_to_subtrack = {index_to_label[i]: coloring[i] for i in range(N)}
+    subtracks = max(label_to_subtrack.values()) + 1
+    return label_to_subtrack, subtracks
