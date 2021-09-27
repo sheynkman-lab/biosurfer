@@ -1,6 +1,8 @@
 import pytest
+from sqlalchemy.sql.expression import select
 from biosurfer.core.database import DB_MEMORY, Database
 from biosurfer.core.helpers import get_ids_from_gencode_fasta
+from biosurfer.core.models import ProteinFeature, Transcript
 
 def pytest_configure(config):
     db = Database(DB_MEMORY)
@@ -28,6 +30,14 @@ def pytest_unconfigure(config):
 def database(request):
     return request.config.database
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope='session')
 def session(request):
     return request.config.db_session
+
+@pytest.fixture(scope='session')
+def db_transcripts(request):
+    return request.config.db_session.execute(select(Transcript)).scalars().all()
+
+@pytest.fixture(scope='session')
+def db_features(request):
+    return request.config.db_session.execute(select(ProteinFeature)).scalars().all()

@@ -1,8 +1,7 @@
 from itertools import chain, product
-from typing import TYPE_CHECKING, Callable, Dict
 
 from Bio.Seq import Seq
-from biosurfer.core.constants import Strand
+from biosurfer.core.constants import Strand, AminoAcid
 from biosurfer.core.models import (ORF, Exon, Gene, Protein, ProteinFeature,
                                    Transcript)
 
@@ -108,30 +107,43 @@ def coding_transcript(draw, add_exons=True, add_protein=True):
     )
     return tx
 
-@given(coding_transcript(add_protein=False))
-def test_exon_lengths_correct(transcript):
+@given(data=st.data())
+def test_exon_lengths_correct(data, db_transcripts):
+    transcript = data.draw(st.one_of(coding_transcript(), st.sampled_from(db_transcripts)))
     assert sum(exon.length for exon in transcript.exons) == transcript.length
 
-@given(coding_transcript(add_protein=False))
-def test_exon_sequences_correct(transcript):
+@given(data=st.data())
+def test_exon_sequences_correct(data, db_transcripts):
+    transcript = data.draw(st.one_of(coding_transcript(), st.sampled_from(db_transcripts)))
     assert ''.join(exon.sequence for exon in transcript.exons) == transcript.sequence
 
-@given(coding_transcript(add_protein=False))
-def test_nucleotide_has_exon(transcript):
+@given(data=st.data())
+def test_nucleotide_has_exon(data, db_transcripts):
+    transcript = data.draw(st.one_of(coding_transcript(), st.sampled_from(db_transcripts)))
     assert all(nt.exon is exon for exon in transcript.exons for nt in exon.nucleotides)
 
-@given(coding_transcript(add_exons=False))
-def test_nucleotide_has_residue(transcript):
+@given(data=st.data())
+def test_nucleotide_has_residue(data, db_transcripts):
+    transcript = data.draw(st.one_of(coding_transcript(), st.sampled_from(db_transcripts)))
     orf = transcript.primary_orf
     note(f'tx seq: {transcript.sequence}')
     note(f'orf seq: {orf.sequence}')
     note(f'protein seq: {orf.protein.sequence}')
     assert list(chain.from_iterable((res, res, res) for res in orf.protein.residues)) == [nt.residue for nt in orf.nucleotides]
 
-@given(coding_transcript(add_exons=False))
-def test_residue_has_nucleotide(transcript):
+@given(data=st.data())
+def test_residue_has_nucleotide(data, db_transcripts):
+    transcript = data.draw(st.one_of(coding_transcript(), st.sampled_from(db_transcripts)))
     orf = transcript.primary_orf
     note(f'tx seq: {transcript.sequence}')
     note(f'orf seq: {orf.sequence}')
     note(f'protein seq: {orf.protein.sequence}')
     assert list(chain.from_iterable(res.codon for res in orf.protein.residues)) == orf.nucleotides
+
+@given(data=st.data())
+def test_feature_residues_correct(data, db_features):
+    feature = data.draw(st.sampled_from(db_features))
+    protein = feature.protein
+    note(f'protein seq: {protein.sequence}')
+    note(f'feature seq: {feature.sequence}')
+    assert [(res.position, res.amino_acid) for res in feature.residues] == [(feature.protein_start + i, AminoAcid(aa)) for i, aa in enumerate(feature.sequence)]
