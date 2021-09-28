@@ -479,7 +479,7 @@ class IsoformPlot:
 def generate_subtracks(intervals: Iterable[Tuple[int, int]], labels: Iterable):
     # inspired by https://stackoverflow.com/a/19088519
     labels = list(labels)
-    index_to_label = list(set(labels))
+    index_to_label = list(dict.fromkeys(labels))  # remove duplicates while preserving order
     label_to_index = {label: i for i, label in enumerate(index_to_label)}
     N = len(index_to_label)
     active_labels = set()

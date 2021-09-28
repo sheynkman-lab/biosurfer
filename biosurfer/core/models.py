@@ -174,16 +174,19 @@ class Transcript(Base, NameMixin, AccessionMixin):
         # assert sum(exon.length for exon in self.exons) == self.length
         nucleotides = []
         self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
-        i = 0
-        for exon in self.exons:
-            coords = range(exon.start, exon.stop+1)
-            if self.strand is Strand.MINUS:
-                coords = reversed(coords)
-            for coord in coords:
-                nt = Nucleotide(self, coord, i+1, self.sequence[i])
-                nucleotides.append(nt)
-                self._nucleotide_mapping[coord] = nt
-                i += 1
+        if self.exons:
+            i = 0
+            for exon in self.exons:
+                coords = range(exon.start, exon.stop+1)
+                if self.strand is Strand.MINUS:
+                    coords = reversed(coords)
+                for coord in coords:
+                    nt = Nucleotide(self, coord, i+1, self.sequence[i])
+                    nucleotides.append(nt)
+                    self._nucleotide_mapping[coord] = nt
+                    i += 1
+        else:
+            nucleotides = [Nucleotide(self, None, i, base) for i, base in enumerate(self.sequence, start=1)]
         return nucleotides
 
     def __repr__(self) -> str:
@@ -618,7 +621,9 @@ class Protein(Base, AccessionMixin):
     
     @cached_property
     def residues(self):
-        _residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence + '*', start=1)]
+        if not self.sequence.endswith('*'):
+            self.sequence += '*'
+        _residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence, start=1)]
         if self.orf:
             self.orf._link_aa_to_nt(_residues)
         return _residues
