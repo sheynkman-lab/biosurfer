@@ -33,11 +33,3 @@ def database(request):
 @pytest.fixture(scope='session')
 def session(request):
     return request.config.db_session
-
-@pytest.fixture(scope='session')
-def db_transcripts(request):
-    return request.config.db_session.execute(select(Transcript)).scalars().all()
-
-@pytest.fixture(scope='session')
-def db_features(request):
-    return request.config.db_session.execute(select(ProteinFeature)).scalars().all()

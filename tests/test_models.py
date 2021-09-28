@@ -121,6 +121,15 @@ def transcript_getter(session):
         )
     return _get_transcript
 
+@pytest.fixture(scope='module')
+def feature_getter(session):
+    db_features = session.execute(select(ProteinFeature)).scalars().all()
+    def _get_feature(data):
+        return data.draw(
+            st.sampled_from(db_features)
+        )
+    return _get_feature
+
 ### TESTS BEGIN HERE ###
 
 @given(data=st.data())
@@ -157,8 +166,8 @@ def test_residue_has_nucleotide(data, transcript_getter):
     assert list(chain.from_iterable(res.codon for res in orf.protein.residues)) == orf.nucleotides
 
 @given(data=st.data())
-def test_feature_residues_correct(data, db_features):
-    feature = data.draw(st.sampled_from(db_features))
+def test_feature_residues_correct(data, feature_getter):
+    feature = feature_getter(data)
     protein = feature.protein
     note(f'protein seq: {protein.sequence}')
     note(f'feature seq: {feature.sequence}')
