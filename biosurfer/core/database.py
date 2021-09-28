@@ -1,4 +1,5 @@
 import csv
+import os
 from operator import itemgetter
 from typing import Callable
 
@@ -15,8 +16,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 from tqdm import tqdm
 
-DB_GENCODE = 'sqlite:///gencode.sqlite3'
-DB_BONE = 'sqlite:///bone.sqlite3'
+pkg_dir = os.path.dirname(os.path.abspath(__file__))
+DB_GENCODE = 'sqlite:///' + os.path.join(pkg_dir, 'gencode.sqlite3')
+DB_BONE = 'sqlite:///' + os.path.join(pkg_dir, 'bone.sqlite3')
 DB_MEMORY = 'sqlite://'
 
 CHUNK_SIZE = 5000
