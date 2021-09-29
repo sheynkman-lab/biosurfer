@@ -4,15 +4,15 @@ from operator import attrgetter
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-from biosurfer.core.database import Database
+from biosurfer.core.database import Database, DB_BONE
 from biosurfer.core.helpers import ExceptionLogger
-from biosurfer.core.models import (ORF, Gene, Protein, ProteinFeature,
+from biosurfer.core.models import (ORF, GencodeTranscript, Gene, PacBioTranscript, Protein, ProteinFeature,
                                    Transcript)
 from biosurfer.plots.plotting import IsoformPlot
 from matplotlib.patches import Patch
 from sqlalchemy import select
 
-db = Database('sqlite:///../biosurfer/core/gencode.sqlite3')
+db = Database(DB_BONE)
 session = db.get_session()
 Gene.session = session
 
@@ -155,19 +155,24 @@ gene_list = (
 )
 
 # %%
-transcripts = set(session.execute(
-    select(Transcript).
-    select_from(ProteinFeature).
-    join(ProteinFeature.protein).
-    join(Protein.orf).
-    join(ORF.transcript).
-    join(Transcript.gene).
-    where(Gene.name.in_(gene_list))
-).scalars())
+genes = Gene.from_names(gene_list)
+# transcripts = set(session.execute(
+#     select(Transcript).
+#     select_from(ProteinFeature).
+#     join(ProteinFeature.protein).
+#     join(Protein.orf).
+#     join(ORF.transcript).
+#     join(Transcript.gene).
+#     where(Gene.name.in_(gene_list))
+# ).scalars())
 
 # %%
-for gene, transcripts in groupby(sorted(transcripts, key=attrgetter('name')), key=attrgetter('gene')):
-    isoplot = IsoformPlot(transcripts, track_spacing=1.0)
+for gene in genes.values():
+    gc_transcripts = [tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript) if tx.orfs and tx.protein]
+    pb_transcripts = [tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript) if tx.orfs and tx.protein]
+    if not any(tx.protein.features for tx in gc_transcripts):
+        continue
+    isoplot = IsoformPlot(gc_transcripts + pb_transcripts, track_spacing=1.0)
     with ExceptionLogger(f'{gene.name}'):
         isoplot.draw_all_isoforms()
         isoplot.draw_frameshifts()

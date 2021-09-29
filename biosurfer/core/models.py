@@ -440,8 +440,12 @@ class ORF(Base):
     @reconstructor
     def init_on_load(self):
         self._first_exon_index = self.transcript.get_exon_index_containing_position(self.transcript_start)
-        self._last_exon_index = self.transcript.get_exon_index_containing_position(self.transcript_stop)
-        
+        try:
+            self._last_exon_index = self.transcript.get_exon_index_containing_position(self.transcript_stop)
+        except KeyError as e:
+            warn(f'KeyError: {e} when initializing {self}')
+            self._last_exon_index = len(self.transcript.exons) - 1
+
         utr5_boundary_exon_index = self._first_exon_index
         utr3_boundary_exon_index = self._last_exon_index
         if self.transcript.exons[utr5_boundary_exon_index].transcript_start == self.transcript_start:

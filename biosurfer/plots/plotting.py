@@ -437,13 +437,15 @@ class IsoformPlot:
             alpha = alpha
         )
     
-    def draw_domains(self):
+    def draw_domains(self, transcripts=None):
+        if transcripts is None:
+            transcripts = self.transcripts
         h = self.opts.max_track_width
-        domain_names = sorted({domain.name for tx in self.transcripts for domain in tx.protein.features})
+        domain_names = sorted({domain.name for tx in transcripts for domain in tx.protein.features})
         cmap = sns.color_palette('Set3', len(domain_names))
         domain_colors = dict(zip(domain_names, cmap))
-        for track, tx in enumerate(self.transcripts):
-            if not tx.orfs:
+        for track, tx in enumerate(transcripts):
+            if not (isinstance(tx, GencodeTranscript) and tx.orfs):
                 continue
             subtracks, n_subtracks = generate_subtracks(
                 ((domain.protein_start, domain.protein_stop) for domain in tx.protein.features),
