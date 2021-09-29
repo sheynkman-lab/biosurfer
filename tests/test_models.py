@@ -114,12 +114,25 @@ def transcript_getter(session):
     db_transcripts = session.execute(select(Transcript)).scalars().all()
     def _get_transcript(data):
         return data.draw(
-            st.one_of(
-                coding_transcript(),
-                st.sampled_from(db_transcripts)
-            )
+            st.sampled_from(db_transcripts)
         )
     return _get_transcript
+
+@pytest.fixture(scope='module')
+def coding_transcript_getter(session):
+    db_coding_transcripts = session.execute(
+        select(Transcript).
+        select_from(ORF).
+        join(ORF.transcript)
+    ).scalars().all()
+    def _get_coding_transcript(data):
+        return data.draw(
+            st.one_of(
+                coding_transcript(),
+                st.sampled_from(db_coding_transcripts)
+            )
+        )
+    return _get_coding_transcript
 
 @pytest.fixture(scope='module')
 def feature_getter(session):
@@ -148,8 +161,8 @@ def test_nucleotide_has_exon(data, transcript_getter):
     assert all(nt.exon is exon for exon in transcript.exons for nt in exon.nucleotides)
 
 @given(data=st.data())
-def test_nucleotide_has_residue(data, transcript_getter):
-    transcript = transcript_getter(data)
+def test_nucleotide_has_residue(data, coding_transcript_getter):
+    transcript = coding_transcript_getter(data)
     orf = transcript.primary_orf
     note(f'tx seq: {transcript.sequence}')
     note(f'orf seq: {orf.sequence}')
@@ -157,8 +170,14 @@ def test_nucleotide_has_residue(data, transcript_getter):
     assert list(chain.from_iterable((res, res, res) for res in orf.protein.residues)) == [nt.residue for nt in orf.nucleotides]
 
 @given(data=st.data())
-def test_residue_has_nucleotide(data, transcript_getter):
+def test_noncoding_nucleotide_has_no_residue(data, transcript_getter):
     transcript = transcript_getter(data)
+    note(f'tx seq: {transcript.sequence}')
+    assert all(nt.residue is None for nt in transcript.nucleotides) or transcript.primary_orf is not None
+
+@given(data=st.data())
+def test_residue_has_nucleotide(data, coding_transcript_getter):
+    transcript = coding_transcript_getter(data)
     orf = transcript.primary_orf
     note(f'tx seq: {transcript.sequence}')
     note(f'orf seq: {orf.sequence}')

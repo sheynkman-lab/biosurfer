@@ -16,9 +16,7 @@ def test_feature_projection(session, feature_case):
     print(session.get_bind())
     anchor = feature_case['anchor']
     other = feature_case['other']
-    expected = feature_case['full']
     txs = Transcript.from_names((anchor, other))
-    feature = ProteinFeature(protein=txs[anchor].protein, **feature_case['feature'])
     aln = Alignment(txs[anchor].protein, txs[other].protein)
-    projected_feature = aln.project(feature)
-    assert projected_feature.full == expected
+    for pf, expected in zip(aln.projected_features, feature_case['expected']):
+        assert pf.full == expected
