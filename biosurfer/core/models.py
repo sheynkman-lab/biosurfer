@@ -435,37 +435,46 @@ class ORF(Base):
         uselist=False
     )
 
-    # __table_args__ = (UniqueConstraint(transcript_id, transcript_start, transcript_stop, name='_transcript_orf_pair'),)
+    @property
+    def _first_exon_index(self):
+        return self.transcript.get_exon_index_containing_position(self.transcript_start)
 
-    @reconstructor
-    def init_on_load(self):
-        self._first_exon_index = self.transcript.get_exon_index_containing_position(self.transcript_start)
+    @property
+    def _last_exon_index(self):
         try:
-            self._last_exon_index = self.transcript.get_exon_index_containing_position(self.transcript_stop)
+            return self.transcript.get_exon_index_containing_position(self.transcript_stop)
         except KeyError as e:
-            warn(f'KeyError: {e} when initializing {self}')
-            self._last_exon_index = len(self.transcript.exons) - 1
+            warn(
+                f'KeyError: {e} when getting ORF._last_exon_index for {self}'
+            )
+            return len(self.transcript.exons) - 1
 
+    @cached_property
+    def utr5(self):
         utr5_boundary_exon_index = self._first_exon_index
-        utr3_boundary_exon_index = self._last_exon_index
         if self.transcript.exons[utr5_boundary_exon_index].transcript_start == self.transcript_start:
             utr5_boundary_exon_index -= 1
+        if utr5_boundary_exon_index >= 0:
+            return FivePrimeUTR(self, utr5_boundary_exon_index)
+        else:
+            return None
+    
+    @cached_property
+    def utr3(self):
+        utr3_boundary_exon_index = self._last_exon_index
         if self.transcript.exons[utr3_boundary_exon_index].transcript_stop == self.transcript_stop:
             utr3_boundary_exon_index += 1
-
-        if utr5_boundary_exon_index >= 0:
-            self.utr5 = FivePrimeUTR(self, utr5_boundary_exon_index)
-        else:
-            self.utr5 = None
         if utr3_boundary_exon_index < len(self.transcript.exons):
-            self.utr3 = ThreePrimeUTR(self, utr3_boundary_exon_index)
+            return ThreePrimeUTR(self, utr3_boundary_exon_index)
         else:
-            self.utr3 = None
+            return None
 
+    @cached_property
+    def nmd(self):
         # ORFs with stop codons at least 50 bp upstream of the last splice site in the mature transcript
         # (i.e. the beginning of the last exon) are considered candidates for nonsense-mediated decay (NMD)
         last_junction = self.transcript.exons[-1].transcript_start
-        self.nmd = last_junction - self.transcript_stop >= 50
+        return last_junction - self.transcript_stop >= 50
 
     def __repr__(self) -> str:
         return f'{self.transcript}:orf({self.transcript_start}-{self.transcript_stop})'

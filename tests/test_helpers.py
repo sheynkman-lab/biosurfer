@@ -4,14 +4,8 @@ from typing import Dict, List, Tuple
 from biosurfer.core.helpers import BisectDict
 from biosurfer.plots.plotting import generate_subtracks
 from hypothesis import given
-from hypothesis.strategies import characters, integers, lists, dictionaries
+from hypothesis.strategies import characters, data, integers, lists, dictionaries, sampled_from
 from more_itertools import chunked
-
-
-# def test_bisect_dict():
-#     pass
-
-####
 
 def force_list_length_to_be_even(lst: List) -> List:
     N = len(lst)
@@ -39,6 +33,25 @@ def extract_intervals_labels(label_to_intervals):
 def intervals_overlap(intervals1, intervals2):
     return any(interval1[0] < interval2[1] and interval2[0] < interval1[1]
         for interval1, interval2 in product(intervals1, intervals2))
+
+### TESTS BEGIN HERE ###
+
+@given(
+    dictionary = dictionaries(
+        integers(min_value=1),
+        characters(whitelist_categories=['Lu']),
+        min_size = 1
+    ),
+    data = data()
+)
+def test_bisect_dict(dictionary, data):
+    bdict = BisectDict(dictionary.items())
+    breakpoints = sorted(dictionary.keys())
+    i = data.draw(integers(min_value=0, max_value=len(breakpoints)-1))
+    stop = breakpoints[i]
+    start = breakpoints[i-1] if i > 0 else 0
+    key = data.draw(integers(min_value=start, max_value=stop-1))
+    assert bdict[key] == dictionary[stop]
 
 @given(label_intervals_mappings.map(extract_intervals_labels))
 def test_generate_subtracks(arg):

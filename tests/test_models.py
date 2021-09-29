@@ -36,14 +36,13 @@ def orf_seqs(draw, min_aa_length=1):
     return draw(orf_seqs_missing_stop(min_aa_length)) + draw(st.sampled_from(stop_codons))
 
 @st.composite
-def coding_transcript(draw, add_exons=True, add_protein=True):
-    utr5_seq = draw(nt_seqs())
-    orf_seq = draw(orf_seqs())
-    utr3_seq = draw(nt_seqs())
-    tx_seq = utr5_seq + orf_seq + utr3_seq
-    length = len(tx_seq)
+def transcript(draw, coding=False, min_size=1):
+    if coding:
+        utr5_seq = draw(nt_seqs())
+        orf_seq = draw(orf_seqs())
+        utr3_seq = draw(nt_seqs())
+        tx_seq = utr5_seq + orf_seq + utr3_seq
 
-    if add_protein:
         protein_seq = str(Seq(orf_seq).translate())
         protein = Protein(
             sequence = protein_seq
@@ -56,48 +55,50 @@ def coding_transcript(draw, add_exons=True, add_protein=True):
             protein = protein
         )
     else:
+        tx_seq = draw(nt_seqs(min_size=min_size))
         protein = None
         orf = None
+    
+    length = len(tx_seq)
 
     strand = draw(st.sampled_from(Strand))
     exons = []
-    if add_exons:
-        if length < 6:
-            exon_tx_stops = []
-        else:
-            exon_tx_stops = draw(
-                st.lists(
-                    st.integers(
-                        min_value = 4,
-                        max_value = length - 2
-                    ),
-                    unique = True,
-                    max_size = len(tx_seq)//2
-                )
-            )
-        exon_tx_stops.append(length)
-        exon_tx_stops.sort()
-
-        intron_lengths = draw(
-            st.iterables(
-                st.integers(min_value=31),
-                min_size = len(exon_tx_stops)
+    if length < 6:
+        exon_tx_stops = []
+    else:
+        exon_tx_stops = draw(
+            st.lists(
+                st.integers(
+                    min_value = 4,
+                    max_value = length - 2
+                ),
+                unique = True,
+                max_size = len(tx_seq)//2
             )
         )
+    exon_tx_stops.append(length)
+    exon_tx_stops.sort()
 
-        exon_tx_start = 1
-        exon_genome_start = draw(st.integers(min_value=0))
-        for i, exon_tx_stop in enumerate(exon_tx_stops, start=1):
-            exon = Exon(
-                position = i,
-                transcript_start = exon_tx_start,
-                transcript_stop = exon_tx_stop,
-                start = exon_genome_start,
-                stop = exon_genome_start + exon_tx_stop - exon_tx_start
-            )
-            exons.append(exon)
-            exon_tx_start = exon_tx_stop + 1
-            exon_genome_start = exon.stop + next(intron_lengths)
+    intron_lengths = draw(
+        st.iterables(
+            st.integers(min_value=31),
+            min_size = len(exon_tx_stops)
+        )
+    )
+
+    exon_tx_start = 1
+    exon_genome_start = draw(st.integers(min_value=0))
+    for i, exon_tx_stop in enumerate(exon_tx_stops, start=1):
+        exon = Exon(
+            position = i,
+            transcript_start = exon_tx_start,
+            transcript_stop = exon_tx_stop,
+            start = exon_genome_start,
+            stop = exon_genome_start + exon_tx_stop - exon_tx_start
+        )
+        exons.append(exon)
+        exon_tx_start = exon_tx_stop + 1
+        exon_genome_start = exon.stop + next(intron_lengths)
 
     
     tx = Transcript(
@@ -114,7 +115,10 @@ def transcript_getter(session):
     db_transcripts = session.execute(select(Transcript)).scalars().all()
     def _get_transcript(data):
         return data.draw(
-            st.sampled_from(db_transcripts)
+            st.one_of(
+                transcript(),
+                st.sampled_from(db_transcripts)
+            )
         )
     return _get_transcript
 
@@ -128,7 +132,7 @@ def coding_transcript_getter(session):
     def _get_coding_transcript(data):
         return data.draw(
             st.one_of(
-                coding_transcript(),
+                transcript(coding=True),
                 st.sampled_from(db_coding_transcripts)
             )
         )
@@ -156,9 +160,33 @@ def test_exon_sequences_correct(data, transcript_getter):
     assert ''.join(exon.sequence for exon in transcript.exons) == transcript.sequence
 
 @given(data=st.data())
+def test_exon_coords_correct(data, transcript_getter):
+    transcript = transcript_getter(data)
+    for exon in transcript.exons:
+        assert exon.stop - exon.start == exon.transcript_stop - exon.transcript_start
+
+@given(data=st.data())
+def test_orf_utr_lengths_correct(data, coding_transcript_getter):
+    transcript = coding_transcript_getter(data)
+    for orf in transcript.orfs:
+        utr5_length = orf.utr5.length if orf.utr5 else 0
+        utr3_length = orf.utr3.length if orf.utr3 else 0
+        assert utr5_length + orf.length + utr3_length == transcript.length
+
+@given(data=st.data())
+def test_orf_utr_sequences_correct(data, coding_transcript_getter):
+    transcript = coding_transcript_getter(data)
+    for orf in transcript.orfs:
+        utr5_sequence = orf.utr5.sequence if orf.utr5 else ''
+        utr3_sequence = orf.utr3.sequence if orf.utr3 else ''
+        assert utr5_sequence + orf.sequence + utr3_sequence == transcript.sequence
+
+@given(data=st.data())
 def test_nucleotide_has_exon(data, transcript_getter):
     transcript = transcript_getter(data)
-    assert all(nt.exon is exon for exon in transcript.exons for nt in exon.nucleotides)
+    for exon in transcript.exons:
+        for nt in exon.nucleotides:
+            assert nt.exon is exon
 
 @given(data=st.data())
 def test_nucleotide_has_residue(data, coding_transcript_getter):
@@ -173,7 +201,9 @@ def test_nucleotide_has_residue(data, coding_transcript_getter):
 def test_noncoding_nucleotide_has_no_residue(data, transcript_getter):
     transcript = transcript_getter(data)
     note(f'tx seq: {transcript.sequence}')
-    assert all(nt.residue is None for nt in transcript.nucleotides) or transcript.primary_orf is not None
+    if len(transcript.orfs) == 0:
+        for nt in transcript.nucleotides:
+            assert nt.residue is None
 
 @given(data=st.data())
 def test_residue_has_nucleotide(data, coding_transcript_getter):
@@ -191,3 +221,5 @@ def test_feature_residues_correct(data, feature_getter):
     note(f'protein seq: {protein.sequence}')
     note(f'feature seq: {feature.sequence}')
     assert [(res.position, res.amino_acid) for res in feature.residues] == [(feature.protein_start + i, AminoAcid(aa)) for i, aa in enumerate(feature.sequence)]
+
+# TODO: test junctions
