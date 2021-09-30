@@ -242,7 +242,7 @@ class Transcript(Base, NameMixin, AccessionMixin):
     
     def get_nucleotide_from_coordinate(self, coordinate: int) -> 'Nucleotide':
         """Given a genomic coordinate (1-based) included in the transcript, return the Nucleotide object corresponding to that coordinate."""
-        if self._nucleotide_mapping is None:
+        if not hasattr(self, '_nucleotide_mapping'):
             _ = self.nucleotides
         if coordinate in self._nucleotide_mapping:
             return self._nucleotide_mapping[coordinate]
@@ -251,6 +251,8 @@ class Transcript(Base, NameMixin, AccessionMixin):
 
     def contains_coordinate(self, coordinate: int) -> bool:
         """Given a genomic coordinate (1-based), return whether or not the transcript contains the nucleotide at that coordinate."""
+        if not hasattr(self, '_nucleotide_mapping'):
+            _ = self.nucleotides
         return coordinate in self._nucleotide_mapping
     
     def get_exons_from_junction(self, junction: 'Junction') -> Tuple['Exon', 'Exon']:
@@ -264,11 +266,11 @@ class GencodeTranscript(Transcript):
     appris = Column(Enum(APPRIS))
     start_nf = Column(Boolean)
     end_nf = Column(Boolean)
-    pacbio = relationship(
-        'PacBioTranscript',
-        back_populates = 'gencode',
-        uselist = True
-    )
+    # pacbio = relationship(
+    #     'PacBioTranscript',
+    #     back_populates = 'gencode',
+    #     uselist = True
+    # )
     
     def __init__(self, **kwargs):
         if 'strand' in kwargs:
@@ -287,12 +289,12 @@ class GencodeTranscript(Transcript):
 class PacBioTranscript(Transcript):
     sqanti = Column(Enum(SQANTI))
     gencode_id = Column(String, ForeignKey('transcript.accession'))
-    gencode = relationship(
-        'GencodeTranscript',
-        back_populates = 'pacbio',
-        uselist = False,
-        remote_side = [Transcript.accession]
-    )
+    # gencode = relationship(
+    #     'GencodeTranscript',
+    #     back_populates = 'pacbio',
+    #     uselist = False,
+    #     remote_side = [Transcript.accession]
+    # )
 
     __mapper_args__ = {
         'polymorphic_identity': 'pacbiotranscript'
@@ -678,10 +680,12 @@ class Residue:
         return self.amino_acid is AminoAcid.GAP
     
 
-variant_transcript_association_table = Table('variant_transcript_association', Base.metadata,
-    Column('variant_id', ForeignKey('variant.id'), primary_key=True),
-    Column('transcript_id', ForeignKey('transcript.accession'), primary_key=True)
-)
+
+
+class VariantTranscriptLink(Base):
+    variant_id = Column(Integer, ForeignKey('variant.id'), primary_key=True)
+    transcript_id = Column(Integer, ForeignKey('transcript.accession'), primary_key=True)
+
 
 class Variant(Base):
     """Nucloetide Variant class
@@ -702,7 +706,7 @@ class Variant(Base):
         return f'{self.chromosome}.{self.position}[{self.reference_sequence}->{self.variant_sequence}]'
     variant_transcripts = relationship(
         'VariantTranscript',
-        secondary=variant_transcript_association_table,
+        secondary='varianttranscriptlink',
         back_populates='variants')
     
 
@@ -711,7 +715,7 @@ class VariantTranscript(Transcript):
     reference_transcript_id = Column(Integer, ForeignKey('transcript.accession'))
     variants = relationship(
         'Variant',
-        secondary=variant_transcript_association_table,
+        secondary='varianttranscriptlink',
         back_populates='variant_transcripts'
     )
     __mapper_args__ = {

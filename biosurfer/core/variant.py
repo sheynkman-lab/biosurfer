@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, insert, or_
 from sqlalchemy import (Column, Integer, ForeignKey, String, Table, Float)
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.orm import (reconstructor, relation, relationship)
@@ -7,7 +7,8 @@ from Bio.Seq import Seq
 
 from biosurfer.core.models import (Transcript, Exon, ORF, Protein, Gene,
         Nucleotide, Base, AccessionMixin, 
-        Variant, VariantTranscript, db_session)
+        Variant, VariantTranscript, VariantTranscriptLink,)
+from biosurfer.core.database import db_session, engine
 from biosurfer.core.constants import Nucleobase, Strand
 
 
@@ -30,6 +31,19 @@ def get_possible_variants(transcript:Transcript):
         .all()
     )
     return possible_variants
+
+def get_possible_exonic_variants(transcript:Transcript):
+    possible_variants_query = (
+        db_session.query(Variant)
+        .filter(Variant.chromosome_id == transcript.chromosome.name)
+    )
+    possible_variants_query = possible_variants_query.filter(or_(Variant.position.between(exon.start, exon.stop) for exon in transcript.exons))
+    # exon_filters = []
+    # for exon in transcript.exons:
+    #     possible_variants_query = possible_variants_query.filter(Variant.position.between(exon.start, exon.stop))
+    possible_variants = possible_variants_query.all()
+    return possible_variants
+    
         # statement = select(Variant)
         # statement = statement.filter(Variant.chromosome_id == transcript.chromosome.name)
         
@@ -54,7 +68,7 @@ class VariantBuilder:
         self.variant_id = '.'.join([str(variant) for variant in variants])
         if self.reference_transcript.sequence is None:
             return
-        self.variant_transcript = self.build_variant_transcript()
+        self.variant_transcript, self.variant_transcript_associations = self.build_variant_transcript()
         self.variant_exons = self.build_variant_exons()
         self.variant_orfs, self.variant_proteins = self.build_variant_orfs_and_proteins()
         self.update_database()
@@ -64,6 +78,14 @@ class VariantBuilder:
         if VariantTranscript.from_accession(self.variant_transcript['accession']) is not None:
             return
         db_session.bulk_insert_mappings(VariantTranscript, [self.variant_transcript])
+
+        # with engine.connect() as conn:
+        #     result = conn.execute(
+        #         insert(variant_transcript_association_table),
+        #         self.variant_transcript_associations
+        #     )
+        #     conn.commit()
+        db_session.bulk_insert_mappings(VariantTranscriptLink, self.variant_transcript_associations)
         db_session.bulk_insert_mappings(Exon, self.variant_exons)
         db_session.bulk_insert_mappings(ORF, self.variant_orfs)
         db_session.bulk_insert_mappings(Protein, self.variant_proteins)
@@ -75,22 +97,35 @@ class VariantBuilder:
 
 
     def build_variant_transcript(self):
+        accession = f'{self.reference_transcript.accession}.{self.variant_id}'
         nucleotides = self.reference_transcript.nucleotides.copy()
         variant_nucleotides = []
+        variant_transcript_associations = []
         for variant in self.variants:
             base_nucleotide = self.reference_transcript.get_nucleotide_from_coordinate(variant.position)
             if base_nucleotide is not None:
+                variant_sequence = Seq(variant.variant_sequence)
+                if self.reference_transcript.strand == Strand.MINUS:
+                    variant_sequence = variant_sequence.reverse_complement()
+                variant_sequence = str(variant_sequence)
+                    
                 variant_nucleotide = Nucleotide(
                     self.reference_transcript, 
                     variant.position, 
                     base_nucleotide.position, 
-                    Nucleobase(variant.variant_sequence))
+                    Nucleobase(variant_sequence))
                 nucleotides[base_nucleotide.position - 1] = variant_nucleotide
                 variant_nucleotides.append(variant_nucleotide)
+
+                var_trans_assc = {
+                    'variant_id':variant.id,
+                    'transcript_id':accession
+                }
+                variant_transcript_associations.append(var_trans_assc)
         sequence = ''.join([str(nuc.base) for nuc in nucleotides])
         # self.variant_id = '.'.join([str(nuc) for nuc in variant_nucleotides])
         
-        accession = f'{self.reference_transcript.accession}.{self.variant_id}'
+        
         variant_transcript = {
             'accession': accession,
             'name': self.reference_transcript.name,
@@ -100,7 +135,8 @@ class VariantBuilder:
             'reference_transcript_id': self.reference_transcript.accession,
             'type': 'varianttranscript'
         }
-        return variant_transcript
+        
+        return variant_transcript, variant_transcript_associations
         
     def build_variant_exons(self):
         variant_exons = []
