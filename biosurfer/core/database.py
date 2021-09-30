@@ -4,15 +4,14 @@ from operator import itemgetter
 from typing import Callable
 
 from Bio import SeqIO
-from more_itertools import chunked
-from sqlalchemy import select
 from biosurfer.core.constants import APPRIS, SQANTI, Strand
 from biosurfer.core.helpers import (FastaHeaderFields, bulk_update_and_insert,
                                     read_gtf_line)
-from biosurfer.core.models import (ORF, Base, Chromosome, Exon, GencodeExon,
-                                   GencodeTranscript, Gene, PacBioExon,
-                                   PacBioTranscript, Protein, ProteinFeature, Transcript)
-from sqlalchemy import create_engine
+from biosurfer.core.models import (ORF, Base, Chromosome, Exon,
+                                   GencodeTranscript, Gene, PacBioTranscript,
+                                   Protein, ProteinFeature, Transcript)
+from more_itertools import chunked
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import scoped_session, sessionmaker
 from tqdm import tqdm
 
@@ -68,7 +67,7 @@ class Database:
             with session.begin():
                 existing_genes = {row.accession for row in session.query(Gene.accession).all()}
                 existing_transcripts = {row.accession for row in session.query(Transcript.accession).all()}
-                existing_exons = {(row.accession, row.transcript_id) for row in session.query(Exon.accession, Exon.transcript_id).all()}
+                existing_exons = {(row.transcript_id, row.position) for row in session.query(Exon.transcript_id, Exon.position).all()}
                 existing_orfs = {(row.transcript_id, row.transcript_start, row.transcript_stop) for row in session.query(ORF.transcript_id, ORF.transcript_start, ORF.transcript_stop).all()}
 
             chromosomes = {}
@@ -150,10 +149,6 @@ class Database:
                             'stop': stop,
                             'transcript_id': transcript_id
                         }
-                        if (exon_id, transcript_id) in existing_exons:
-                            exons_to_update.append(exon)
-                        else:
-                            exons_to_insert.append(exon)
                         if transcript_id in transcripts_to_exons:
                             transcripts_to_exons[transcript_id].append(exon)
                         else:
@@ -175,83 +170,10 @@ class Database:
                 bulk_update_and_insert(session, GencodeTranscript, transcripts_to_update, transcripts_to_insert)
 
             # calculate the coordinates of each exon relative to the sequence of its parent transcript
-            t = tqdm(
-                transcripts_to_exons.items(),
-                desc = 'Calculating transcript-relative exon coords',
-                total = len(transcripts_to_exons),
-                unit = 'transcripts'
-            )
-            for i, (transcript_id, exon_list) in enumerate(t):
-                exon_list.sort(key=itemgetter('start'), reverse=transcript_id in minus_transcripts)
-                tx_idx = 1
-                for i, exon in enumerate(exon_list, start=1):
-                    exon['position'] = i
-                    exon_length = exon['stop'] - exon['start'] + 1
-                    exon['transcript_start'] = tx_idx
-                    exon['transcript_stop'] = tx_idx + exon_length - 1
-                    tx_idx += exon_length
-            t = tqdm(
-                exons_to_update,
-                desc = 'Updating existing exons',
-                total = len(exons_to_update),
-                unit = 'exons'
-            )
-            for exon_update_chunk in chunked(t, CHUNK_SIZE):
-                bulk_update_and_insert(session, GencodeExon, list(exon_update_chunk), [])
-            t = tqdm(
-                exons_to_insert,
-                desc = 'Inserting new exons',
-                total = len(exons_to_insert),
-                unit = 'exons'
-            )
-            for exon_insert_chunk in chunked(t, CHUNK_SIZE):
-                bulk_update_and_insert(session, GencodeExon, [], list(exon_insert_chunk))
+            _process_and_upsert_exons(session, transcripts_to_exons, minus_transcripts, existing_exons, exons_to_update, exons_to_insert)
 
             # assemble CDS intervals into ORFs
-            t = tqdm(
-                transcripts_to_cdss.items(),
-                desc = 'Calculating transcript-relative ORF coords',
-                total = len(transcripts_to_cdss),
-                unit = 'transcripts'
-            )
-            for i, (transcript_id, cds_list) in enumerate(t):
-                assert len({cds[2] for cds in cds_list}) == 1
-                exon_list = transcripts_to_exons[transcript_id]
-                cds_list.sort(key=itemgetter(0), reverse=transcript_id in minus_transcripts)
-                first_cds, last_cds = cds_list[0], cds_list[-1]
-                # assuming that the first and last CDSs are the ORF boundaries -- won't work when dealing with multiple ORFs
-                orf_start = first_cds[0]
-                orf_stop = last_cds[1]
-                if transcript_id in minus_transcripts:
-                    orf_start, orf_stop = orf_stop, orf_start
-                first_exon = next((exon for exon in exon_list if exon['start'] <= first_cds[0] and first_cds[1] <= exon['stop']), None)
-                last_exon = next((exon for exon in reversed(exon_list) if exon['start'] <= last_cds[0] and last_cds[1] <= exon['stop']), None)
-                # find ORF start/end relative to exons
-                if transcript_id not in minus_transcripts:
-                    first_offset = first_cds[0] - first_exon['start']
-                    last_offset = last_exon['stop'] - last_cds[1]
-                else:
-                    first_offset = first_exon['stop'] - first_cds[1]
-                    last_offset = last_cds[0] - last_exon['start']
-                # convert to transcript-relative coords
-                orf_tx_start = first_exon['transcript_start'] + first_offset
-                orf_tx_stop = last_exon['transcript_stop'] - last_offset
-                orf_tx_stop += 3  # account for stop codon
-                orf = {
-                    'transcript_id': transcript_id,
-                    'transcript_start': orf_tx_start,
-                    'transcript_stop': orf_tx_stop,
-                    'start': orf_start,
-                    'stop': orf_stop
-                }
-                if (transcript_id, orf_tx_start, orf_tx_stop) in existing_orfs:
-                    orfs_to_update.append(orf)
-                else:
-                    orfs_to_insert.append(orf)
-                
-                if i % CHUNK_SIZE == 0:
-                    bulk_update_and_insert(session, ORF, orfs_to_update, orfs_to_insert)
-            bulk_update_and_insert(session, ORF, orfs_to_update, orfs_to_insert)
+            _process_and_upsert_orfs(session, transcripts_to_cdss, transcripts_to_exons, minus_transcripts, existing_orfs, orfs_to_update, orfs_to_insert)
 
     def load_pacbio_gtf(self, gtf_file: str, overwrite=False) -> None:
         if overwrite:
@@ -343,75 +265,10 @@ class Database:
                 bulk_update_and_insert(session, PacBioTranscript, transcripts_to_update, transcripts_to_insert)
 
             # calculate the coordinates of each exon relative to the sequence of its parent transcript
-            t = tqdm(
-                transcripts_to_exons.items(),
-                desc = 'Calculating transcript-relative exon coords',
-                total = len(transcripts_to_exons),
-                unit = 'transcripts'
-            )
-            for i, (transcript_id, exon_list) in enumerate(t):
-                exon_list.sort(key=itemgetter('start'), reverse=transcript_id in minus_transcripts)
-                tx_idx = 1
-                for i, exon in enumerate(exon_list, start=1):
-                    exon['position'] = i
-                    exon['accession'] = transcript_id + f':EXON{i}'
-                    if (transcript_id, exon['position']) in existing_exons:
-                        exons_to_update.append(exon)
-                    else:
-                        exons_to_insert.append(exon)
-                    exon_length = exon['stop'] - exon['start'] + 1
-                    exon['transcript_start'] = tx_idx
-                    exon['transcript_stop'] = tx_idx + exon_length - 1
-                    tx_idx += exon_length
-
-                if i % CHUNK_SIZE == 0:
-                    bulk_update_and_insert(session, PacBioExon, exons_to_update, exons_to_insert)
-            bulk_update_and_insert(session, PacBioExon, exons_to_update, exons_to_insert)
+            _process_and_upsert_exons(session, transcripts_to_exons, minus_transcripts, existing_exons, exons_to_update, exons_to_insert)
 
             # assemble CDS intervals into ORFs
-            t = tqdm(
-                transcripts_to_cdss.items(),
-                desc = 'Calculating transcript-relative ORF coords',
-                total = len(transcripts_to_cdss),
-                unit = 'transcripts'
-            )
-            for i, (transcript_id, cds_list) in enumerate(t):
-                exon_list = transcripts_to_exons[transcript_id]
-                cds_list.sort(key=itemgetter(0), reverse=transcript_id in minus_transcripts)
-                first_cds, last_cds = cds_list[0], cds_list[-1]
-                # assuming that the first and last CDSs are the ORF boundaries -- won't work when dealing with multiple ORFs
-                orf_start = first_cds[0]
-                orf_stop = last_cds[1]
-                if transcript_id in minus_transcripts:
-                    orf_start, orf_stop = orf_stop, orf_start
-                first_exon = next((exon for exon in exon_list if exon['start'] <= first_cds[0] and first_cds[1] <= exon['stop']), None)
-                last_exon = next((exon for exon in reversed(exon_list) if exon['start'] <= last_cds[0] and last_cds[1] <= exon['stop']), None)
-                # find ORF start/end relative to exons
-                if transcript_id not in minus_transcripts:
-                    first_offset = first_cds[0] - first_exon['start']
-                    last_offset = last_exon['stop'] - last_cds[1]
-                else:
-                    first_offset = first_exon['stop'] - first_cds[1]
-                    last_offset = last_cds[0] - last_exon['start']
-                # convert to transcript-relative coords
-                orf_tx_start = first_exon['transcript_start'] + first_offset
-                orf_tx_stop = last_exon['transcript_stop'] - last_offset
-                orf_tx_stop += 3  # account for stop codon
-                orf = {
-                    'transcript_id': transcript_id,
-                    'transcript_start': orf_tx_start,
-                    'transcript_stop': orf_tx_stop,
-                    'start': orf_start,
-                    'stop': orf_stop
-                }
-                if (transcript_id, orf_tx_start, orf_tx_stop) in existing_orfs:
-                    orfs_to_update.append(orf)
-                else:
-                    orfs_to_insert.append(orf)
-
-                if i % CHUNK_SIZE == 0:
-                    bulk_update_and_insert(session, ORF, orfs_to_update, orfs_to_insert)
-            bulk_update_and_insert(session, ORF, orfs_to_update, orfs_to_insert)
+            _process_and_upsert_orfs(session, transcripts_to_cdss, transcripts_to_exons, minus_transcripts, existing_orfs, orfs_to_update, orfs_to_insert)
 
     def load_transcript_fasta(self, transcript_fasta: str, id_extractor: Callable[[str], 'FastaHeaderFields'], id_filter: Callable[[str], bool] = lambda x: False):
         with self.get_session() as session:
@@ -532,3 +389,91 @@ class Database:
                     for row in t if row['transcript_name(iso_acc)'] in transcript_name_to_protein_acc
                 ]
             bulk_update_and_insert(session, ProteinFeature, [], domains_to_insert)        
+
+
+def _process_and_upsert_exons(session, transcripts_to_exons, minus_transcripts, existing_exons, exons_to_update, exons_to_insert):
+    # calculate the coordinates of each exon relative to the sequence of its parent transcript
+    t = tqdm(
+        transcripts_to_exons.items(),
+        desc = 'Calculating transcript-relative exon coords',
+        total = len(transcripts_to_exons),
+        unit = 'transcripts'
+    )
+    for i, (transcript_id, exon_list) in enumerate(t):
+        exon_list.sort(key=itemgetter('start'), reverse=transcript_id in minus_transcripts)
+        tx_idx = 1
+        for i, exon in enumerate(exon_list, start=1):
+            exon['position'] = i
+            if (transcript_id, exon['position']) in existing_exons:
+                exons_to_update.append(exon)
+            else:
+                exons_to_insert.append(exon)
+            if 'accession' not in exon:
+                exon['accession'] = transcript_id + f':EXON{i}'
+            exon_length = exon['stop'] - exon['start'] + 1
+            exon['transcript_start'] = tx_idx
+            exon['transcript_stop'] = tx_idx + exon_length - 1
+            tx_idx += exon_length
+    t = tqdm(
+        exons_to_update,
+        desc = 'Updating existing exons',
+        total = len(exons_to_update),
+        unit = 'exons'
+    )
+    for exon_update_chunk in chunked(t, CHUNK_SIZE):
+        bulk_update_and_insert(session, Exon, list(exon_update_chunk), [])
+    t = tqdm(
+        exons_to_insert,
+        desc = 'Inserting new exons',
+        total = len(exons_to_insert),
+        unit = 'exons'
+    )
+    for exon_insert_chunk in chunked(t, CHUNK_SIZE):
+        bulk_update_and_insert(session, Exon, [], list(exon_insert_chunk))
+
+
+def _process_and_upsert_orfs(session, transcripts_to_cdss, transcripts_to_exons, minus_transcripts, existing_orfs, orfs_to_update, orfs_to_insert):
+    # assemble CDS intervals into ORFs
+    t = tqdm(
+        transcripts_to_cdss.items(),
+        desc = 'Calculating transcript-relative ORF coords',
+        total = len(transcripts_to_cdss),
+        unit = 'transcripts'
+    )
+    for i, (transcript_id, cds_list) in enumerate(t):
+        exon_list = transcripts_to_exons[transcript_id]
+        cds_list.sort(key=itemgetter(0), reverse=transcript_id in minus_transcripts)
+        first_cds, last_cds = cds_list[0], cds_list[-1]
+        # assuming that the first and last CDSs are the ORF boundaries -- won't work when dealing with multiple ORFs
+        orf_start = first_cds[0]
+        orf_stop = last_cds[1]
+        if transcript_id in minus_transcripts:
+            orf_start, orf_stop = orf_stop, orf_start
+        first_exon = next((exon for exon in exon_list if exon['start'] <= first_cds[0] and first_cds[1] <= exon['stop']), None)
+        last_exon = next((exon for exon in reversed(exon_list) if exon['start'] <= last_cds[0] and last_cds[1] <= exon['stop']), None)
+        # find ORF start/end relative to exons
+        if transcript_id not in minus_transcripts:
+            first_offset = first_cds[0] - first_exon['start']
+            last_offset = last_exon['stop'] - last_cds[1]
+        else:
+            first_offset = first_exon['stop'] - first_cds[1]
+            last_offset = last_cds[0] - last_exon['start']
+        # convert to transcript-relative coords
+        orf_tx_start = first_exon['transcript_start'] + first_offset
+        orf_tx_stop = last_exon['transcript_stop'] - last_offset
+        orf_tx_stop += 3  # account for stop codon
+        orf = {
+            'transcript_id': transcript_id,
+            'transcript_start': orf_tx_start,
+            'transcript_stop': orf_tx_stop,
+            'start': orf_start,
+            'stop': orf_stop
+        }
+        if (transcript_id, orf_tx_start, orf_tx_stop) in existing_orfs:
+            orfs_to_update.append(orf)
+        else:
+            orfs_to_insert.append(orf)
+
+        if i % CHUNK_SIZE == 0:
+            bulk_update_and_insert(session, ORF, orfs_to_update, orfs_to_insert)
+    bulk_update_and_insert(session, ORF, orfs_to_update, orfs_to_insert)
