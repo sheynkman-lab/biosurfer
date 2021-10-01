@@ -1,8 +1,9 @@
 from itertools import chain, product
 
 from Bio.Seq import Seq
+from hypothesis.control import assume
 from sqlalchemy.sql.expression import select
-from biosurfer.core.constants import Strand, AminoAcid
+from biosurfer.core.constants import Strand, AminoAcid, START_CODON, STOP_CODONS
 from biosurfer.core.models import (ORF, Exon, Gene, Protein, ProteinFeature,
                                    Transcript)
 
@@ -13,9 +14,8 @@ from hypothesis import given, note
 NT_ALPHABET = 'ACGT'
 
 codons = (''.join(triplet) for triplet in product(NT_ALPHABET, repeat=3))
-start_codon = 'ATG'
-stop_codons = ('TGA', 'TAA', 'TAG')
-non_stop_codons = tuple(codon for codon in codons if codon not in stop_codons)
+STOP_CODONS = tuple(STOP_CODONS)
+non_stop_codons = tuple(codon for codon in codons if codon not in STOP_CODONS)
 
 def nt_seqs(min_size=0, max_size=None):
     return st.text(alphabet=NT_ALPHABET, min_size=min_size, max_size=max_size)
@@ -28,12 +28,12 @@ def orf_seqs_missing_stop(draw, min_aa_length=1):
             min_size = min_aa_length-1,
         )
     )
-    seq = start_codon + ''.join(codon_iter)
+    seq = START_CODON + ''.join(codon_iter)
     return seq
 
 @st.composite
 def orf_seqs(draw, min_aa_length=1):
-    return draw(orf_seqs_missing_stop(min_aa_length)) + draw(st.sampled_from(stop_codons))
+    return draw(orf_seqs_missing_stop(min_aa_length)) + draw(st.sampled_from(STOP_CODONS))
 
 @st.composite
 def transcript(draw, coding=False, min_size=1):
@@ -200,10 +200,10 @@ def test_nucleotide_has_residue(data, coding_transcript_getter):
 @given(data=st.data())
 def test_noncoding_nucleotide_has_no_residue(data, transcript_getter):
     transcript = transcript_getter(data)
+    assume(len(transcript.orfs) == 0)
     note(f'tx seq: {transcript.sequence}')
-    if len(transcript.orfs) == 0:
-        for nt in transcript.nucleotides:
-            assert nt.residue is None
+    for nt in transcript.nucleotides:
+        assert nt.residue is None
 
 @given(data=st.data())
 def test_residue_has_nucleotide(data, coding_transcript_getter):

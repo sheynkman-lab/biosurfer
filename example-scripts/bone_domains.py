@@ -155,23 +155,20 @@ gene_list = (
 )
 
 # %%
-genes = Gene.from_names(gene_list)
-# transcripts = set(session.execute(
-#     select(Transcript).
-#     select_from(ProteinFeature).
-#     join(ProteinFeature.protein).
-#     join(Protein.orf).
-#     join(ORF.transcript).
-#     join(Transcript.gene).
-#     where(Gene.name.in_(gene_list))
-# ).scalars())
+genes = set(session.execute(
+    select(Gene).
+    select_from(ProteinFeature).
+    join(ProteinFeature.protein).
+    join(Protein.orf).
+    join(ORF.transcript).
+    join(Transcript.gene).
+    where(Gene.name.in_(gene_list))
+).scalars())
 
 # %%
-for gene in genes.values():
-    gc_transcripts = [tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript) if tx.orfs and tx.protein]
-    pb_transcripts = [tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript) if tx.orfs and tx.protein]
-    if not any(tx.protein.features for tx in gc_transcripts):
-        continue
+for gene in genes:
+    gc_transcripts = [tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript) if tx.protein]
+    pb_transcripts = [tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript) if tx.protein]
     isoplot = IsoformPlot(gc_transcripts + pb_transcripts, track_spacing=1.0)
     with ExceptionLogger(f'{gene.name}'):
         isoplot.draw_all_isoforms()

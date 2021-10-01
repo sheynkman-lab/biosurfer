@@ -16,7 +16,7 @@ from biosurfer.analysis.sqtl import (get_event_counts,
 from biosurfer.core.alignments import (TranscriptBasedAlignment,
                                        export_annotated_pblocks_to_tsv)
 from biosurfer.core.constants import APPRIS, SQANTI, Strand
-from biosurfer.core.database import db_session
+from biosurfer.core.database import Database, DB_BONE
 from biosurfer.core.helpers import ExceptionLogger
 from biosurfer.core.models import (Chromosome, GencodeTranscript, Gene,
                                    Junction, PacBioTranscript, Transcript)
@@ -29,6 +29,10 @@ from tqdm import tqdm
 
 data_dir = '../data/bone'
 output_dir = '../output/bone'
+
+db = Database(DB_BONE)
+db_session = db.get_session()
+Gene.session = db_session
 
 # %%
 print('Loading isoform expression table...')
@@ -152,15 +156,15 @@ def get_augmented_sqtl_record(row):
         os.mkdir(f'{output_dir}/{gene.name}')
     export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
-    should_plot = (
-        junc_info['knockdown_frequency'] > 0.9 or
-        junc_info['MXIC'] >= 0.5 or
-        junc_info['SIF'] >= 0.5 or
-        junc_info['IR'] > 0 or
-        junc_info['IX'] > 0
-    )
+    # should_plot = (
+    #     junc_info['knockdown_frequency'] > 0.9 or
+    #     junc_info['MXIC'] >= 0.5 or
+    #     junc_info['SIF'] >= 0.5 or
+    #     junc_info['IR'] > 0 or
+    #     junc_info['IX'] > 0
+    # )
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
-    # if should_plot and not os.path.isfile(fig_path):
+    # if not os.path.isfile(fig_path):
     if True:
         isoplot = IsoformPlot(
             using + not_using,
