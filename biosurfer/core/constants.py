@@ -160,3 +160,7 @@ class SQANTI(OrderedEnum):
 
     def __str__(self):
         return self.name
+
+
+START_CODON = 'ATG'
+STOP_CODONS = {'TGA', 'TAA', 'TAG'}

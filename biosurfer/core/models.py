@@ -295,7 +295,7 @@ class PacBioTranscript(Transcript):
 
 
 class Exon(Base, AccessionMixin):
-    type = Column(String)
+    # type = Column(String)
     position = Column(Integer)  # exon ordinal within parent transcript
     # genomic coordinates
     start = Column(Integer)
@@ -310,10 +310,10 @@ class Exon(Base, AccessionMixin):
         back_populates='exons'
     )
     
-    __mapper_args__ = {
-        'polymorphic_on': type,
-        'polymorphic_identity': 'exon'
-    }
+    # __mapper_args__ = {
+    #     'polymorphic_on': type,
+    #     'polymorphic_identity': 'exon'
+    # }
 
     def __repr__(self) -> str:
         return f'{self.transcript}:exon{self.position}'
@@ -347,16 +347,16 @@ class Exon(Base, AccessionMixin):
         return [nt for nt in self.nucleotides if nt.residue]
 
 
-class GencodeExon(Exon):
-    __mapper_args__ = {
-        'polymorphic_identity': 'gencodeexon'
-    }
+# class GencodeExon(Exon):
+#     __mapper_args__ = {
+#         'polymorphic_identity': 'gencodeexon'
+#     }
 
 
-class PacBioExon(Exon):
-    __mapper_args__ = {
-        'polymorphic_identity': 'pacbioexon'
-    }
+# class PacBioExon(Exon):
+#     __mapper_args__ = {
+#         'polymorphic_identity': 'pacbioexon'
+#     }
 
 
 # TODO: save memory usage with __slots__?
@@ -421,8 +421,10 @@ class ORF(Base):
     # start = Column(Integer)  
     # stop = Column(Integer)  
     # transcript coordinates
-    transcript_start = Column(Integer, primary_key=True)
-    transcript_stop = Column(Integer, primary_key=True)
+    transcript_start = Column(Integer)
+    transcript_stop = Column(Integer)
+    has_stop_codon = Column(Boolean)
+    position = Column(Integer, primary_key=True)
     transcript_id = Column(String, ForeignKey('transcript.accession'), primary_key=True)
     transcript = relationship(
         'Transcript', 
@@ -483,22 +485,16 @@ class ORF(Base):
     @property
     def start(self):
         if self.transcript.strand is Strand.PLUS:
-            transcript_coord = self.transcript_start
+            return self.nucleotides[0].coordinate
         elif self.transcript.strand is Strand.MINUS:
-            transcript_coord = self.transcript_stop
-        else:
-            return None
-        return self.transcript.nucleotides[transcript_coord - 1].coordinate
+            return self.nucleotides[-1].coordinate
 
     @property
     def stop(self):
         if self.transcript.strand is Strand.PLUS:
-            transcript_coord = self.transcript_stop
+            return self.nucleotides[-1].coordinate
         elif self.transcript.strand is Strand.MINUS:
-            transcript_coord = self.transcript_start
-        else:
-            return None
-        return self.transcript.nucleotides[transcript_coord - 1].coordinate
+            return self.nucleotides[0].coordinate
     
     @hybrid_property
     def length(self) -> int:
@@ -634,8 +630,8 @@ class Protein(Base, AccessionMixin):
     
     @cached_property
     def residues(self):
-        if not self.sequence.endswith('*'):
-            self.sequence += '*'
+        # if not self.sequence.endswith('*'):
+        #     self.sequence += '*'
         _residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence, start=1)]
         if self.orf:
             self.orf._link_aa_to_nt(_residues)

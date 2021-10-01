@@ -4,7 +4,7 @@ from operator import itemgetter
 from typing import Callable
 
 from Bio import SeqIO
-from biosurfer.core.constants import APPRIS, SQANTI, Strand
+from biosurfer.core.constants import APPRIS, SQANTI, STOP_CODONS, AminoAcid, Strand
 from biosurfer.core.helpers import (FastaHeaderFields, bulk_update_and_insert,
                                     read_gtf_line)
 from biosurfer.core.models import (ORF, Base, Chromosome, Exon,
@@ -68,7 +68,7 @@ class Database:
                 existing_genes = {row.accession for row in session.query(Gene.accession).all()}
                 existing_transcripts = {row.accession for row in session.query(Transcript.accession).all()}
                 existing_exons = {(row.transcript_id, row.position) for row in session.query(Exon.transcript_id, Exon.position).all()}
-                existing_orfs = {(row.transcript_id, row.transcript_start, row.transcript_stop) for row in session.query(ORF.transcript_id, ORF.transcript_start, ORF.transcript_stop).all()}
+                existing_orfs = {(row.transcript_id, row.position) for row in session.query(ORF.transcript_id, ORF.position).all()}
 
             chromosomes = {}
             genes_to_update, genes_to_insert = [], []
@@ -86,6 +86,8 @@ class Database:
                     if line.startswith("#"): 
                         continue
                     chr, source, feature, start, stop, score, strand, phase, attributes, tags = read_gtf_line(line)
+                    if any('_NF' in tag for tag in tags):  # biosurfer does not handle start_NF and end_NF transcripts very well
+                        continue
                     gene_id = attributes['gene_id']
                     gene_name = attributes['gene_name']
                     if attributes['gene_type'] != 'protein_coding':
@@ -120,8 +122,9 @@ class Database:
                                 appris = APPRIS.PRINCIPAL
                             if 'appris_alternative' in tag:
                                 appris = APPRIS.ALTERNATIVE
-                            start_nf = start_nf or 'start_NF' in tag
-                            end_nf = end_nf or 'end_NF' in tag
+                            start_nf, end_nf = False, False
+                            # start_nf = start_nf or 'start_NF' in tag
+                            # end_nf = end_nf or 'end_NF' in tag
                         transcript = {
                             'accession': transcript_id,
                             'name': transcript_name,
@@ -186,7 +189,7 @@ class Database:
                 existing_genes = {row.name: row.accession for row in session.query(Gene.name, Gene.accession).all()}
                 existing_transcripts = {row.accession for row in session.query(Transcript.accession).all()}
                 existing_exons = {(row.transcript_id, row.position) for row in session.query(Exon.transcript_id, Exon.position).all()}
-                existing_orfs = {(row.transcript_id, row.transcript_start, row.transcript_stop) for row in session.query(ORF.transcript_id, ORF.transcript_start, ORF.transcript_stop).all()}
+                existing_orfs = {(row.transcript_id, row.position) for row in session.query(ORF.transcript_id, ORF.position).all()}
 
             chromosomes = {}
             genes_to_update, genes_to_insert = [], []
@@ -274,7 +277,12 @@ class Database:
         with self.get_session() as session:
             with session.begin():
                 existing_transcripts = {row.accession for row in session.query(Transcript.accession)}
+                existing_orfs = {
+                    row.transcript_id: (row.position, row.transcript_start, row.transcript_stop)
+                    for row in session.execute(select(ORF.position, ORF.transcript_id, ORF.transcript_start, ORF.transcript_stop))
+                }
             transcripts_to_update = []
+            orfs_to_update = []
             t = tqdm(SeqIO.parse(transcript_fasta, 'fasta'), desc='Reading transcripts fasta', unit='seq')
             for record in t:
                 if id_filter(record.id):
@@ -285,20 +293,34 @@ class Database:
                 if transcript_id in existing_transcripts:
                     transcript = {'accession': transcript_id, 'sequence': sequence}
                     transcripts_to_update.append(transcript)
+                if transcript_id in existing_orfs:
+                    position, tx_start, tx_stop = existing_orfs[transcript_id]
+                    # if orf is followed by a stop codon in transcript sequence, modify tx_stop to include the stop codon
+                    if sequence[tx_stop:tx_stop+3] in STOP_CODONS:
+                        orfs_to_update.append({
+                            'transcript_id': transcript_id,
+                            'position': position,
+                            'transcript_start': tx_start,
+                            'transcript_stop': tx_stop + 3,
+                            'has_stop_codon': True
+                        })
+
                 if len(transcripts_to_update) == CHUNK_SIZE:
                     bulk_update_and_insert(session, Transcript, transcripts_to_update, [])
+                    bulk_update_and_insert(session, ORF, orfs_to_update, [])
             bulk_update_and_insert(session, Transcript, transcripts_to_update, [])
+            bulk_update_and_insert(session, ORF, orfs_to_update, [])
 
     def load_translation_fasta(self, translation_fasta: str, id_extractor: Callable[[str], 'FastaHeaderFields'], id_filter: Callable[[str], bool] = lambda x: False):
         with self.get_session() as session:
             with session.begin():
                 existing_proteins = {row.accession for row in session.query(Protein.accession)}
                 existing_orfs = {}
-                for transcript_id, start, stop in session.query(ORF.transcript_id, ORF.transcript_start, ORF.transcript_stop):
+                for transcript_id, position, start, stop, has_stop_codon in session.query(ORF.transcript_id, ORF.position, ORF.transcript_start, ORF.transcript_stop, ORF.has_stop_codon):
                     if transcript_id in existing_orfs:
-                        existing_orfs[transcript_id].append((start, stop))
+                        existing_orfs[transcript_id].append((position, start, stop, has_stop_codon))
                     else:
-                        existing_orfs[transcript_id] = [(start, stop)]
+                        existing_orfs[transcript_id] = [(position, start, stop, has_stop_codon)]
 
             orfs_to_update = []
             proteins_to_update = []
@@ -320,14 +342,17 @@ class Database:
                     proteins_to_insert.append(protein)
                 if transcript_id in existing_orfs:
                     orfs = existing_orfs[transcript_id]
-                    for start, stop in orfs:
-                        if stop - start + 1 == (seq_length + 1)*3:
+                    for position, start, stop, has_stop_codon in orfs:
+                        if stop - start + 1 == (seq_length + int(has_stop_codon))*3:
                             orfs_to_update.append({
                                 'transcript_id': transcript_id,
+                                'position': position,
                                 'transcript_start': start,
                                 'transcript_stop': stop,
                                 'protein_id': protein_id
                             })
+                            if has_stop_codon:
+                                protein['sequence'] = protein['sequence'] + AminoAcid.STOP.value
                             break
                 
                 if i % CHUNK_SIZE == 0:
@@ -461,15 +486,19 @@ def _process_and_upsert_orfs(session, transcripts_to_cdss, transcripts_to_exons,
         # convert to transcript-relative coords
         orf_tx_start = first_exon['transcript_start'] + first_offset
         orf_tx_stop = last_exon['transcript_stop'] - last_offset
-        orf_tx_stop += 3  # account for stop codon
+        orf_length = orf_tx_stop - orf_tx_start + 1
+        if orf_length % 3 != 0:
+            continue  # ORFs with nt lengths indivisible by 3 should not be considered
         orf = {
             'transcript_id': transcript_id,
+            'position': 1,
             'transcript_start': orf_tx_start,
             'transcript_stop': orf_tx_stop,
-            'start': orf_start,
-            'stop': orf_stop
+            'has_stop_codon': False,
+            # 'start': orf_start,
+            # 'stop': orf_stop,
         }
-        if (transcript_id, orf_tx_start, orf_tx_stop) in existing_orfs:
+        if (transcript_id, orf['position']) in existing_orfs:
             orfs_to_update.append(orf)
         else:
             orfs_to_insert.append(orf)
