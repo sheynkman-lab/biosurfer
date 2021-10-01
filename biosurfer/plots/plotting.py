@@ -13,9 +13,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from biosurfer.core.alignments import TranscriptBasedAlignment
-from biosurfer.core.constants import (ProteinLevelAlignmentCategory,
+from biosurfer.core.constants import (AminoAcid, ProteinLevelAlignmentCategory,
                                       TranscriptLevelAlignmentCategory)
-from biosurfer.core.helpers import Interval, IntervalTree
+from biosurfer.core.helpers import ExceptionLogger, Interval, IntervalTree
 from biosurfer.core.models import (ORF, GencodeTranscript, Gene, Junction,
                                    PacBioTranscript, Protein, Strand,
                                    Transcript)
@@ -321,10 +321,14 @@ class IsoformPlot:
             #         self.draw_text(exon.stop, track-0.1, delta_end, va='bottom', ha=align_stop, size='x-small')
         
         for orf in tx.orfs:
-            start_codon = orf.protein.residues[0].codon[0].coordinate
-            stop_codon = orf.protein.residues[-1].codon[2].coordinate
-            self.draw_point(track, start_codon, type='line', color='lime')
-            self.draw_point(track, stop_codon, type='line', color='red')
+            first_res = orf.protein.residues[0]
+            last_res = orf.protein.residues[-1]
+            if first_res.amino_acid is AminoAcid.MET:
+                start_codon = first_res.codon[0].coordinate
+                self.draw_point(track, start_codon, type='line', color='lime')
+            if last_res.amino_acid is AminoAcid.STOP:
+                stop_codon = last_res.codon[2].coordinate
+                self.draw_point(track, stop_codon, type='line', color='red')
 
         if hasattr(tx, 'start_nf') and tx.start_nf:
             self.draw_text(tx.start if self.strand is Strand.PLUS else tx.stop, track, '! ', ha='right', va='center', weight='bold', color='r')
@@ -342,7 +346,8 @@ class IsoformPlot:
         # find_and_set_subtle_splicing_status(self.transcripts, self.opts.subtle_splicing_threshold)
         
         for i, tx in enumerate(self.transcripts):
-            self.draw_isoform(tx, i)
+            with ExceptionLogger(f'Error plotting {tx}'):
+                self.draw_isoform(tx, i)
         
         # plot genomic region label
         gene = self.transcripts[0].gene
@@ -445,7 +450,7 @@ class IsoformPlot:
         cmap = sns.color_palette('Set3', len(domain_names))
         domain_colors = dict(zip(domain_names, cmap))
         for track, tx in enumerate(transcripts):
-            if not (isinstance(tx, GencodeTranscript) and tx.orfs):
+            if not (isinstance(tx, GencodeTranscript) and tx.orfs and any(orf.protein.features for orf in tx.orfs)):
                 continue
             subtracks, n_subtracks = generate_subtracks(
                 ((domain.protein_start, domain.protein_stop) for domain in tx.protein.features),
