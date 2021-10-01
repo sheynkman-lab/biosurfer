@@ -474,7 +474,8 @@ class TranscriptBasedAlignment(ResidueAlignmentSequence):
                         tblock.flags |= AnnotationFlag.DTC
                     cterminal_pblock.event = 'DTC-splice'
             elif upstream_cterm_res_aln.category is TranscriptAlignCat.INSERTION:
-                exon_extension_introduces_stop = upstream_cterm_tblock._prev_match_or_frame_tblock[-1].other.codon[0].exon is upstream_cterm_res_aln.other.codon[2].exon
+                exon_extension_introduces_stop = (upstream_cterm_tblock._prev_match_or_frame_tblock and 
+                    upstream_cterm_tblock._prev_match_or_frame_tblock[-1].other.codon[0].exon is upstream_cterm_res_aln.other.codon[2].exon)
                 if strand is Strand.PLUS:
                     alt_cterm_exons = upstream_cterm_res_aln.other.exons[-1].stop < self.anchor.orf.exons[-1].start
                 elif strand is Strand.MINUS:
