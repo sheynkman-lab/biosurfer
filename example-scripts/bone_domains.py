@@ -174,7 +174,8 @@ for gene in genes:
         isoplot.draw_all_isoforms()
         isoplot.draw_frameshifts()
         isoplot.draw_domains()
+        isoplot.draw_legend()
         isoplot.fig.set_size_inches(10, 0.75*len(isoplot.transcripts))
-        plt.savefig(f'../output/domains/{gene.name}_domains.png', facecolor='w', transparent=False, dpi=200, bbox_inches='tight')
+        plt.savefig(f'../output/domains/{gene.name}_domains.svg', facecolor='w', transparent=False, dpi=200, bbox_inches='tight')
     plt.close(isoplot.fig)
 # %%

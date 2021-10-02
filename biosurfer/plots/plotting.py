@@ -89,10 +89,10 @@ class IsoformPlot:
         self._columns: Dict[str, TableColumn] = columns if columns else {'': lambda x: ''}
         self.opts = IsoformPlotOptions(**kwargs)
         self.reset_xlims()
-    
-    # @property
-    # def fig(self) -> Optional['Figure']:
-    #     return self._bax.fig if self._bax else None
+
+        # keep track of artists for legend
+        self._handles = dict()
+
 
     # Internally, IsoformPlot stores _subaxes, which maps each genomic region to the subaxes that plots the region's features.
     # The xlims property provides a simple interface to allow users to control which genomic regions are plotted.
@@ -166,6 +166,7 @@ class IsoformPlot:
             warn(str(e))
         else:
             subaxes.add_artist(artist)
+        return artist
 
     def draw_region(self, track: int, start: int, stop: int,
                     y_offset: Optional[float] = None,
@@ -200,6 +201,7 @@ class IsoformPlot:
         subaxes = self._get_subaxes((start, stop))
         for ax in subaxes:
             ax.add_artist(copy(artist))
+        return artist
     
     def draw_background_rect(self, start: int, stop: int,
                             track_first: int = None, track_last: int = None,
@@ -226,10 +228,7 @@ class IsoformPlot:
         subaxes = self._get_subaxes((start, stop))
         for ax in subaxes:
             ax.add_artist(copy(artist))
-
-    # TODO: implement draw_track_label
-    def draw_track_label(self):
-        pass
+        return artist
 
     def draw_text(self, x: int, y: float, text: str, **kwargs):
         """Draw text at a specific location. x-coordinate is genomic, y-coordinate is w/ respect to tracks (0-indexed).
@@ -244,6 +243,25 @@ class IsoformPlot:
             warn(str(e))
         else:
             big_ax.text(x, y, text, transform=subaxes.transData, **kwargs)
+
+    def draw_legend(self, only_labels: Optional[Iterable[str]] = None, except_labels: Optional[Iterable[str]] = None):
+        if only_labels and except_labels:
+            raise ValueError('Cannot set both "only_labels" and "except_labels"')
+        elif only_labels:
+            labels = [label for label in self._handles if label in only_labels]
+        elif except_labels:
+            labels = [label for label in self._handles if label not in except_labels]
+        else:
+            labels = list(self._handles.keys())
+        handles = [self._handles[label] for label in labels]
+        self._bax.big_ax.legend(
+            handles = handles,
+            labels = labels,
+            ncol = 1,
+            loc = 'center left',
+            # mode = 'expand',
+            bbox_to_anchor = (1.05, 0.5)
+        )
 
     def draw_isoform(self, tx: 'Transcript', track: int):
         """Plot a single isoform in the given track."""
@@ -341,6 +359,11 @@ class IsoformPlot:
         C = len(self._columns)
         self.fig = plt.figure()
         self._bax = BrokenAxes(fig=self.fig, xlims=self.xlims, ylims=((R-0.5, -0.5),), wspace=0, d=0.008, subplot_spec=subplot_spec)
+        self._handles['intron'] = mlines.Line2D([], [], linewidth=1.5, color='gray')
+        self._handles['CDS (GENCODE)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[GencodeTranscript][0], edgecolor='k')
+        self._handles['UTR (GENCODE)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[GencodeTranscript][1], edgecolor='k')
+        self._handles['CDS (PacBio)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[PacBioTranscript][0], edgecolor='k')
+        self._handles['UTR (PacBio)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[PacBioTranscript][1], edgecolor='k')
 
         # process orfs to get ready for plotting
         # find_and_set_subtle_splicing_status(self.transcripts, self.opts.subtle_splicing_threshold)
@@ -382,6 +405,9 @@ class IsoformPlot:
     
     def draw_frameshifts(self, hatch_color = 'white'):
         """Plot relative frameshifts on all isoforms, using the first isoform as the anchor."""
+        self._handles['frame +1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_AHEAD])
+        self._handles['frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_BEHIND])
+        
         FRAMESHIFT = {TranscriptLevelAlignmentCategory.FRAME_AHEAD, TranscriptLevelAlignmentCategory.FRAME_BEHIND}
         anchor_tx = self.transcripts[0]
         anchor = anchor_tx.orfs[0].protein
@@ -409,6 +435,13 @@ class IsoformPlot:
                     )
     
     def draw_protein_block(self, pblock: 'ProteinAlignmentBlock', alpha: float = 0.5):
+        if 'deletion' not in self._handles:
+            self._handles['deletion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.DELETION])
+        if 'insertion' not in self._handles:
+            self._handles['insertion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.INSERTION])
+        if 'substitution' not in self._handles:
+            self._handles['substitution'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.SUBSTITUTION])
+
         if pblock.category is ProteinLevelAlignmentCategory.DELETION:
             other_start = pblock.anchor_residues[0].codon[1].coordinate
             other_stop = pblock.anchor_residues[-1].codon[1].coordinate
@@ -449,6 +482,7 @@ class IsoformPlot:
         domain_names = sorted({domain.name for tx in transcripts for domain in tx.protein.features})
         cmap = sns.color_palette('Set3', len(domain_names))
         domain_colors = dict(zip(domain_names, cmap))
+        self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in domain_colors.items()})
         for track, tx in enumerate(transcripts):
             if not (isinstance(tx, GencodeTranscript) and tx.orfs and any(orf.protein.features for orf in tx.orfs)):
                 continue
@@ -458,7 +492,7 @@ class IsoformPlot:
             )
             for domain in tx.protein.features:
                 subtrack = subtracks[domain.name]
-                for i, (_, domain_exon) in enumerate(groupby(domain.residues, key=attrgetter('primary_exon'))):
+                for _, domain_exon in groupby(domain.residues, key=attrgetter('primary_exon')):
                     domain_exon = list(domain_exon)
                     start = domain_exon[0].codon[1].coordinate
                     stop = domain_exon[-1].codon[1].coordinate
@@ -473,14 +507,6 @@ class IsoformPlot:
                         zorder = 1.8,
                         label = domain.name
                     )
-                    # self.draw_text((start+stop)//2, track, text=domain.name, color='w', ha='center', size='xx-small')
-        self._bax.big_ax.legend(
-            handles = [mpatches.Patch(color=color, label=name) for name, color in domain_colors.items()],
-            ncol = 1,
-            loc = 'center left',
-            # mode = 'expand',
-            bbox_to_anchor = (1.05, 0.5)
-        )
 
 
 def generate_subtracks(intervals: Iterable[Tuple[int, int]], labels: Iterable):
