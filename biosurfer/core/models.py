@@ -638,7 +638,10 @@ class Protein(Base, AccessionMixin):
         return _residues
 
     def __repr__(self):
-        return f'{self.orf.transcript}:protein'
+        if self.orf:
+            return f'{self.orf.transcript}:protein'
+        else:
+            return self.accession
     
     @property
     def gene(self):
@@ -653,6 +656,7 @@ class Protein(Base, AccessionMixin):
         return len(self.sequence)
 
 
+# TODO: have separate table for domain/feature families? (as opposed to individual mappings)
 class ProteinFeature(Base):
     type = Column(String)
     name = Column(String)

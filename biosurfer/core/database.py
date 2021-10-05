@@ -1,6 +1,6 @@
 import csv
-import os
 from operator import itemgetter
+from pathlib import Path
 from typing import Callable
 
 from Bio import SeqIO
@@ -10,15 +10,11 @@ from biosurfer.core.helpers import (FastaHeaderFields, bulk_update_and_insert,
 from biosurfer.core.models import (ORF, Base, Chromosome, Exon,
                                    GencodeTranscript, Gene, PacBioTranscript,
                                    Protein, ProteinFeature, Transcript)
-from more_itertools import chunked
+from more_itertools import chunked, partition
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import scoped_session, sessionmaker
 from tqdm import tqdm
 
-pkg_dir = os.path.dirname(os.path.abspath(__file__))
-DB_GENCODE = 'sqlite:///' + os.path.join(pkg_dir, 'gencode.sqlite3')
-DB_BONE = 'sqlite:///' + os.path.join(pkg_dir, 'bone.sqlite3')
-DB_MEMORY = 'sqlite://'
 
 CHUNK_SIZE = 5000
 SQANTI_DICT = {
@@ -30,28 +26,44 @@ SQANTI_DICT = {
 
 
 class Database:
+    _databases_dir = Path(__file__).parent.parent.parent/'databases'
     registry = {}
 
-    def __new__(cls, path):
-        if path in Database.registry:
-            return Database.registry[path]
+    @staticmethod
+    def _get_db_url_from_name(name):
+        if name:
+            db_file = f'{name}.sqlite3'
+            return f'sqlite:///{Database._databases_dir/db_file}'
+        else:
+            return 'sqlite://'
+
+    def __new__(cls, name=None, *, url=None):
+        if url is None:
+            url = Database._get_db_url_from_name(name)
+        if url in Database.registry:
+            return Database.registry[url]
         else:
             obj = super().__new__(cls)
-            Database.registry[path] = obj
+            Database.registry[url] = obj
             return obj
 
-    def __init__(self, path, sessionfactory=None):
-        self.path = path
+    def __init__(self, name=None, *, url=None, sessionfactory=None):
+        if url is None:
+            url = Database._get_db_url_from_name(name)
+        self.url = url
         self._engine = None
         if sessionfactory is None:
             self._sessionmaker = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=self.engine))
         else:
             self._sessionmaker = sessionfactory
     
+    def __repr__(self):
+        return f'Database(url=\'{self.url}\')'
+
     @property
     def engine(self):
         if self._engine is None:
-            self._engine = create_engine(self.path)
+            self._engine = create_engine(self.url)
         return self._engine
 
     def get_session(self, **kwargs):
@@ -391,29 +403,35 @@ class Database:
             domain_accession_to_name = {row['acc']: row['name'] for row in t}
         with self.get_session() as session:
             with session.begin():
-                transcript_name_to_protein_acc = {
-                    name: accession
-                    for name, accession in session.execute(
-                        select(Transcript.name, Protein.accession).
-                        join(Protein.orf).
-                        join(ORF.transcript)
+                existing_proteins = set(session.execute(select(Protein.accession)).scalars())
+                existing_protein_domains = set(
+                    tuple(row) for row in session.execute(
+                        select(
+                            ProteinFeature.protein_id,
+                            ProteinFeature.accession,
+                            ProteinFeature.protein_start,
+                            ProteinFeature.protein_stop
+                        )
                     )
-                }
+                )
             with open(domain_mapping_file) as f:
                 reader = csv.DictReader(f, delimiter='\t')
                 t = tqdm(reader, desc='Reading domain mappings', unit='mappings')
-                domains_to_insert = [
-                    {
-                        'type': 'feature',
-                        'accession': row['Pfam_acc'],
-                        'name': domain_accession_to_name.get(row['Pfam_acc'], None),
-                        'protein_id': transcript_name_to_protein_acc[row['transcript_name(iso_acc)']],
-                        'protein_start': row['start'],
-                        'protein_stop': row['end']
-                    }
-                    for row in t if row['transcript_name(iso_acc)'] in transcript_name_to_protein_acc
-                ]
-            bulk_update_and_insert(session, ProteinFeature, [], domains_to_insert)        
+                domains_to_insert, domains_to_update = partition(
+                    lambda dom: (dom['protein_id'], dom['accession'], dom['protein_start'], dom['protein_stop']) in existing_protein_domains,
+                    (
+                        {
+                            'type': 'feature',
+                            'accession': row['Pfam ID'],
+                            'name': domain_accession_to_name.get(row['Pfam ID'], None),
+                            'protein_id': row['Protein stable ID version'],
+                            'protein_start': row['Pfam start'],
+                            'protein_stop': row['Pfam end']
+                        }
+                        for row in t if row['Protein stable ID version'] in existing_proteins
+                    )
+                )
+                bulk_update_and_insert(session, ProteinFeature, list(domains_to_update), list(domains_to_insert))        
 
 
 def _process_and_upsert_exons(session, transcripts_to_exons, minus_transcripts, existing_exons, exons_to_update, exons_to_insert):
@@ -506,3 +524,7 @@ def _process_and_upsert_orfs(session, transcripts_to_cdss, transcripts_to_exons,
         if i % CHUNK_SIZE == 0:
             bulk_update_and_insert(session, ORF, orfs_to_update, orfs_to_insert)
     bulk_update_and_insert(session, ORF, orfs_to_update, orfs_to_insert)
+
+
+DB_MEMORY = Database(url='sqlite://')
+DB_GENCODE = Database('gencode')
