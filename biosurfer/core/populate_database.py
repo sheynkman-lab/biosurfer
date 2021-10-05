@@ -11,7 +11,7 @@ from biosurfer.core.constants import APPRIS, SQANTI, Strand
 from biosurfer.core.database import Base, db_session, engine
 from biosurfer.core.models import (ORF, Chromosome, Exon, GencodeExon,
                                    GencodeTranscript, Gene, PacBioExon, PacBioTranscript, Protein,
-                                   Transcript)
+                                   Transcript, Variant)
 from tqdm import tqdm
 
 

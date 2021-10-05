@@ -174,7 +174,7 @@ class VariantBuilder:
                 nucleotide_sequence = self.variant_transcript['sequence'][transcript_start-1:]
                 nucleotide_sequence = Seq(nucleotide_sequence)
                 protein_sequence = nucleotide_sequence.translate(to_stop=True)
-                transcript_stop = len(protein_sequence) + transcript_start
+                transcript_stop = len(protein_sequence)*3 + transcript_start + 2
             
             # currently appears we do not need to do reverse complement of transcript sequence
             # elif self.reference_transcript.strand is Strand.MINUS:
