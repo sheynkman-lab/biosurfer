@@ -7,7 +7,7 @@ path = '../data/'
 gencode_gtf = 'gencode/gencode.v38.annotation.gtf'
 gencode_tx = 'gencode/gencode.v38.transcripts.fa'
 gencode_tl = 'gencode/gencode.v38.pc_translations.fa'
-gencode_doms = 'gencode/2019-07-04_HMMER_domain_mappings_to_GS_fasta_file.txt'
+gencode_doms = 'gencode/grch38-pfam-mappings.tsv'
 pfam_dom_names = 'gencode/pfam_a_names.tsv'
 
 #%%

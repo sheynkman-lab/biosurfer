@@ -1,18 +1,13 @@
 # %%
-from itertools import groupby
-from operator import attrgetter
-
 import matplotlib.pyplot as plt
-import seaborn as sns
-from biosurfer.core.database import Database, DB_BONE
+from biosurfer.core.database import Database
 from biosurfer.core.helpers import ExceptionLogger
 from biosurfer.core.models import (ORF, GencodeTranscript, Gene, PacBioTranscript, Protein, ProteinFeature,
                                    Transcript)
 from biosurfer.plots.plotting import IsoformPlot
-from matplotlib.patches import Patch
 from sqlalchemy import select
 
-db = Database(DB_BONE)
+db = Database('bone')
 session = db.get_session()
 Gene.session = session
 
@@ -170,12 +165,14 @@ for gene in genes:
     gc_transcripts = [tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript) if tx.protein]
     pb_transcripts = [tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript) if tx.protein]
     isoplot = IsoformPlot(gc_transcripts + pb_transcripts, track_spacing=1.0)
+    fig_path = f'../output/domains/{gene.name}_domains.svg'
     with ExceptionLogger(f'{gene.name}'):
         isoplot.draw_all_isoforms()
         isoplot.draw_frameshifts()
         isoplot.draw_domains()
         isoplot.draw_legend()
         isoplot.fig.set_size_inches(10, 0.75*len(isoplot.transcripts))
-        plt.savefig(f'../output/domains/{gene.name}_domains.svg', facecolor='w', transparent=False, dpi=200, bbox_inches='tight')
+        print(f'Saving {fig_path}...')
+        plt.savefig(fig_path, facecolor='w', transparent=False, dpi=200, bbox_inches='tight')
     plt.close(isoplot.fig)
 # %%
