@@ -11,12 +11,12 @@ def test_alignment_full(session, alignment_case):
     aln = Alignment(txs[anchor].protein, txs[other].protein)
     assert aln.full == expected
 
-def test_feature_projection(session, feature_case):
+def test_feature_alignment(session, feature_case):
     Transcript.session = session
     print(session.get_bind())
     anchor = feature_case['anchor']
     other = feature_case['other']
     txs = Transcript.from_names((anchor, other))
     aln = Alignment(txs[anchor].protein, txs[other].protein)
-    for pf, expected in zip(aln.projected_features, feature_case['expected']):
-        assert pf.full == expected
+    for feat_aln, expected in zip(aln.feature_alignments, feature_case['expected']):
+        assert feat_aln.full == expected

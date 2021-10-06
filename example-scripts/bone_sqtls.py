@@ -2,7 +2,7 @@
 import multiprocessing as mp
 import os
 import sys
-from itertools import groupby, product
+from itertools import groupby, product, islice
 from operator import attrgetter
 from statistics import median
 
@@ -16,7 +16,7 @@ from biosurfer.analysis.sqtl import (get_event_counts,
 from biosurfer.core.alignments import (TranscriptBasedAlignment,
                                        export_annotated_pblocks_to_tsv)
 from biosurfer.core.constants import APPRIS, SQANTI, Strand
-from biosurfer.core.database import Database, DB_BONE
+from biosurfer.core.database import Database
 from biosurfer.core.helpers import ExceptionLogger
 from biosurfer.core.models import (Chromosome, GencodeTranscript, Gene,
                                    Junction, PacBioTranscript, Transcript)
@@ -27,10 +27,12 @@ from sqlalchemy.sql.expression import and_, or_
 import seaborn as sns
 from tqdm import tqdm
 
+plt.switch_backend('agg')
+
 data_dir = '../data/bone'
 output_dir = '../output/bone'
 
-db = Database(DB_BONE)
+db = Database('bone')
 db_session = db.get_session()
 Gene.session = db_session
 
@@ -88,7 +90,7 @@ def abundant_and_coding(transcript: 'Transcript'):
     return transcript.accession in over3counts and len(transcript.orfs) > 0
 
 def sortkey(transcript: 'Transcript'):
-    return expression.total[transcript.accession], getattr(transcript, 'sqanti', SQANTI.OTHER)
+    return -expression.total[transcript.accession], getattr(transcript, 'sqanti', SQANTI.OTHER)
 
 def abundance_str(transcript: 'Transcript'):
     if transcript.accession in expression.index:
@@ -166,6 +168,7 @@ def get_augmented_sqtl_record(row):
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
     # if not os.path.isfile(fig_path):
     if True:
+        anchor_tx = min((tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript)), key=attrgetter('appris'))
         isoplot = IsoformPlot(
             using + not_using,
             columns = {
@@ -182,6 +185,8 @@ def get_augmented_sqtl_record(row):
             isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#f0f0f0')
             for pblock in pblocks:
                 isoplot.draw_protein_block(pblock, alpha=n_pairs**-0.5)
+            isoplot.draw_domains(anchors=[anchor_tx])
+            isoplot.draw_legend()
             heatmap_ax = isoplot.fig.add_subplot(gs[-1])
             # all_accessions = [tx.accession for tx in isoplot.transcripts]
             pb_accessions = [tx.accession for tx in isoplot.transcripts if isinstance(tx, PacBioTranscript)]

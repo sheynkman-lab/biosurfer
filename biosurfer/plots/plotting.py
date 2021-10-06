@@ -1,7 +1,7 @@
 # functions to create different visualizations of isoforms/clones/domains/muts
 from copy import copy
 from dataclasses import dataclass
-from itertools import chain, groupby
+from itertools import chain, groupby, islice
 from operator import attrgetter, sub
 from typing import (TYPE_CHECKING, Any, Callable, Collection, Dict, Iterable,
                     List, Literal, Optional, Set, Tuple, Union)
@@ -12,7 +12,7 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from biosurfer.core.alignments import TranscriptBasedAlignment
+from biosurfer.core.alignments import ProjectedFeature, TranscriptBasedAlignment
 from biosurfer.core.constants import (AminoAcid, ProteinLevelAlignmentCategory,
                                       TranscriptLevelAlignmentCategory)
 from biosurfer.core.helpers import ExceptionLogger, Interval, IntervalTree
@@ -35,8 +35,8 @@ filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
 # colors for different transcript types
 TRANSCRIPT_COLORS = {
-    GencodeTranscript: ('#505477', '#9698AD'),
-    PacBioTranscript: ('#975D73', '#DBB9C5')
+    GencodeTranscript: ('#343553', '#5D5E7C'),
+    PacBioTranscript: ('#61374D', '#91677D')
 }
 
 # alpha values for different absolute reading frames
@@ -254,13 +254,13 @@ class IsoformPlot:
         else:
             labels = list(self._handles.keys())
         handles = [self._handles[label] for label in labels]
-        self._bax.big_ax.legend(
+        self.fig.legend(
             handles = handles,
             labels = labels,
-            ncol = 1,
-            loc = 'center left',
+            # ncol = 1,
+            # loc = 'center left',
             # mode = 'expand',
-            bbox_to_anchor = (1.05, 0.5)
+            # bbox_to_anchor = (1.05, 0.5)
         )
 
     def draw_isoform(self, tx: 'Transcript', track: int):
@@ -360,10 +360,8 @@ class IsoformPlot:
         self.fig = plt.figure()
         self._bax = BrokenAxes(fig=self.fig, xlims=self.xlims, ylims=((R-0.5, -0.5),), wspace=0, d=0.008, subplot_spec=subplot_spec)
         self._handles['intron'] = mlines.Line2D([], [], linewidth=1.5, color='gray')
-        self._handles['CDS (GENCODE)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[GencodeTranscript][0], edgecolor='k')
-        self._handles['UTR (GENCODE)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[GencodeTranscript][1], edgecolor='k')
-        self._handles['CDS (PacBio)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[PacBioTranscript][0], edgecolor='k')
-        self._handles['UTR (PacBio)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[PacBioTranscript][1], edgecolor='k')
+        self._handles['exon (GENCODE)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[GencodeTranscript][0], edgecolor='k')
+        self._handles['exon (PacBio)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[PacBioTranscript][0], edgecolor='k')
 
         # process orfs to get ready for plotting
         # find_and_set_subtle_splicing_status(self.transcripts, self.opts.subtle_splicing_threshold)
@@ -373,9 +371,9 @@ class IsoformPlot:
                 self.draw_isoform(tx, i)
         
         # plot genomic region label
-        gene = self.transcripts[0].gene
-        start, end = self.xlims[0][0], self.xlims[-1][1]
-        self._bax.set_title(f'{gene.chromosome}({self.strand}):{start}-{end}')
+        # gene = self.transcripts[0].gene
+        # start, end = self.xlims[0][0], self.xlims[-1][1]
+        # self._bax.set_title(f'{gene.chromosome}({self.strand}):{start}-{end}')
         
         # hide y axis spine
         left_subaxes = self._bax.axs[0]
@@ -475,27 +473,44 @@ class IsoformPlot:
             alpha = alpha
         )
     
-    def draw_domains(self, transcripts=None):
-        if transcripts is None:
-            transcripts = self.transcripts
+    def draw_domains(self, anchors=None, project=True):
+        if anchors is None:
+            anchors = list(islice((tx for tx in self.transcripts if tx.protein), 1))
         h = self.opts.max_track_width
-        domain_names = sorted({domain.name for tx in transcripts for domain in tx.protein.features})
-        cmap = sns.color_palette('Set3', len(domain_names))
+        domain_names = sorted({domain.name for tx in anchors for domain in tx.protein.features if tx.protein})
+        cmap = sns.color_palette('pastel', len(domain_names))
         domain_colors = dict(zip(domain_names, cmap))
         self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in domain_colors.items()})
-        for track, tx in enumerate(transcripts):
-            if not (isinstance(tx, GencodeTranscript) and tx.orfs and any(orf.protein.features for orf in tx.orfs)):
+        for track, tx in enumerate(self.transcripts):
+            if not tx.protein:
+                continue
+            if tx in anchors:
+                domains = tx.protein.features
+            elif project:
+                domains = [
+                    projected_domain
+                    for anchor in anchors
+                    for projected_domain in TranscriptBasedAlignment(anchor.protein, tx.protein).projected_features
+                ]
+            else:
                 continue
             subtracks, n_subtracks = generate_subtracks(
-                ((domain.protein_start, domain.protein_stop) for domain in tx.protein.features),
-                (domain.name for domain in tx.protein.features)
+                ((domain.protein_start, domain.protein_stop) for domain in domains),
+                (domain.name for domain in domains)
             )
-            for domain in tx.protein.features:
+            if tx not in anchors:
+                n_subtracks *= 2
+            for domain in domains:
                 subtrack = subtracks[domain.name]
-                for _, domain_exon in groupby(domain.residues, key=attrgetter('primary_exon')):
-                    domain_exon = list(domain_exon)
-                    start = domain_exon[0].codon[1].coordinate
-                    stop = domain_exon[-1].codon[1].coordinate
+                color = domain_colors[domain.name]
+                if isinstance(domain, ProjectedFeature):
+                    subdomains = groupby(domain.residues, key=lambda res: (res in domain.altered_residues, res.primary_exon))
+                else:
+                    subdomains = groupby(domain.residues, key=lambda res: (False, res.primary_exon))
+                for (altered, _), subdomain in subdomains:
+                    subdomain = list(subdomain)
+                    start = subdomain[0].codon[1].coordinate
+                    stop = subdomain[-1].codon[1].coordinate
                     self.draw_region(
                         track,
                         start = start,
@@ -503,7 +518,8 @@ class IsoformPlot:
                         y_offset = (-0.5 + subtrack/n_subtracks)*h,
                         height = h/n_subtracks,
                         edgecolor = 'none',
-                        facecolor = domain_colors[domain.name],
+                        facecolor = color,
+                        alpha = 0.5 if altered else 1.0,
                         zorder = 1.8,
                         label = domain.name
                     )
@@ -527,10 +543,10 @@ def generate_subtracks(intervals: Iterable[Tuple[int, int]], labels: Iterable):
                 g.add_edge(i, j)
             active_labels.add(label)
         else:
-            active_labels.remove(label)
+            active_labels.discard(label)
     # find vertex coloring of graph
     # all labels w/ same color can be put into same subtrack
     coloring = sequential_vertex_coloring(g)
     label_to_subtrack = {index_to_label[i]: coloring[i] for i in range(N)}
-    subtracks = max(label_to_subtrack.values()) + 1
+    subtracks = max(label_to_subtrack.values(), default=0) + 1
     return label_to_subtrack, subtracks
