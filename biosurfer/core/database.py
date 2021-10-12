@@ -398,9 +398,9 @@ class Database:
     
     def load_domain_mappings(self, domain_mapping_file: str, domain_name_file: str):
         with open(domain_name_file) as f:
-            reader = csv.DictReader(f, delimiter='\t')
+            reader = csv.reader(f, delimiter='\t')
             t = tqdm(reader, desc='Reading domain names', unit='accessions')
-            domain_accession_to_name = {row['acc']: row['name'] for row in t}
+            domain_accession_to_name = {acc: name for acc, name, *_ in t}
         with self.get_session() as session:
             with session.begin():
                 existing_proteins = set(session.execute(select(Protein.accession)).scalars())
