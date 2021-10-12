@@ -2,10 +2,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base, declared_attr, has_inherited_table
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
-# db_path = f'sqlite:///{working_dir}/gencode.sqlite3'
+# working_dir = '/home/redox/sheynkman-lab/biosurfer/biosurfer/core'
+working_dir = '/Users/bj8th/Documents/Sheynkman-Lab/GitHub/biosurfer/biosurfer/core'
+db_path = f'sqlite:///{working_dir}/both_isoseq_short.sqlite3'
 # db_path = f'sqlite:///{working_dir}/test.sqlite3'
-db_path = f'sqlite:///{working_dir}/bone.sqlite3'
+# db_path = f'sqlite:///{working_dir}/bone.sqlite3'
 # db_path = f'sqlite:///{working_dir}/wtc11.sqlite3'
 # db_path = 'sqlite://'
 
