@@ -12,7 +12,7 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from biosurfer.core.alignments import ProjectedFeature, TranscriptBasedAlignment
+from biosurfer.core.alignments import ProjectedFeature, TranscriptBasedAlignment, FRAMESHIFT
 from biosurfer.core.constants import (AminoAcid, ProteinLevelAlignmentCategory,
                                       TranscriptLevelAlignmentCategory)
 from biosurfer.core.helpers import ExceptionLogger, Interval, IntervalTree
@@ -401,19 +401,17 @@ class IsoformPlot:
                 label.set_rotation(90)
                 label.set_size(8)
     
-    def draw_frameshifts(self, hatch_color = 'white'):
-        """Plot relative frameshifts on all isoforms, using the first isoform as the anchor."""
+    def draw_frameshifts(self, anchor: Optional['Transcript'] = None, hatch_color='white'):
+        """Plot relative frameshifts on all isoforms. Uses first isoform as the anchor by default."""
         self._handles['frame +1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_AHEAD])
         self._handles['frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_BEHIND])
         
-        FRAMESHIFT = {TranscriptLevelAlignmentCategory.FRAME_AHEAD, TranscriptLevelAlignmentCategory.FRAME_BEHIND}
-        anchor_tx = self.transcripts[0]
-        anchor = anchor_tx.orfs[0].protein
-        for i, other_tx in enumerate(self.transcripts[1:], start=1):
-            if not other_tx.orfs:
+        if anchor is None:
+            anchor = self.transcripts[0]
+        for i, other in enumerate(self.transcripts[1:], start=1):
+            if not other.protein:
                 continue
-            other = other_tx.orfs[0].protein
-            aln = TranscriptBasedAlignment(anchor, other)
+            aln = TranscriptBasedAlignment(anchor.protein, other.protein)
             for (category, exons), block in groupby(aln, key=attrgetter('category', 'other.exons')):
                 if category in FRAMESHIFT:
                     if len(exons) > 1:

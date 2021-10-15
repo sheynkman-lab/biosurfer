@@ -10,7 +10,7 @@ import pandas as pd
 from sqlalchemy.sql.expression import and_, or_
 from biosurfer.analysis.sqtl import (get_event_counts,
                                      get_pblocks_related_to_junction,
-                                     junction_causes_knockdown_in_pair,
+                                     junction_has_drastic_effect_in_pair,
                                      split_transcripts_on_junction_usage)
 from biosurfer.core.alignments import (TranscriptBasedAlignment,
                                        export_annotated_pblocks_to_tsv)
@@ -93,7 +93,7 @@ for chr_number, start, stop, cluster in sqtls_raw:
     # classify knockdown vs. alteration for each pair
     # threshold = -not_using[0].protein.length * 2 // 5
     pair_pblocks = groupby(pblocks, key=attrgetter('anchor', 'other'))
-    knockdown_pair_count = sum(junction_causes_knockdown_in_pair(pblocks=list(pblock_group)) for _, pblock_group in pair_pblocks)
+    knockdown_pair_count = sum(junction_has_drastic_effect_in_pair(pblocks=list(pblock_group)) for _, pblock_group in pair_pblocks)
     junc_info['knockdown_frequency'] = knockdown_pair_count / n_pairs
 
     counts = get_event_counts(pblocks)

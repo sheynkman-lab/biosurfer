@@ -2,17 +2,17 @@
 import multiprocessing as mp
 import os
 import sys
-from itertools import groupby, product, islice
+from itertools import groupby, islice, product
 from operator import attrgetter
 from statistics import median
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from biosurfer.analysis.sqtl import (get_event_counts,
-                                     get_pblocks_related_to_junction,
-                                     junction_causes_knockdown_in_pair,
-                                     split_transcripts_on_junction_usage)
+import seaborn as sns
+from biosurfer.analysis.sqtl import (
+    get_event_counts, get_pblocks_related_to_junction,
+    junction_has_drastic_effect_in_pair, split_transcripts_on_junction_usage)
 from biosurfer.core.alignments import (TranscriptBasedAlignment,
                                        export_annotated_pblocks_to_tsv)
 from biosurfer.core.constants import APPRIS, SQANTI, Strand
@@ -24,7 +24,6 @@ from biosurfer.plots.plotting import IsoformPlot
 from IPython.display import display
 from matplotlib.gridspec import GridSpec
 from sqlalchemy.sql.expression import and_, or_
-import seaborn as sns
 from tqdm import tqdm
 
 plt.switch_backend('agg')
@@ -120,7 +119,7 @@ def get_augmented_sqtl_record(row):
         'pairs': 0
     }
     pb_transcripts = {tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript)}
-    using, not_using = split_transcripts_on_junction_usage(junc, filter(abundant_and_coding, pb_transcripts))
+    using, not_using = split_transcripts_on_junction_usage(junc, filter(attrgetter('orfs'), pb_transcripts))
     using = sorted(using, key=sortkey)
     not_using = sorted(not_using, key=sortkey)
     if not all((using, not_using)):
@@ -144,11 +143,11 @@ def get_augmented_sqtl_record(row):
     # calculate median change in sequence length for junction-related pblocks
     junc_info['median_delta_length'] = median(pblock.delta_length for pblock in pblocks) if pblocks else 0.0
 
-    # classify knockdown vs. alteration for each pair
+    # classify "drastic" vs. "subtle" changes for each pair
     # threshold = -not_using[0].protein.length * 2 // 5
     pair_pblocks = groupby(pblocks, key=attrgetter('anchor', 'other'))
-    knockdown_pair_count = sum(junction_causes_knockdown_in_pair(pblocks=list(pblock_group)) for _, pblock_group in pair_pblocks)
-    junc_info['knockdown_frequency'] = knockdown_pair_count / n_pairs
+    drastic_pair_count = sum(junction_has_drastic_effect_in_pair(pblocks=list(pblock_group)) for _, pblock_group in pair_pblocks)
+    junc_info['drastic_effect_frequency'] = drastic_pair_count / n_pairs
 
     counts = get_event_counts(pblocks)
     freqs = {event.name: count/n_pairs for event, count in counts.items()}
@@ -158,16 +157,9 @@ def get_augmented_sqtl_record(row):
         os.mkdir(f'{output_dir}/{gene.name}')
     export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
-    # should_plot = (
-    #     junc_info['knockdown_frequency'] > 0.9 or
-    #     junc_info['MXIC'] >= 0.5 or
-    #     junc_info['SIF'] >= 0.5 or
-    #     junc_info['IR'] > 0 or
-    #     junc_info['IX'] > 0
-    # )
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
-    # if not os.path.isfile(fig_path):
-    if True:
+    if not os.path.isfile(fig_path):
+    # if True:
         anchor_tx = min((tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript)), key=attrgetter('appris'))
         isoplot = IsoformPlot(
             using + not_using,
@@ -180,7 +172,7 @@ def get_augmented_sqtl_record(row):
         with ExceptionLogger(f'Error plotting {gene.name} {junc}'):
             gs = GridSpec(1, 3)
             isoplot.draw_all_isoforms(subplot_spec=gs[:2])
-            isoplot.draw_frameshifts()
+            isoplot.draw_frameshifts(anchor=anchor_tx)
             isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(using) - 0.5, start=gene.start, stop=gene.stop)
             isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#f0f0f0')
             for pblock in pblocks:
