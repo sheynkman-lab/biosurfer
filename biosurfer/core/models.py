@@ -6,7 +6,9 @@ from typing import Dict, Iterable, List, Optional, Tuple, Type
 from warnings import warn
 
 from Bio.Seq import Seq
-from biosurfer.core.constants import (APPRIS, SQANTI, AminoAcid, Nucleobase,
+from sqlalchemy.sql.expression import join
+from sqlalchemy.sql.schema import Table
+from biosurfer.core.constants import (APPRIS, SQANTI, AminoAcid, Nucleobase, ProteinFeatureType,
                                       Strand)
 from biosurfer.core.helpers import BisectDict, frozendataclass
 from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
@@ -15,7 +17,7 @@ from sqlalchemy.ext.declarative import (DeclarativeMeta, declarative_base,
                                         has_inherited_table)
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
-from sqlalchemy.orm import reconstructor, relationship
+from sqlalchemy.orm import column_property, reconstructor, relationship
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.sql import func, select
 
@@ -656,14 +658,35 @@ class Protein(Base, AccessionMixin):
         return len(self.sequence)
 
 
-# TODO: have separate table for domain/feature families? (as opposed to individual mappings)
+feature_base_table = Table(
+    'proteinfeature', Base.metadata,
+    Column('type', Enum(ProteinFeatureType)),
+    Column('accession', String, primary_key=True, index=True),
+    Column('name', String),
+    Column('description', String)
+)
+
+
+feature_mapping_table = Table(
+    'proteinfeature_mapping', Base.metadata,
+    Column('feature_id', String, ForeignKey('proteinfeature.accession'), primary_key=True),
+    Column('protein_id', String, ForeignKey('protein.accession'), primary_key=True),
+    Column('protein_start', Integer, primary_key=True),
+    Column('protein_stop', Integer, primary_key=True),
+)
+
+
 class ProteinFeature(Base):
-    type = Column(String)
-    name = Column(String)
-    accession = Column(String, primary_key=True)
-    protein_id = Column(String, ForeignKey('protein.accession'), primary_key=True)
-    protein_start = Column(Integer, primary_key=True)
-    protein_stop = Column(Integer, primary_key=True)
+    __table__ = join(feature_base_table, feature_mapping_table)
+
+    type = column_property(feature_base_table.c.type)
+    feature_id = column_property(feature_mapping_table.c.feature_id)
+    name = column_property(feature_base_table.c.name)
+    protein_id = column_property(feature_mapping_table.c.protein_id)
+    protein_start = column_property(feature_mapping_table.c.protein_start)
+    protein_stop = column_property(feature_mapping_table.c.protein_stop)
+    description = column_property(feature_base_table.c.description)
+
     protein = relationship(
         'Protein',
         back_populates = 'features',
@@ -672,7 +695,7 @@ class ProteinFeature(Base):
 
     __mapper_args__ = {
         'polymorphic_on': type,
-        'polymorphic_identity': 'feature'
+        'polymorphic_identity': ProteinFeatureType.NONE
     }
     
     def __repr__(self):
@@ -689,6 +712,12 @@ class ProteinFeature(Base):
     @property
     def residues(self) -> List['Residue']:
         return self.protein.residues[self.protein_start-1:self.protein_stop]
+
+
+class Domain(ProteinFeature):
+    __mapper_args__ = {
+        'polymorphic_identity': ProteinFeatureType.DOMAIN
+    }
 
 
 OptNucleotide = Optional['Nucleotide']

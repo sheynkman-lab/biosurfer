@@ -22,10 +22,8 @@ def database(database_path):
         data_dir/'gencode.v38.toy.translations.fa',
         id_extractor=get_ids_from_gencode_fasta,
     )
-    db.load_domain_mappings(
-        data_dir/'grch38-pfam-mappings.tsv',
-        data_dir/'pfamA.tsv'
-    )
+    db.load_domains(data_dir/'pfamA.tsv')
+    db.load_domain_mappings(data_dir/'grch38-pfam-mappings.tsv')
     yield db
     db.engine.dispose()
 

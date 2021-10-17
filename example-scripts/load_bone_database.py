@@ -8,7 +8,7 @@ gencode_gtf = 'gencode/gencode.v38.annotation.gtf'
 gencode_tx = 'gencode/gencode.v38.transcripts.fa'
 gencode_tl = 'gencode/gencode.v38.pc_translations.fa'
 gencode_doms = 'gencode/grch38-pfam-mappings.tsv'
-pfam_dom_names = 'gencode/pfam_a_names.tsv'
+pfam_dom_info = 'gencode/pfamA.tsv'
 pacbio_gtf = 'bone/bone_with_cds.gtf'
 pacbio_tx = 'bone/filtered_bone_corrected.fasta'
 pacbio_tl = 'bone/bone_orf_refined.fasta'
@@ -27,11 +27,12 @@ def skip_gencode(header: str):
 #%%
 db = Database('bone')
 start = time()
-db.load_gencode_gtf(path + gencode_gtf, overwrite=True)
+db.load_gencode_gtf(path + gencode_gtf, overwrite=False)
 db.load_transcript_fasta(path + gencode_tx, get_ids_from_gencode_fasta, skip_par_y)
 db.load_translation_fasta(path + gencode_tl, get_ids_from_gencode_fasta, skip_par_y)
-db.load_domain_mappings(path + gencode_doms, path + pfam_dom_names)
-db.load_pacbio_gtf(path + pacbio_gtf, overwrite=False)
+db.load_domains(path + pfam_dom_info, overwrite=True)
+db.load_domain_mappings(path + gencode_doms, overwrite=True)
+db.load_pacbio_gtf(path + pacbio_gtf, overwrite=True)
 db.load_transcript_fasta(path + pacbio_tx, get_ids_from_pacbio_fasta)
 db.load_translation_fasta(path + pacbio_tl, get_ids_from_hybrid_fasta, skip_gencode)
 db.load_sqanti_classifications(path + sqanti)

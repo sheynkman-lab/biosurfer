@@ -145,6 +145,13 @@ class ProteinRegion(OrderedEnum):
             return 'Cterm'
 
 
+class ProteinFeatureType(Enum):
+    DOMAIN = auto()
+    PTM = auto()
+    NONE = auto()
+    # TODO: add more types
+
+
 class APPRIS(OrderedEnum):
     PRINCIPAL = 1
     ALTERNATIVE = 2
