@@ -13,7 +13,7 @@ import seaborn as sns
 from biosurfer.analysis.sqtl import (
     get_event_counts, get_pblocks_related_to_junction,
     junction_has_drastic_effect_in_pair, split_transcripts_on_junction_usage)
-from biosurfer.core.alignments import (TranscriptBasedAlignment,
+from biosurfer.core.alignments import (Alignment,
                                        export_annotated_pblocks_to_tsv)
 from biosurfer.core.constants import APPRIS, SQANTI, Strand
 from biosurfer.core.database import Database
@@ -130,7 +130,7 @@ def get_augmented_sqtl_record(row):
     alns = []
     for tx1, tx2 in pairs:
         with ExceptionLogger(f'Error for {tx1.name} and {tx2.name}'):
-            alns.append(TranscriptBasedAlignment(tx1.protein, tx2.protein))
+            alns.append(Alignment(tx1.protein, tx2.protein))
     junc_info['pairs'] = n_pairs
 
     pblocks = get_pblocks_related_to_junction(junc, alns)

@@ -10,7 +10,7 @@ from biosurfer.core.constants import (AnnotationFlag,
 
 if TYPE_CHECKING:
     from biosurfer.core.alignments import (ProteinAlignmentBlock,
-                                           TranscriptBasedAlignment)
+                                           Alignment)
     from biosurfer.core.models import Junction, Protein, Transcript
 
 
@@ -30,7 +30,7 @@ def pairwise_align_on_junction_usage(junction: 'Junction', transcripts: Iterable
     alns = pairwise_align_protein_sets((tx.protein for tx in not_using), (tx.protein for tx in using))
     return alns, using, not_using
 
-def get_pblocks_related_to_junction(junction: 'Junction', alns: Iterable['TranscriptBasedAlignment']):
+def get_pblocks_related_to_junction(junction: 'Junction', alns: Iterable['Alignment']):
     pblocks: List['ProteinAlignmentBlock'] = []
     for aln in alns:
         up_exon, down_exon = aln.other.transcript.get_exons_from_junction(junction)
@@ -62,7 +62,7 @@ def junction_has_drastic_effect_in_pair(
     threshold_delta_length: int = None) -> bool:
 
     if pblocks is None:
-        pblocks = get_pblocks_related_to_junction(junction, [TranscriptBasedAlignment(anchor, other)])
+        pblocks = get_pblocks_related_to_junction(junction, [Alignment(anchor, other)])
     else:
         anchor = pblocks[0].anchor
         other = pblocks[0].other

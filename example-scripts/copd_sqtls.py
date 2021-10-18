@@ -12,7 +12,7 @@ from biosurfer.analysis.sqtl import (get_event_counts,
                                      get_pblocks_related_to_junction,
                                      junction_has_drastic_effect_in_pair,
                                      split_transcripts_on_junction_usage)
-from biosurfer.core.alignments import (TranscriptBasedAlignment,
+from biosurfer.core.alignments import (Alignment,
                                        export_annotated_pblocks_to_tsv)
 from biosurfer.core.constants import Strand
 from biosurfer.core.models import Chromosome, Gene, Junction, Exon, Transcript
@@ -79,7 +79,7 @@ for chr_number, start, stop, cluster in sqtls_raw:
     
     pairs = list(product(not_using, using))
     n_pairs = len(pairs)
-    alns = [TranscriptBasedAlignment(tx1.protein, tx2.protein) for tx1, tx2 in pairs]
+    alns = [Alignment(tx1.protein, tx2.protein) for tx1, tx2 in pairs]
     junc_info['pairs'] = n_pairs
 
     pblocks = get_pblocks_related_to_junction(junc, alns)

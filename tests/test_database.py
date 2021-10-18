@@ -1,6 +1,6 @@
 import pytest
 from biosurfer.core.database import Database
-from biosurfer.core.models import Gene, Transcript
+from biosurfer.core.models.biomolecules import Gene, Transcript
 
 def test_database_registry(database, database_path):
     assert Database(url=f'sqlite:///{database_path}') is database

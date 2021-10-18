@@ -1,15 +1,15 @@
 from itertools import chain, product
 
-from Bio.Seq import Seq
-from hypothesis.control import assume
-from sqlalchemy.sql.expression import select
-from biosurfer.core.constants import Strand, AminoAcid, START_CODON, STOP_CODONS
-from biosurfer.core.models import (ORF, Exon, Gene, Protein, ProteinFeature,
-                                   Transcript)
-
 import hypothesis.strategies as st
 import pytest
+from Bio.Seq import Seq
+from biosurfer.core.constants import (START_CODON, STOP_CODONS, AminoAcid,
+                                      Strand)
+from biosurfer.core.models.biomolecules import ORF, Exon, Protein, Transcript
+from biosurfer.core.models.features import ProteinFeature
 from hypothesis import given, note
+from hypothesis.control import assume
+from sqlalchemy.sql.expression import select
 
 NT_ALPHABET = 'ACGT'
 

@@ -1,24 +1,27 @@
 import csv
 from operator import itemgetter
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict
 from warnings import warn
 
 from Bio import SeqIO
 from biosurfer.core.constants import (APPRIS, SQANTI, STOP_CODONS, AminoAcid,
-                                      ProteinFeatureType, Strand)
+                                      FeatureType, Strand)
 from biosurfer.core.helpers import (FastaHeaderFields, bulk_upsert,
                                     count_lines, read_gtf_line)
-from biosurfer.core.models import (ORF, Base, Chromosome, Exon,
-                                   GencodeTranscript, Gene, PacBioTranscript,
-                                   Protein, Transcript,
-                                   feature_base_table, feature_mapping_table)
+from biosurfer.core.models.base import Base
+from biosurfer.core.models.biomolecules import (ORF, Chromosome, Exon,
+                                                GencodeTranscript, Gene,
+                                                PacBioTranscript, Protein,
+                                                Transcript)
+from biosurfer.core.models.features import (Domain, Feature, ProjectedFeature,
+                                            ProteinFeature)
 from more_itertools import chunked
-from sqlalchemy import create_engine, select, delete
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import scoped_session, sessionmaker
 from tqdm import tqdm
-
 
 CHUNK_SIZE = 10000
 SQANTI_DICT = {
@@ -430,10 +433,10 @@ class Database:
 
     def load_domains(self, domain_file: str, overwrite: bool = False):
         if overwrite:
-            print(f'Clearing domains from table \'{feature_base_table.name}\'...')
+            print(f'Clearing domains from table \'{Feature.__tablename__}\'...')
             with self.get_session() as session:
                 with session.begin():
-                    session.execute(delete(feature_base_table).where(feature_base_table.c['type'] == ProteinFeatureType.DOMAIN))
+                    session.execute(delete(Feature.__table__).where(Feature.type == FeatureType.DOMAIN))
 
         with open(domain_file) as f:
             lines = count_lines(f)
@@ -441,7 +444,7 @@ class Database:
             t = tqdm(reader, desc='Reading domain info', total=lines, unit='domains')
             domains_to_upsert = (
                 {
-                    'type': ProteinFeatureType.DOMAIN,
+                    'type': FeatureType.DOMAIN,
                     'accession': acc,
                     'name': name,
                     'description': desc
@@ -449,14 +452,14 @@ class Database:
             )
             domains_to_upsert = list(domains_to_upsert)
         with self.get_session() as session:
-            bulk_upsert(session, feature_base_table, domains_to_upsert)
+            bulk_upsert(session, Domain.__table__, domains_to_upsert)
 
     def load_domain_mappings(self, domain_mapping_file: str, overwrite: bool = False):
         with self.get_session() as session:
             with session.begin():
                 if overwrite:
-                    print(f'Clearing table \'{feature_mapping_table.name}\'...')
-                    session.execute(delete(feature_mapping_table))
+                    print(f'Clearing table \'{ProteinFeature.__tablename__}\'...')
+                    session.execute(delete(ProteinFeature.__table__))
                     # domain_mappings = (
                     #     select(feature_mapping_table).
                     #     join(feature_base_table, feature_mapping_table.c.feature_id == feature_base_table.c.accession).
@@ -475,13 +478,14 @@ class Database:
                         'feature_id': row['Pfam ID'],
                         'protein_id': row['Protein stable ID version'],
                         'protein_start': row['Pfam start'],
-                        'protein_stop': row['Pfam end']
+                        'protein_stop': row['Pfam end'],
+                        'reference': True
                     }
                     for row in t if row['Protein stable ID version'] in existing_proteins
                 )
                 domains_to_insert = list(domains_to_insert)
             with session.begin():
-                session.execute(insert(feature_mapping_table).on_conflict_do_nothing(), domains_to_insert) 
+                session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert) 
 
 
 def _process_exons(transcripts_to_exons, minus_transcripts):

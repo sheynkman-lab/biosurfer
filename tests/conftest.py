@@ -1,5 +1,6 @@
 import pytest
 from biosurfer.core.database import Database
+from biosurfer.core.models.base import Base
 from biosurfer.core.helpers import get_ids_from_gencode_fasta
 from pathlib import Path
 
@@ -13,6 +14,8 @@ def database_path(tmp_path_factory):
 def database(database_path):
     db_url = f'sqlite:///{database_path}'
     db = Database(url=db_url)
+    Base.metadata.drop_all(db.engine)
+    Base.metadata.create_all(db.engine)
     db.load_gencode_gtf(data_dir/'gencode.v38.toy.gtf', overwrite=True)
     db.load_transcript_fasta(
         data_dir/'gencode.v38.toy.transcripts.fa',

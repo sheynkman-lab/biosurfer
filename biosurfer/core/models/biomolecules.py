@@ -1,85 +1,17 @@
-from abc import ABC, abstractmethod
-from collections import Counter
 from functools import cached_property
 from operator import attrgetter
 from typing import Dict, Iterable, List, Optional, Tuple, Type
 from warnings import warn
 
 from Bio.Seq import Seq
-from sqlalchemy.sql.expression import join
-from sqlalchemy.sql.schema import Table
-from biosurfer.core.constants import (APPRIS, SQANTI, AminoAcid, Nucleobase, ProteinFeatureType,
-                                      Strand)
-from biosurfer.core.helpers import BisectDict, frozendataclass
-from sqlalchemy import (Boolean, Column, Enum, ForeignKey, Integer, String,
-                        create_engine)
-from sqlalchemy.ext.declarative import (DeclarativeMeta, declarative_base,
-                                        has_inherited_table)
-from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
+from biosurfer.core.constants import APPRIS, SQANTI, Strand
+from biosurfer.core.helpers import BisectDict
+from biosurfer.core.models.base import AccessionMixin, Base, NameMixin
+from biosurfer.core.models.nonpersistent import *
+from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String, func
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
-from sqlalchemy.orm import column_property, reconstructor, relationship
-from sqlalchemy.orm.exc import NoResultFound
-from sqlalchemy.sql import func, select
-
-
-class BaseMeta(DeclarativeMeta):
-    _session = None
-
-    def __init__(cls, classname, bases, dict_, **kwargs):
-        cls.__tablename__ = cls.__name__.lower() if not has_inherited_table(cls) else None
-        DeclarativeMeta.__init__(cls, classname, bases, dict_, **kwargs)
-
-    @property
-    def session(cls):
-        if BaseMeta._session is None:
-            raise AttributeError('Base.session has not been set')
-        return BaseMeta._session
-    
-    @session.setter
-    def session(cls, session):
-        BaseMeta._session = session
-
-
-Base = declarative_base(metaclass=BaseMeta)
-
-
-class NameMixin:
-    name = Column(String, index=True)
-
-    @classmethod
-    def from_name(cls: Type['Base'], name: str, unique: bool = True):
-        statement = select(cls).where(cls.name == name)
-        result = cls.session.execute(statement).scalars()
-        if unique:
-            try:
-                return result.one()
-            except NoResultFound:
-                return None
-        else:
-            return result.all()
-
-    @classmethod
-    def from_names(cls: Type['Base'], names: Iterable[str]):
-        statement = select(cls).where(cls.name.in_(names))
-        return {inst.name: inst for inst in cls.session.execute(statement).scalars()}
-
-
-class AccessionMixin:
-    accession = Column(String, primary_key=True, index=True)
-
-    @classmethod
-    def from_accession(cls: Type['Base'], accession: str):
-        statement = select(cls).where(cls.accession == accession)
-        result = cls.session.execute(statement).scalars()
-        try:
-            return result.one()
-        except NoResultFound:
-            return None
-    
-    @classmethod
-    def from_accessions(cls: Type['Base'], accessions: Iterable[str]):
-        statement = select(cls).where(cls.accession.in_(accessions))
-        return {inst.name: inst for inst in cls.session.execute(statement).scalars()}
+from sqlalchemy.orm import relationship
 
 
 class Chromosome(Base, NameMixin):
@@ -141,14 +73,6 @@ class Transcript(Base, NameMixin, AccessionMixin):
         'polymorphic_identity': 'transcript'
     }
 
-    # def __init__(self, **kwargs):
-    #     super().__init__(**kwargs)
-    #     self.init_on_load()
-
-    # @reconstructor
-    # def init_on_load(self):
-    #     self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
-
     # The reason we use cached properties here instead of setting things up in __init__ or init_on_load
     # is to make sure the ORM eagerly loads all exons first.
     @cached_property
@@ -173,7 +97,6 @@ class Transcript(Base, NameMixin, AccessionMixin):
     def nucleotides(self):
         if not self.sequence:
             raise AttributeError(f'{self.name} has no sequence')
-        # assert sum(exon.length for exon in self.exons) == self.length
         nucleotides = []
         self._nucleotide_mapping: Dict[int, 'Nucleotide'] = dict()
         if self.exons:
@@ -311,11 +234,6 @@ class Exon(Base, AccessionMixin):
         'Transcript', 
         back_populates='exons'
     )
-    
-    # __mapper_args__ = {
-    #     'polymorphic_on': type,
-    #     'polymorphic_identity': 'exon'
-    # }
 
     def __repr__(self) -> str:
         return f'{self.transcript}:exon{self.position}'
@@ -347,75 +265,6 @@ class Exon(Base, AccessionMixin):
     @property
     def coding_nucleotides(self):
         return [nt for nt in self.nucleotides if nt.residue]
-
-
-# class GencodeExon(Exon):
-#     __mapper_args__ = {
-#         'polymorphic_identity': 'gencodeexon'
-#     }
-
-
-# class PacBioExon(Exon):
-#     __mapper_args__ = {
-#         'polymorphic_identity': 'pacbioexon'
-#     }
-
-
-# TODO: save memory usage with __slots__?
-class Nucleotide:
-    def __init__(self, parent, coordinate: int, position: int, base: str) -> None:
-        self.parent = parent
-        self.coordinate = coordinate  # genomic coordinate
-        self.position = position  # position within parent
-        self.base = Nucleobase(base)
-        self.residue = None  # associated Residue, if any
-    
-    def __repr__(self) -> str:
-        return f'{self.parent.chromosome}:{self.coordinate}({self.parent.strand}){self.base}'
-    
-    @property
-    def chromosome(self) -> 'Chromosome':
-        return self.parent.chromosome
-    
-    @property
-    def strand(self) -> 'Strand':
-        return self.parent.strand
-
-    @property
-    def gene(self) -> 'Gene':
-        if isinstance(self.parent, Gene):
-            return self.parent
-        return self.parent.gene
-    
-    @property
-    def exon(self) -> 'Exon':
-        return self.parent.get_exon_containing_position(self.position)
-
-
-@frozendataclass
-class Junction:
-    donor: int
-    acceptor: int
-    chromosome: 'Chromosome'
-    strand: 'Strand'
-    
-    def __repr__(self) -> str:
-        return f'{self.chromosome}({self.strand}):{self.donor}^{self.acceptor}'
-    
-    def __eq__(self, other: 'Junction') -> bool:
-        if not isinstance(other, Junction):
-            raise TypeError(f'Cannot compare Junction with {type(other)}')
-        if self.chromosome is not other.chromosome:
-            return False
-        if self.strand is not other.strand:
-            return False
-        delta_donor = abs(self.donor - other.donor)
-        delta_acceptor = abs(self.acceptor - other.acceptor)
-        if delta_donor <= 2 and delta_acceptor <= 2 and (delta_donor != 0 or delta_acceptor != 0):
-            warn(f'Possible off-by-one error for junctions {self} and {other}')
-        if self.strand is Strand.MINUS and self.donor == other.acceptor and self.acceptor == other.donor:
-            warn(f'Reversed coords for junctions {self} and {other}')
-        return delta_donor == 0 and delta_acceptor == 0
 
 
 class ORF(Base):
@@ -541,72 +390,6 @@ class ORF(Base):
                 nt.residue = aa
 
 
-class UTR(ABC):
-    def __init__(self, orf: 'ORF', boundary_exon_index: int):
-        self.orf = orf
-        self.transcript: 'Transcript' = orf.transcript
-        self._boundary_exon_index = boundary_exon_index
-        self.transcript_start = None
-        self.transcript_stop = None
-
-    @property
-    def length(self):
-        return self.transcript_stop - self.transcript_start + 1
-
-    @property
-    def nucleotides(self) -> List['Nucleotide']:
-        return self.transcript.nucleotides[self.transcript_start-1:self.transcript_stop]
-    
-    @property
-    def sequence(self) -> str:
-        return self.transcript.sequence[self.transcript_start-1:self.transcript_stop]
-    
-    @property
-    def start(self) -> int:
-        return self.transcript.nucleotides[self.transcript_start-1].coordinate
-    
-    @property
-    def stop(self) -> int:
-        return self.transcript.nucleotides[self.transcript_stop-1].coordinate
-    
-    @property
-    @abstractmethod
-    def exons(self):
-        raise NotImplementedError
-
-    @abstractmethod    
-    def __repr__(self):
-        raise NotImplementedError
-
-
-class FivePrimeUTR(UTR):
-    def __init__(self, orf: 'ORF', boundary_exon_index: int):
-        super().__init__(orf, boundary_exon_index)
-        self.transcript_start = 1
-        self.transcript_stop = orf.transcript_start - 1
-
-    @property
-    def exons(self) -> List['Exon']:
-        return self.transcript.exons[:self._boundary_exon_index+1]
-
-    def __repr__(self):
-        return f'{self.transcript}:utr5({self.transcript_start}-{self.transcript_stop})'
-
-
-class ThreePrimeUTR(UTR):
-    def __init__(self, orf: 'ORF', boundary_exon_index: int):
-        super().__init__(orf, boundary_exon_index)
-        self.transcript_start = orf.transcript_stop + 1
-        self.transcript_stop = self.transcript.length
-    
-    @property
-    def exons(self) -> List['Exon']:
-        return self.transcript.exons[self._boundary_exon_index:]
-    
-    def __repr__(self):
-        return f'{self.transcript}:utr3({self.transcript_start}-{self.transcript_stop})'
-
-
 class Protein(Base, AccessionMixin):
     sequence = Column(String)
     orf = relationship(
@@ -656,106 +439,3 @@ class Protein(Base, AccessionMixin):
     @hybrid_property
     def length(self):
         return len(self.sequence)
-
-
-feature_base_table = Table(
-    'proteinfeature', Base.metadata,
-    Column('type', Enum(ProteinFeatureType)),
-    Column('accession', String, primary_key=True, index=True),
-    Column('name', String),
-    Column('description', String)
-)
-
-
-feature_mapping_table = Table(
-    'proteinfeature_mapping', Base.metadata,
-    Column('feature_id', String, ForeignKey('proteinfeature.accession'), primary_key=True),
-    Column('protein_id', String, ForeignKey('protein.accession'), primary_key=True),
-    Column('protein_start', Integer, primary_key=True),
-    Column('protein_stop', Integer, primary_key=True),
-)
-
-
-class ProteinFeature(Base):
-    __table__ = join(feature_base_table, feature_mapping_table)
-
-    type = column_property(feature_base_table.c.type)
-    feature_id = column_property(feature_mapping_table.c.feature_id)
-    name = column_property(feature_base_table.c.name)
-    protein_id = column_property(feature_mapping_table.c.protein_id)
-    protein_start = column_property(feature_mapping_table.c.protein_start)
-    protein_stop = column_property(feature_mapping_table.c.protein_stop)
-    description = column_property(feature_base_table.c.description)
-
-    protein = relationship(
-        'Protein',
-        back_populates = 'features',
-        uselist = False
-    )
-
-    __mapper_args__ = {
-        'polymorphic_on': type,
-        'polymorphic_identity': ProteinFeatureType.NONE
-    }
-    
-    def __repr__(self):
-        return f'{self.protein}:{self.name}({self.protein_start}-{self.protein_stop})'
-
-    @hybrid_property
-    def length(self):
-        return self.protein_stop - self.protein_start + 1
-
-    @property
-    def sequence(self) -> str:
-        return self.protein.sequence[self.protein_start-1:self.protein_stop]
-    
-    @property
-    def residues(self) -> List['Residue']:
-        return self.protein.residues[self.protein_start-1:self.protein_stop]
-
-
-class Domain(ProteinFeature):
-    __mapper_args__ = {
-        'polymorphic_identity': ProteinFeatureType.DOMAIN
-    }
-
-
-OptNucleotide = Optional['Nucleotide']
-Codon = Tuple[OptNucleotide, OptNucleotide, OptNucleotide]
-
-class Residue:
-    def __init__(self, protein: 'Protein', amino_acid: str, position: int) -> None:
-        self.amino_acid = AminoAcid(amino_acid)
-        self.protein = protein
-        self.position = position  # position within protein peptide sequence
-        self.codon: Codon = (None, None, None)  # 3-tuple of associated Nucleotides; filled in later
-    
-    def __repr__(self) -> str:
-        return f'{self.amino_acid}{self.position}'
-    
-    @property
-    def codon_str(self) -> str:
-        return ''.join(str(nt.base) for nt in self.codon)
-
-    @property
-    def exons(self) -> List['Exon']:
-        # TODO: is sorting necessary here?
-        return sorted({nt.exon for nt in self.codon}, key=attrgetter('position'))
-    
-    @property
-    def primary_exon(self) -> 'Exon':
-        exons = Counter([nt.exon for nt in self.codon])
-        return exons.most_common(1)[0][0]
-    
-    @property
-    def junction(self) -> Optional['Junction']:
-        exons = self.exons
-        if len(exons) < 2:
-            return None
-        transcript = exons[0].transcript
-        # this is a bit kludgy, may need to add properties to Exon class
-        return transcript.junctions[exons[0].position - 1]
-    
-    @property
-    def is_gap(self):
-        return self.amino_acid is AminoAcid.GAP

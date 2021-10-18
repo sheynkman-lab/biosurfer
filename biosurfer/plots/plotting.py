@@ -6,19 +6,20 @@ from operator import attrgetter, sub
 from typing import (TYPE_CHECKING, Any, Callable, Collection, Dict, Iterable,
                     List, Literal, Optional, Set, Tuple, Union)
 from warnings import filterwarnings, warn
+from Bio import Align
 
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from biosurfer.core.alignments import ProjectedFeature, TranscriptBasedAlignment, FRAMESHIFT
-from biosurfer.core.constants import (AminoAcid, ProteinLevelAlignmentCategory,
-                                      TranscriptLevelAlignmentCategory)
+from biosurfer.core.alignments import (FRAMESHIFT, ProjectedFeature,
+                                       Alignment)
+from biosurfer.core.constants import (AminoAcid, FeatureType, ProteinLevelAlignmentCategory,
+                                      Strand, TranscriptLevelAlignmentCategory)
 from biosurfer.core.helpers import ExceptionLogger, Interval, IntervalTree
-from biosurfer.core.models import (ORF, GencodeTranscript, Gene, Junction,
-                                   PacBioTranscript, Protein, Strand,
-                                   Transcript)
+from biosurfer.core.models.biomolecules import (GencodeTranscript,
+                                                PacBioTranscript, Transcript)
 from brokenaxes import BrokenAxes
 from graph_tool import Graph
 from graph_tool.topology import sequential_vertex_coloring
@@ -411,7 +412,7 @@ class IsoformPlot:
         for i, other in enumerate(self.transcripts[1:], start=1):
             if not other.protein:
                 continue
-            aln = TranscriptBasedAlignment(anchor.protein, other.protein)
+            aln = Alignment(anchor.protein, other.protein)
             for (category, exons), block in groupby(aln, key=attrgetter('category', 'other.exons')):
                 if category in FRAMESHIFT:
                     if len(exons) > 1:
@@ -485,11 +486,10 @@ class IsoformPlot:
             if tx in anchors:
                 domains = tx.protein.features
             elif project:
-                domains = [
-                    projected_domain
-                    for anchor in anchors
-                    for projected_domain in TranscriptBasedAlignment(anchor.protein, tx.protein).projected_features
-                ]
+                domains = []
+                for anchor in anchors:
+                    aln = Alignment(anchor.protein, tx.protein)
+                    domains.extend(filter(None, (aln.get_feature_alignment(feat).projected_feature for feat in anchor.protein.features if feat.type is FeatureType.DOMAIN)))
             else:
                 continue
             subtracks, n_subtracks = generate_subtracks(

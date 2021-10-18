@@ -1,5 +1,5 @@
-from biosurfer.core.alignments import TranscriptBasedAlignment as Alignment
-from biosurfer.core.models import ProteinFeature, Transcript
+from biosurfer.core.alignments import Alignment as Alignment
+from biosurfer.core.models.biomolecules import Transcript
 
 def test_alignment_full(session, alignment_case):
     Transcript.session = session
