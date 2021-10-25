@@ -1,13 +1,16 @@
+import json
+from functools import cached_property
 from typing import TYPE_CHECKING, List
 
 from biosurfer.core.constants import FeatureType
 from biosurfer.core.constants import \
     TranscriptLevelAlignmentCategory as TranscriptAlignCat
-from biosurfer.core.models.base import AccessionMixin, Base, NameMixin
+from biosurfer.core.helpers import run_length_decode
+from biosurfer.core.models.base import AccessionMixin, Base, NameMixin, TablenameMixin
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.schema import Column, ForeignKey, Table, UniqueConstraint
-from sqlalchemy.sql.sqltypes import Boolean, Enum, Integer, String
+from sqlalchemy.sql.sqltypes import Boolean, Enum, Integer, PickleType, String
 
 if TYPE_CHECKING:
     from biosurfer.core.alignments import FeatureAlignment
@@ -31,7 +34,7 @@ if TYPE_CHECKING:
 # )
 
 
-class Feature(Base, NameMixin, AccessionMixin):
+class Feature(Base, TablenameMixin, NameMixin, AccessionMixin):
     type = Column(Enum(FeatureType))
     description = Column(String)
 
@@ -42,13 +45,13 @@ class Feature(Base, NameMixin, AccessionMixin):
 
 
 class Domain(Feature):
+    __tablename__ = None
     __mapper_args__ = {
         'polymorphic_identity': FeatureType.DOMAIN
     }
 
 
-class ProteinFeature(Base):
-    __tablename__ = 'proteinfeature'
+class ProteinFeature(Base, TablenameMixin):
     id = Column(Integer, primary_key=True, autoincrement=True)
     feature_id = Column(String, ForeignKey('feature.accession'))
     protein_id = Column(String, ForeignKey('protein.accession'))
@@ -56,7 +59,7 @@ class ProteinFeature(Base):
     protein_stop = Column(Integer)
     reference = Column(Boolean, nullable=False)
 
-    feature = relationship('Feature', uselist=False)
+    feature = relationship('Feature', uselist=False, lazy='selectin')
     protein = relationship('Protein', back_populates='features', uselist=False)
 
     __table_args__ = (UniqueConstraint(feature_id, protein_id, protein_start, protein_stop),)
@@ -95,25 +98,39 @@ class ProteinFeature(Base):
 
 
 class ProjectedFeature(ProteinFeature):
+    id = Column(Integer, ForeignKey('proteinfeature.id'), primary_key=True)
     anchor_id = Column(Integer, ForeignKey('proteinfeature.id'))
-    anchor = relationship('ProteinFeature', uselist=False)
+    anchor = relationship('ProteinFeature', foreign_keys=[anchor_id], uselist=False)
+    _differences = Column(String)  # run-length encoding of FeatureAlignment with anchor feature
 
     __mapper_args__ = {
+        'inherit_condition': id == ProteinFeature.id,
         'polymorphic_identity': False
     }
 
-    def __init__(self, feature_alignment: 'FeatureAlignment'):
-        self.alignment = feature_alignment
-        self.anchor = feature_alignment.proteinfeature
-        self.feature_id = feature_alignment.proteinfeature.feature_id
-        self.protein_id = feature_alignment.other.accession
-        
-        residues = feature_alignment.other_residues
-        self.protein_start = residues[0].position
-        self.protein_stop = residues[-1].position
+    @cached_property
+    def altered_residues(self):
+        alt_res = []
+        i = 0
+        for token in self._differences.split(','):
+            char = token[-1]
+            length = int(token[:-1])
+            if TranscriptAlignCat(char) not in {TranscriptAlignCat.MATCH, TranscriptAlignCat.EDGE_MATCH}:
+                alt_res.extend(self.residues[i:i+length])
+            i += length
+        return alt_res
 
-        # TODO: persist this in database
-        self.altered_residues = [res_aln.other for res_aln in feature_alignment if res_aln.category not in {TranscriptAlignCat.MATCH, TranscriptAlignCat.EDGE_MATCH, TranscriptAlignCat.DELETION}]
+    # def __init__(self, feature_alignment: 'FeatureAlignment'):
+    #     self.alignment = feature_alignment
+    #     self.anchor = feature_alignment.proteinfeature
+    #     self.feature = feature_alignment.proteinfeature.feature
+    #     self.protein = feature_alignment.other
+        
+    #     residues = feature_alignment.other_residues
+    #     self.protein_start = residues[0].position
+    #     self.protein_stop = residues[-1].position
+
+    #     self.altered_residues = [res_aln.other for res_aln in feature_alignment if res_aln.category not in {TranscriptAlignCat.MATCH, TranscriptAlignCat.EDGE_MATCH, TranscriptAlignCat.DELETION}]
 
     def __repr__(self):
-        return f'{self.anchor.protein}>>' + ProteinFeature.__repr__(self)
+        return super().__repr__() + '*'

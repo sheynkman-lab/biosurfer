@@ -472,39 +472,31 @@ class IsoformPlot:
             alpha = alpha
         )
     
-    def draw_domains(self, anchors=None, project=True):
-        if anchors is None:
-            anchors = list(islice((tx for tx in self.transcripts if tx.protein), 1))
+    def draw_domains(self):
         h = self.opts.max_track_width
-        domain_names = sorted({domain.name for tx in anchors for domain in tx.protein.features if tx.protein})
+        domain_names = sorted({domain.name for tx in self.transcripts if tx.protein for domain in tx.protein.features if domain.reference})
         cmap = sns.color_palette('pastel', len(domain_names))
         domain_colors = dict(zip(domain_names, cmap))
         self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in domain_colors.items()})
         for track, tx in enumerate(self.transcripts):
             if not tx.protein:
                 continue
-            if tx in anchors:
-                domains = tx.protein.features
-            elif project:
-                domains = []
-                for anchor in anchors:
-                    aln = Alignment(anchor.protein, tx.protein)
-                    domains.extend(filter(None, (aln.get_feature_alignment(feat).projected_feature for feat in anchor.protein.features if feat.type is FeatureType.DOMAIN)))
-            else:
+            domains = tx.protein.features
+            if not domains:
                 continue
             subtracks, n_subtracks = generate_subtracks(
                 ((domain.protein_start, domain.protein_stop) for domain in domains),
                 (domain.name for domain in domains)
             )
-            if tx not in anchors:
-                n_subtracks *= 2
             for domain in domains:
                 subtrack = subtracks[domain.name]
                 color = domain_colors[domain.name]
-                if isinstance(domain, ProjectedFeature):
-                    subdomains = groupby(domain.residues, key=lambda res: (res in domain.altered_residues, res.primary_exon))
-                else:
+                if domain.reference:
                     subdomains = groupby(domain.residues, key=lambda res: (False, res.primary_exon))
+                    n_subtracks_temp = n_subtracks
+                else:
+                    subdomains = groupby(domain.residues, key=lambda res: (res in domain.altered_residues, res.primary_exon))
+                    n_subtracks_temp = 2*n_subtracks
                 for (altered, _), subdomain in subdomains:
                     subdomain = list(subdomain)
                     start = subdomain[0].codon[1].coordinate
@@ -513,8 +505,8 @@ class IsoformPlot:
                         track,
                         start = start,
                         stop = stop,
-                        y_offset = (-0.5 + subtrack/n_subtracks)*h,
-                        height = h/n_subtracks,
+                        y_offset = (-0.5 + subtrack/n_subtracks_temp)*h,
+                        height = h/n_subtracks_temp,
                         edgecolor = 'none',
                         facecolor = color,
                         alpha = 0.5 if altered else 1.0,

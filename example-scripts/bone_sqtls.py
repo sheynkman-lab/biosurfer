@@ -48,7 +48,7 @@ over3counts = set(expression.query('total > 3').index)
 
 # %%
 print('Loading sQTL table...')
-sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=None)
+sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=32)
 sqtls = sqtls_raw[sqtls_raw['gene_type'] == 'protein_coding']
 def optional_list(things):
     list_things = sorted(set(things))
@@ -125,6 +125,9 @@ def get_augmented_sqtl_record(row):
     if not all((using, not_using)):
         return None
     
+    anchor_tx = min((tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript)), key=attrgetter('appris'))
+    
+
     pairs = list(product(not_using, using))
     n_pairs = len(pairs)
     alns = []
@@ -160,7 +163,6 @@ def get_augmented_sqtl_record(row):
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
     if not os.path.isfile(fig_path):
     # if True:
-        anchor_tx = min((tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript)), key=attrgetter('appris'))
         isoplot = IsoformPlot(
             using + not_using,
             columns = {

@@ -6,7 +6,7 @@ from warnings import warn
 from Bio.Seq import Seq
 from biosurfer.core.constants import APPRIS, SQANTI, Strand
 from biosurfer.core.helpers import BisectDict
-from biosurfer.core.models.base import AccessionMixin, Base, NameMixin
+from biosurfer.core.models.base import AccessionMixin, Base, NameMixin, TablenameMixin
 from biosurfer.core.models.nonpersistent import *
 from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -14,7 +14,7 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import relationship
 
 
-class Chromosome(Base, NameMixin):
+class Chromosome(Base, TablenameMixin, NameMixin):
     name = Column(String, primary_key=True)
     genes = relationship('Gene', back_populates='chromosome')
 
@@ -22,7 +22,7 @@ class Chromosome(Base, NameMixin):
         return self.name
 
 
-class Gene(Base, NameMixin, AccessionMixin):
+class Gene(Base, TablenameMixin, NameMixin, AccessionMixin):
     strand = Column(Enum(Strand))
     chromosome_id = Column(String, ForeignKey('chromosome.name'))
     chromosome = relationship('Chromosome', back_populates='genes')
@@ -47,7 +47,7 @@ class Gene(Base, NameMixin, AccessionMixin):
     
 
 
-class Transcript(Base, NameMixin, AccessionMixin):
+class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
     strand = Column(Enum(Strand))
     type = Column(String)
     sequence = Column(String)
@@ -181,6 +181,7 @@ class Transcript(Base, NameMixin, AccessionMixin):
 
 
 class GencodeTranscript(Transcript):
+    __tablename__ = None
     appris = Column(Enum(APPRIS))
     start_nf = Column(Boolean)
     end_nf = Column(Boolean)
@@ -205,6 +206,7 @@ class GencodeTranscript(Transcript):
 
 
 class PacBioTranscript(Transcript):
+    __tablename__ = None
     sqanti = Column(Enum(SQANTI))
     gencode_id = Column(String, ForeignKey('transcript.accession'))
     gencode = relationship(
@@ -219,7 +221,7 @@ class PacBioTranscript(Transcript):
     }
 
 
-class Exon(Base, AccessionMixin):
+class Exon(Base, TablenameMixin, AccessionMixin):
     # type = Column(String)
     position = Column(Integer)  # exon ordinal within parent transcript
     # genomic coordinates
@@ -267,7 +269,7 @@ class Exon(Base, AccessionMixin):
         return [nt for nt in self.nucleotides if nt.residue]
 
 
-class ORF(Base):
+class ORF(Base, TablenameMixin):
     # genomic coordinates
     # start = Column(Integer)  
     # stop = Column(Integer)  
@@ -390,7 +392,7 @@ class ORF(Base):
                 nt.residue = aa
 
 
-class Protein(Base, AccessionMixin):
+class Protein(Base, TablenameMixin, AccessionMixin):
     sequence = Column(String)
     orf = relationship(
         'ORF',

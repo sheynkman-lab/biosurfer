@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, fields
 from enum import Enum
 from itertools import filterfalse
 from operator import itemgetter
-from typing import TYPE_CHECKING, Callable, Generic, Iterable, Iterator, Optional, Tuple, TypeVar
+from typing import TYPE_CHECKING, Callable, Generic, Iterable, Iterator, List, Optional, Tuple, TypeVar
 
 from intervaltree import Interval, IntervalTree
 from sqlalchemy.dialects.sqlite.dml import insert
@@ -165,6 +165,27 @@ class ExceptionLogger(AbstractContextManager):
             traceback.print_exc()
             sys.stderr.write('---------\n')
             return True
+
+
+def run_length_encode(text: str) -> str:
+    if not text:
+        return ''
+    encoding = []
+    run_length = 1
+    prev_char = text[0]
+    for char in text[1:]:
+        if char == prev_char:
+            run_length += 1
+        else:
+            encoding.append(f'{run_length}{prev_char}')
+            prev_char = char
+            run_length = 1
+    encoding.append(f'{run_length}{prev_char}')
+    return ','.join(encoding)
+
+
+def run_length_decode(encoding: str) -> str:
+    return ''.join(int(token[:-1]) * token[-1] for token in encoding.split(',')) if encoding else ''
 
 
 # Helper functions/classes for loading into database

@@ -2,10 +2,10 @@ import csv
 from abc import abstractmethod
 from collections import deque
 from collections.abc import Sequence
-from functools import cached_property
+from functools import cached_property, lru_cache
 from itertools import chain, groupby, product
 from operator import attrgetter
-from typing import Iterable, List, MutableSequence, Optional, Union
+from typing import Dict, Iterable, List, MutableSequence, Optional, Tuple, Union
 
 from Bio.Align import substitution_matrices
 from Bio.pairwise2 import align
@@ -15,6 +15,7 @@ from biosurfer.core.constants import \
 from biosurfer.core.constants import ProteinRegion, Strand
 from biosurfer.core.constants import \
     TranscriptLevelAlignmentCategory as TranscriptAlignCat
+from biosurfer.core.helpers import run_length_encode
 from biosurfer.core.models.biomolecules import Exon, Protein, Residue
 from biosurfer.core.models.features import ProjectedFeature, ProteinFeature
 
@@ -212,6 +213,10 @@ class ProteinAlignmentBlock(AlignmentBlock):
 
 
 class Alignment(ResidueAlignmentSequence):
+    @lru_cache(maxsize=None)
+    def __new__(cls, *args, **kwargs):
+        return object.__new__(cls)
+
     def __init__(self, anchor: 'Protein', other: 'Protein'):
         if anchor.orf.gene is not other.orf.gene:
             raise ValueError(f'{anchor} and {other} belong to different genes')
@@ -226,7 +231,6 @@ class Alignment(ResidueAlignmentSequence):
         self.transcript_blocks = get_transcript_blocks(self)
         self.protein_blocks = get_protein_blocks(self)
         self._annotate()
-        self.feature_alignments = [self.get_feature_alignment(feature) for feature in self.anchor.features]
         # self.projected_features = list(filter(None, (self.project_feature(feature) for feature in self.anchor.features)))
 
     def __repr__(self):
@@ -517,15 +521,20 @@ class Alignment(ResidueAlignmentSequence):
             if res_aln.other is other_residue:
                 return (i, res_aln) if include_index else res_aln
 
-    def get_feature_alignment(self, anchor_feature: 'ProteinFeature'):
+    def project_feature(self, anchor_feature: 'ProteinFeature'):
         if anchor_feature.protein is not self.anchor:
             raise ValueError(f'{anchor_feature} is not a feature of {self.anchor}')
         feat_aln = FeatureAlignment(self, anchor_feature)
-        return feat_aln
+        projected_feature = feat_aln.projected_feature
+        return projected_feature, feat_aln
     
-    @property
-    def projected_features(self):
-        return list(filter(None, (feat_aln.projected_feature for feat_aln in self.feature_alignments)))
+    # @property
+    # def feature_alignments(self):
+    #     return [self.get_feature_alignment(feature) for feature in self.anchor.features]
+
+    # @property
+    # def projected_features(self):
+    #     return list(filter(None, (feat_aln.projected_feature for feat_aln in self.feature_alignments)))
 
 
 class FeatureAlignment(AlignmentBlock):
@@ -545,7 +554,19 @@ class FeatureAlignment(AlignmentBlock):
     @cached_property
     def projected_feature(self):
         if any(res_aln.other for res_aln in self if res_aln.category in MATCH_OR_FRAME):
-            return ProjectedFeature(self)
+            residues = self.other_residues
+            diff_string = ''.join(str(res_aln.category) for res_aln in self if res_aln.category is not TranscriptAlignCat.DELETION)
+            assert len(diff_string) == len(residues)
+            proj_feat = ProjectedFeature(
+                feature = self.proteinfeature.feature,
+                protein = self.parent.other,
+                protein_start = residues[0].position,
+                protein_stop = residues[-1].position,
+                reference = False,
+                anchor = self.proteinfeature,
+                _differences = run_length_encode(diff_string)
+            )
+            return proj_feat
         else:
             return None
 

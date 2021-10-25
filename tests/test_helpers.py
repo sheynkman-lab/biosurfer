@@ -1,10 +1,10 @@
 from itertools import combinations, product
 from typing import Dict, List, Tuple
 
-from biosurfer.core.helpers import BisectDict
+from biosurfer.core.helpers import BisectDict, run_length_decode, run_length_encode
 from biosurfer.plots.plotting import generate_subtracks
 from hypothesis import given
-from hypothesis.strategies import characters, data, integers, lists, dictionaries, sampled_from
+from hypothesis.strategies import characters, data, integers, lists, dictionaries, sampled_from, text
 from more_itertools import chunked
 
 def force_list_length_to_be_even(lst: List) -> List:
@@ -66,3 +66,7 @@ def test_generate_subtracks(arg):
                 label_to_intervals[label1],
                 label_to_intervals[label2]
                 ), label_to_subtrack
+
+@given(text(characters(whitelist_categories=['Nd', 'L'])))
+def test_run_length_decode_inverts_encode(text):
+    assert run_length_decode(run_length_encode(text)) == text

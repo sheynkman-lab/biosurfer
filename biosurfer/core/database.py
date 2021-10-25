@@ -1,5 +1,5 @@
 import csv
-from operator import itemgetter
+from operator import attrgetter, itemgetter
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict
@@ -61,7 +61,7 @@ class Database:
         self._engine = create_engine(self.url)
         Base.metadata.create_all(self._engine)
         if sessionfactory is None:
-            self._sessionmaker = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=self.engine))
+            self._sessionmaker = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=self.engine, future=True))
         else:
             self._sessionmaker = sessionfactory
     
@@ -454,25 +454,34 @@ class Database:
         with self.get_session() as session:
             bulk_upsert(session, Domain.__table__, domains_to_upsert)
 
-    def load_domain_mappings(self, domain_mapping_file: str, overwrite: bool = False):
+    def load_domain_mappings(self, domain_mapping_file: str, project: bool = True, overwrite: bool = False):
         with self.get_session() as session:
             with session.begin():
                 if overwrite:
                     print(f'Clearing table \'{ProteinFeature.__tablename__}\'...')
                     session.execute(delete(ProteinFeature.__table__))
+                    print(f'Clearing table \'{ProjectedFeature.__tablename__}\'...')
+                    session.execute(delete(ProjectedFeature.__table__))
                     # domain_mappings = (
                     #     select(feature_mapping_table).
                     #     join(feature_base_table, feature_mapping_table.c.feature_id == feature_base_table.c.accession).
                     #     where(feature_base_table.c.type == ProteinFeatureType.DOMAIN)
                     # )
                     # session.execute(delete(feature_mapping_table).where(feature_mapping_table))
-
-                existing_proteins = set(session.execute(select(Protein.accession)).scalars())
+                # session.execute(select(Protein.accession, Transcript.appris))
+                if project:
+                    existing_proteins = set(
+                        session.execute(
+                            select(Protein.accession)
+                        ).scalars()
+                    )
+                else:
+                    existing_proteins = set(session.execute(select(Protein.accession)).scalars())
             with open(domain_mapping_file) as f:
                 f.readline()  # skip header
                 lines = count_lines(f)
                 reader = csv.DictReader(f, delimiter='\t')
-                t = tqdm(reader, desc='Reading domain mappings', total=lines, unit='mappings')
+                t = tqdm(reader, desc='Reading reference domain mappings', total=lines, unit='mappings')
                 domains_to_insert = (
                     {
                         'feature_id': row['Pfam ID'],
@@ -485,7 +494,30 @@ class Database:
                 )
                 domains_to_insert = list(domains_to_insert)
             with session.begin():
-                session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert) 
+                session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
+            
+    # def project_domain_mappings(self, overwrite: bool = False):
+    #     with self.get_session() as session:
+    #         with session.begin():
+    #             if overwrite:
+    #                 print(f'Clearing non-reference mappings from table \'{ProteinFeature.__tablename__}\'...')
+    #                 session.execute(delete(ProteinFeature.__table__).where(~ProteinFeature.reference))
+    #                 print(f'Clearing table \'{ProjectedFeature.__tablename__}\'...')
+    #                 session.execute(delete(ProjectedFeature.__table__))
+    #             genes_with_reference_features = list(
+    #                 session.execute(
+    #                     select(Gene).
+    #                     select_from(ProteinFeature).
+    #                     join(ProteinFeature.protein).
+    #                     join(Protein.orf).
+    #                     join(ORF.transcript).
+    #                     join(Transcript.gene).
+    #                     where(ProteinFeature.reference)
+    #                 ).scalars()
+    #             )
+    #         for gene in genes_with_reference_features:
+    #             principal_transcript = sorted(filter(lambda tx: isinstance(tx, GencodeTranscript) and tx.protein, gene.transcripts), key=attrgetter('appris'))[0]
+                
 
 
 def _process_exons(transcripts_to_exons, minus_transcripts):
