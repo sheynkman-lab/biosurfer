@@ -97,14 +97,13 @@ class ProteinFeature(Base, TablenameMixin):
         return self.protein.residues[self.protein_start-1:self.protein_stop]
 
 
-class ProjectedFeature(ProteinFeature):
-    id = Column(Integer, ForeignKey('proteinfeature.id'), primary_key=True)
+class ProjectedFeature(ProteinFeature, TablenameMixin):
+    __tablename__ = None
     anchor_id = Column(Integer, ForeignKey('proteinfeature.id'))
     anchor = relationship('ProteinFeature', foreign_keys=[anchor_id], uselist=False)
     _differences = Column(String)  # run-length encoding of FeatureAlignment with anchor feature
 
     __mapper_args__ = {
-        'inherit_condition': id == ProteinFeature.id,
         'polymorphic_identity': False
     }
 

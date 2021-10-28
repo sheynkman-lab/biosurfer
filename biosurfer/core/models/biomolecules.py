@@ -182,7 +182,7 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
 
 class GencodeTranscript(Transcript):
     __tablename__ = None
-    appris = Column(Enum(APPRIS))
+    appris = Column(Enum(APPRIS, values_callable=lambda x: [str(m.value) for m in x]))
     start_nf = Column(Boolean)
     end_nf = Column(Boolean)
     pacbio = relationship(
@@ -207,7 +207,7 @@ class GencodeTranscript(Transcript):
 
 class PacBioTranscript(Transcript):
     __tablename__ = None
-    sqanti = Column(Enum(SQANTI))
+    sqanti = Column(Enum(SQANTI, values_callable=lambda x: [str(m.value) for m in x]))
     gencode_id = Column(String, ForeignKey('transcript.accession'))
     gencode = relationship(
         'GencodeTranscript',

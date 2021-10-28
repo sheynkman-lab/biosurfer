@@ -362,7 +362,7 @@ class Alignment(ResidueAlignmentSequence):
                     pblock.event = 'FS'
         
         # classify N-terminal changes (if any)
-        if nterminal_pblock.category is not ProteinAlignCat.MATCH:
+        if nterminal_pblock and nterminal_pblock.category is not ProteinAlignCat.MATCH:
             upstream_start_codon = tuple(nt.coordinate for nt in self.anchor.residues[0].codon)
             downstream_start_codon = tuple(nt.coordinate for nt in self.other.residues[0].codon)
             upstream_start_transcript, downstream_start_transcript = anchor_transcript, other_transcript
@@ -448,7 +448,7 @@ class Alignment(ResidueAlignmentSequence):
                         nterminal_pblock.event = 'MXIC-splice'
         
         # classify C-terminal changes (if any)
-        if cterminal_pblock.category is not ProteinAlignCat.MATCH:
+        if cterminal_pblock and cterminal_pblock.category is not ProteinAlignCat.MATCH:
             if upstream_cterm_res_aln.category in FRAMESHIFT:
                 for tblock in cterminal_pblock.transcript_blocks:
                     tblock.flags |= AnnotationFlag.SIF

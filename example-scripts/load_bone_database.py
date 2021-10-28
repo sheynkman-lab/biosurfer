@@ -27,11 +27,12 @@ def skip_gencode(header: str):
 #%%
 db = Database('bone')
 start = time()
-db.load_gencode_gtf(path + gencode_gtf, overwrite=False)
+# db.load_gencode_gtf(path + gencode_gtf, overwrite=False)
 db.load_transcript_fasta(path + gencode_tx, get_ids_from_gencode_fasta, skip_par_y)
 db.load_translation_fasta(path + gencode_tl, get_ids_from_gencode_fasta, skip_par_y)
 db.load_domains(path + pfam_dom_info, overwrite=True)
 db.load_domain_mappings(path + gencode_doms, overwrite=True)
+db.project_domain_mappings()
 db.load_pacbio_gtf(path + pacbio_gtf)
 db.load_transcript_fasta(path + pacbio_tx, get_ids_from_pacbio_fasta)
 db.load_translation_fasta(path + pacbio_tl, get_ids_from_hybrid_fasta, skip_gencode)

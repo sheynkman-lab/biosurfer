@@ -1,11 +1,13 @@
 import csv
-from operator import attrgetter, itemgetter
 import os
+from itertools import groupby
+from operator import attrgetter, itemgetter
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict
 from warnings import warn
 
 from Bio import SeqIO
+from biosurfer.core.alignments import Alignment
 from biosurfer.core.constants import (APPRIS, SQANTI, STOP_CODONS, AminoAcid,
                                       FeatureType, Strand)
 from biosurfer.core.helpers import (FastaHeaderFields, bulk_upsert,
@@ -20,7 +22,9 @@ from biosurfer.core.models.features import (Domain, Feature, ProjectedFeature,
 from more_itertools import chunked
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy.orm import joinedload, scoped_session, sessionmaker
+from sqlalchemy.sql.expression import desc
+from sqlalchemy.sql.functions import func
 from tqdm import tqdm
 
 CHUNK_SIZE = 10000
@@ -454,7 +458,7 @@ class Database:
         with self.get_session() as session:
             bulk_upsert(session, Domain.__table__, domains_to_upsert)
 
-    def load_domain_mappings(self, domain_mapping_file: str, project: bool = True, overwrite: bool = False):
+    def load_domain_mappings(self, domain_mapping_file: str, appris_only: bool = True, overwrite: bool = False):
         with self.get_session() as session:
             with session.begin():
                 if overwrite:
@@ -469,14 +473,25 @@ class Database:
                     # )
                     # session.execute(delete(feature_mapping_table).where(feature_mapping_table))
                 # session.execute(select(Protein.accession, Transcript.appris))
-                if project:
-                    existing_proteins = set(
+                if appris_only:
+                    protein_length = func.length(Protein.sequence)
+                    subq = (
+                        select(GencodeTranscript.gene_id, Protein.accession, GencodeTranscript.appris, protein_length).
+                        select_from(Protein).
+                        join(Protein.orf).
+                        join(ORF.transcript).
+                        order_by(GencodeTranscript.gene_id).
+                        order_by(GencodeTranscript.appris).
+                        order_by(desc(protein_length)).
+                        subquery()
+                    )
+                    proteins_to_map = set(
                         session.execute(
-                            select(Protein.accession)
+                            select(subq.c.accession).select_from(subq).group_by(subq.c.gene_id)
                         ).scalars()
                     )
                 else:
-                    existing_proteins = set(session.execute(select(Protein.accession)).scalars())
+                    proteins_to_map = set(session.execute(select(Protein.accession)).scalars())
             with open(domain_mapping_file) as f:
                 f.readline()  # skip header
                 lines = count_lines(f)
@@ -490,34 +505,55 @@ class Database:
                         'protein_stop': row['Pfam end'],
                         'reference': True
                     }
-                    for row in t if row['Protein stable ID version'] in existing_proteins
+                    for row in t if row['Protein stable ID version'] in proteins_to_map
                 )
                 domains_to_insert = list(domains_to_insert)
             with session.begin():
                 session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
             
-    # def project_domain_mappings(self, overwrite: bool = False):
-    #     with self.get_session() as session:
-    #         with session.begin():
-    #             if overwrite:
-    #                 print(f'Clearing non-reference mappings from table \'{ProteinFeature.__tablename__}\'...')
-    #                 session.execute(delete(ProteinFeature.__table__).where(~ProteinFeature.reference))
-    #                 print(f'Clearing table \'{ProjectedFeature.__tablename__}\'...')
-    #                 session.execute(delete(ProjectedFeature.__table__))
-    #             genes_with_reference_features = list(
-    #                 session.execute(
-    #                     select(Gene).
-    #                     select_from(ProteinFeature).
-    #                     join(ProteinFeature.protein).
-    #                     join(Protein.orf).
-    #                     join(ORF.transcript).
-    #                     join(Transcript.gene).
-    #                     where(ProteinFeature.reference)
-    #                 ).scalars()
-    #             )
-    #         for gene in genes_with_reference_features:
-    #             principal_transcript = sorted(filter(lambda tx: isinstance(tx, GencodeTranscript) and tx.protein, gene.transcripts), key=attrgetter('appris'))[0]
-                
+    def project_domain_mappings(self, overwrite: bool = False):
+        with self.get_session() as session:
+            if overwrite:
+                with session.begin():
+                    print(f'Clearing non-reference mappings from table \'{ProteinFeature.__tablename__}\'...')
+                    session.execute(delete(ProteinFeature.__table__).where(~ProteinFeature.reference))
+                    print(f'Clearing table \'{ProjectedFeature.__tablename__}\'...')
+                    session.execute(delete(ProjectedFeature.__table__))
+            with session.begin():
+                rows = list(
+                    session.execute(
+                        select(Transcript.gene_id, Protein, Transcript.__table__.c.appris, func.length(Protein.sequence)).
+                        select_from(Protein).
+                        join(Protein.orf).
+                        join(ORF.transcript).
+                        options(joinedload(Protein.orf).joinedload(ORF.transcript))
+                    )
+                )
+                t = tqdm(rows, desc='Projecting domain mappings', total=len(rows), unit='proteins')
+                proteins_by_gene = groupby(t, key=itemgetter(0))
+                domains_to_insert = []
+                for _, group in proteins_by_gene:
+                    proteins = [row[1] for row in sorted(group, key=itemgetter(2, 3))]
+                    anchor = proteins[0]
+                    for other in proteins[1:]:
+                        aln = Alignment(anchor, other)
+                        for feat in anchor.features:
+                            proj_feat, _ = aln.project_feature(feat)
+                            if proj_feat:
+                                record = {
+                                    k: getattr(proj_feat, k)
+                                    for k in (
+                                        'protein_start',
+                                        'protein_stop',
+                                        'reference',
+                                        '_differences'
+                                    )
+                                }
+                                record['feature_id'] = proj_feat.feature.accession
+                                record['protein_id'] = other.accession
+                                record['anchor_id'] = proj_feat.anchor.id
+                                domains_to_insert.append(record)
+                session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
 
 
 def _process_exons(transcripts_to_exons, minus_transcripts):

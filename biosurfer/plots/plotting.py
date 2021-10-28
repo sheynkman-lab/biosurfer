@@ -259,9 +259,9 @@ class IsoformPlot:
             handles = handles,
             labels = labels,
             # ncol = 1,
-            # loc = 'center left',
+            loc = 'center left',
             # mode = 'expand',
-            # bbox_to_anchor = (1.05, 0.5)
+            bbox_to_anchor = (1.05, 0.5)
         )
 
     def draw_isoform(self, tx: 'Transcript', track: int):
