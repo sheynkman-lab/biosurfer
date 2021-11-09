@@ -1,6 +1,6 @@
 import csv
 import os
-from itertools import groupby
+from itertools import chain, groupby
 from operator import attrgetter, itemgetter
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict
@@ -10,8 +10,8 @@ from Bio import SeqIO
 from biosurfer.core.alignments import Alignment
 from biosurfer.core.constants import (APPRIS, SQANTI, STOP_CODONS, AminoAcid,
                                       FeatureType, Strand)
-from biosurfer.core.helpers import (FastaHeaderFields, bulk_upsert,
-                                    count_lines, read_gtf_line)
+from biosurfer.core.helpers import (ExceptionLogger, FastaHeaderFields,
+                                    bulk_upsert, count_lines, read_gtf_line)
 from biosurfer.core.models.base import Base
 from biosurfer.core.models.biomolecules import (ORF, Chromosome, Exon,
                                                 GencodeTranscript, Gene,
@@ -517,43 +517,53 @@ class Database:
                 with session.begin():
                     print(f'Clearing non-reference mappings from table \'{ProteinFeature.__tablename__}\'...')
                     session.execute(delete(ProteinFeature.__table__).where(~ProteinFeature.reference))
-                    print(f'Clearing table \'{ProjectedFeature.__tablename__}\'...')
-                    session.execute(delete(ProjectedFeature.__table__))
-            with session.begin():
-                rows = list(
-                    session.execute(
-                        select(Transcript.gene_id, Protein, Transcript.__table__.c.appris, func.length(Protein.sequence)).
-                        select_from(Protein).
-                        join(Protein.orf).
-                        join(ORF.transcript).
-                        options(joinedload(Protein.orf).joinedload(ORF.transcript))
-                    )
-                )
-                t = tqdm(rows, desc='Projecting domain mappings', total=len(rows), unit='proteins')
-                proteins_by_gene = groupby(t, key=itemgetter(0))
-                domains_to_insert = []
-                for _, group in proteins_by_gene:
-                    proteins = [row[1] for row in sorted(group, key=itemgetter(2, 3))]
-                    anchor = proteins[0]
-                    for other in proteins[1:]:
+            q = (
+                select(Transcript.gene_id, Protein, Transcript.__table__.c.appris, func.length(Protein.sequence)).
+                    execution_options(yield_per=1000).
+                select_from(Protein).
+                join(Protein.orf).
+                join(ORF.transcript).
+                    options(joinedload(Protein.orf).joinedload(ORF.transcript))
+            )
+            tqdm.write(str(q))
+            nrows = session.execute(select(func.count(ORF.protein_id))).scalars().first()
+            # rows = windowed_query(q, Transcript.gene_id, 500)
+            rows = chain.from_iterable(session.execute(q).partitions(size=1000))
+            t = tqdm(rows, desc='Projecting domain mappings', total=nrows, unit='proteins')
+            proteins_by_gene = groupby(t, key=itemgetter(0))
+            domains_to_insert = []
+            for _, group in proteins_by_gene:
+                proteins = [row[1] for row in sorted(group, key=itemgetter(2, 3))]
+                anchor = proteins[0]
+                for other in proteins[1:]:
+                    try:
                         aln = Alignment(anchor, other)
-                        for feat in anchor.features:
-                            proj_feat, _ = aln.project_feature(feat)
-                            if proj_feat:
-                                record = {
-                                    k: getattr(proj_feat, k)
-                                    for k in (
-                                        'protein_start',
-                                        'protein_stop',
-                                        'reference',
-                                        '_differences'
-                                    )
-                                }
-                                record['feature_id'] = proj_feat.feature.accession
-                                record['protein_id'] = other.accession
-                                record['anchor_id'] = proj_feat.anchor.id
-                                domains_to_insert.append(record)
-                session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
+                    except Exception as e:
+                        tqdm.write(f'{anchor}|{other}\t{e}')
+                        continue
+                    for feat in anchor.features:
+                        proj_feat, _ = aln.project_feature(feat)
+                        if proj_feat:
+                            record = {
+                                k: getattr(proj_feat, k)
+                                for k in (
+                                    'protein_start',
+                                    'protein_stop',
+                                    'reference',
+                                    '_differences'
+                                )
+                            }
+                            record['feature_id'] = proj_feat.feature.accession
+                            record['protein_id'] = other.accession
+                            record['anchor_id'] = proj_feat.anchor.id
+                            domains_to_insert.append(record)
+                        if len(domains_to_insert) > CHUNK_SIZE:
+                            session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
+                            # session.commit()
+                            domains_to_insert[:] = []
+            session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
+            session.commit()
+            Alignment.__new__.cache_clear()
 
 
 def _process_exons(transcripts_to_exons, minus_transcripts):

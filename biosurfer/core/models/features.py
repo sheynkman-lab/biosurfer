@@ -53,10 +53,10 @@ class Domain(Feature):
 
 class ProteinFeature(Base, TablenameMixin):
     id = Column(Integer, primary_key=True, autoincrement=True)
-    feature_id = Column(String, ForeignKey('feature.accession'))
-    protein_id = Column(String, ForeignKey('protein.accession'))
-    protein_start = Column(Integer)
-    protein_stop = Column(Integer)
+    feature_id = Column(String, ForeignKey('feature.accession'), nullable=False)
+    protein_id = Column(String, ForeignKey('protein.accession'), nullable=False)
+    protein_start = Column(Integer, nullable=False)
+    protein_stop = Column(Integer, nullable=False)
     reference = Column(Boolean, nullable=False)
 
     feature = relationship('Feature', uselist=False, lazy='selectin')
@@ -74,15 +74,15 @@ class ProteinFeature(Base, TablenameMixin):
 
     @property
     def type(self) -> FeatureType:
-        return self.feature.type
+        return self.feature.type if self.feature else FeatureType.NONE
 
     @property
     def name(self) -> str:
-        return self.feature.name
+        return self.feature.name if self.feature else None
     
     @property
     def description(self) -> str:
-        return self.feature.description
+        return self.feature.description if self.feature else None
 
     @hybrid_property
     def length(self):

@@ -213,13 +213,13 @@ class ProteinAlignmentBlock(AlignmentBlock):
 
 
 class Alignment(ResidueAlignmentSequence):
-    @lru_cache(maxsize=None)
+    @lru_cache()
     def __new__(cls, *args, **kwargs):
         return object.__new__(cls)
 
     def __init__(self, anchor: 'Protein', other: 'Protein'):
-        if anchor.orf.gene is not other.orf.gene:
-            raise ValueError(f'{anchor} and {other} belong to different genes')
+        # if anchor.orf.gene is not other.orf.gene:
+        #     raise ValueError(f'{anchor} and {other} belong to different genes')
         if anchor.orf.transcript.strand is not other.orf.transcript.strand:
             raise ValueError(f'{anchor.orf.transcript} and {other.orf.transcript} are on different strands')
         else:

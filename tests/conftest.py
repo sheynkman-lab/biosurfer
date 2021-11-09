@@ -27,7 +27,7 @@ def database(database_path):
     )
     db.load_domains(data_dir/'pfamA.tsv')
     db.load_domain_mappings(data_dir/'grch38-pfam-mappings.tsv')
-    # db.project_domain_mappings()
+    db.project_domain_mappings()
     yield db
     db.engine.dispose()
 
