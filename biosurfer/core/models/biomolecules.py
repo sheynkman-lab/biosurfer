@@ -106,12 +106,12 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
                 if self.strand is Strand.MINUS:
                     coords = reversed(coords)
                 for coord in coords:
-                    nt = Nucleotide(self, coord, i+1, self.sequence[i])
+                    nt = Nucleotide(self, coord, i+1)
                     nucleotides.append(nt)
                     self._nucleotide_mapping[coord] = nt
                     i += 1
         else:
-            nucleotides = [Nucleotide(self, None, i, base) for i, base in enumerate(self.sequence, start=1)]
+            nucleotides = [Nucleotide(self, None, i+1) for i in range(len(self.sequence))]
         return nucleotides
 
     def __repr__(self) -> str:
@@ -419,7 +419,7 @@ class Protein(Base, TablenameMixin, AccessionMixin):
     def residues(self):
         # if not self.sequence.endswith('*'):
         #     self.sequence += '*'
-        _residues = [Residue(self, aa, i) for i, aa in enumerate(self.sequence, start=1)]
+        _residues = [Residue(self, i+1) for i in range(len(self.sequence))]
         if self.orf:
             self.orf._link_aa_to_nt(_residues)
         return _residues

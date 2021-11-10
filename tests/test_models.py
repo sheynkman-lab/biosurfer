@@ -147,7 +147,14 @@ def feature_getter(session):
         )
     return _get_feature
 
+########################
 ### TESTS BEGIN HERE ###
+########################
+
+@given(data=st.data())
+def test_transcript_nucleotides_match_sequence(data, transcript_getter):
+    transcript = transcript_getter(data)
+    assert ''.join(str(nt.base) for nt in transcript.nucleotides) == transcript.sequence
 
 @given(data=st.data())
 def test_exon_lengths_correct(data, transcript_getter):
@@ -187,6 +194,12 @@ def test_nucleotide_has_exon(data, transcript_getter):
     for exon in transcript.exons:
         for nt in exon.nucleotides:
             assert nt.exon is exon
+
+@given(data=st.data())
+def test_protein_residues_match_sequence(data, coding_transcript_getter):
+    transcript = coding_transcript_getter(data)
+    protein = transcript.protein
+    assert ''.join(str(res.amino_acid) for res in protein.residues) == protein.sequence
 
 @given(data=st.data())
 def test_nucleotide_has_residue(data, coding_transcript_getter):

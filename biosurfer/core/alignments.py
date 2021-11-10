@@ -28,10 +28,11 @@ SUBST_MATRIX = substitution_matrices.load('BLOSUM80')
 
 class GapResidue(Residue):
     def __init__(self, protein: 'Protein', position: int, upstream_exon: Optional['Exon'], downstream_exon: Optional['Exon']):
-        super().__init__(protein, AminoAcid.GAP, position)
+        super().__init__(protein, position)
+        self._aa = AminoAcid.GAP
         self.upstream_exon = upstream_exon
         self.downstream_exon = downstream_exon
-    
+
     @Residue.codon_str.getter
     def codon_str(self):
         return '-'
@@ -213,9 +214,9 @@ class ProteinAlignmentBlock(AlignmentBlock):
 
 
 class Alignment(ResidueAlignmentSequence):
-    @lru_cache()
-    def __new__(cls, *args, **kwargs):
-        return object.__new__(cls)
+    # @lru_cache()
+    # def __new__(cls, *args, **kwargs):
+    #     return object.__new__(cls)
 
     def __init__(self, anchor: 'Protein', other: 'Protein'):
         # if anchor.orf.gene is not other.orf.gene:

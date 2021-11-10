@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import Counter
+from functools import cached_property
 from operator import attrgetter
 from typing import TYPE_CHECKING, List, Optional, Tuple
 from warnings import warn
@@ -13,16 +14,24 @@ if TYPE_CHECKING:
 
 # TODO: save memory usage with __slots__?
 class Nucleotide:
-    def __init__(self, parent, coordinate: int, position: int, base: str) -> None:
+    __slots__ = ('parent', 'coordinate', 'position', '_base', 'residue')
+
+    def __init__(self, parent, coordinate: int, position: int) -> None:
         self.parent = parent
         self.coordinate = coordinate  # genomic coordinate
         self.position = position  # position within parent
-        self.base = Nucleobase(base)
+        self._base = None
         self.residue = None  # associated Residue, if any
     
     def __repr__(self) -> str:
         return f'{self.parent.chromosome}:{self.coordinate}({self.parent.strand}){self.base}'
     
+    @property
+    def base(self) -> 'Nucleobase':
+        if not self._base:
+            self._base = Nucleobase(self.parent.sequence[self.position - 1])
+        return self._base
+
     @property
     def chromosome(self) -> 'Chromosome':
         return self.parent.chromosome
@@ -40,14 +49,21 @@ class Nucleotide:
     @property
     def exon(self) -> 'Exon':
         return self.parent.get_exon_containing_position(self.position)
+    
+    def __eq__(self, other: 'Nucleotide'):
+        if not isinstance(other, Nucleotide):
+            raise TypeError(f'Cannot compare Nucleotide with {type(other)}')
+        return self.coordinate, self.position, self.base == other.coordinate, other.position, other.base
 
 
 OptNucleotide = Optional['Nucleotide']
 Codon = Tuple[OptNucleotide, OptNucleotide, OptNucleotide]
 
 class Residue:
-    def __init__(self, protein: 'Protein', amino_acid: str, position: int) -> None:
-        self.amino_acid = AminoAcid(amino_acid)
+    __slots__ = ('protein', 'position', '_aa', 'codon')
+
+    def __init__(self, protein: 'Protein', position: int) -> None:
+        self._aa = None
         self.protein = protein
         self.position = position  # position within protein peptide sequence
         self.codon: Codon = (None, None, None)  # 3-tuple of associated Nucleotides; filled in later
@@ -56,13 +72,18 @@ class Residue:
         return f'{self.amino_acid}{self.position}'
     
     @property
+    def amino_acid(self) -> 'AminoAcid':
+        if not self._aa:
+            self._aa = AminoAcid(self.protein.sequence[self.position - 1])
+        return self._aa
+
+    @property
     def codon_str(self) -> str:
         return ''.join(str(nt.base) for nt in self.codon)
 
     @property
     def exons(self) -> List['Exon']:
-        # TODO: is sorting necessary here?
-        return sorted({nt.exon for nt in self.codon}, key=attrgetter('position'))
+        return [nt.exon for nt in self.codon]
     
     @property
     def primary_exon(self) -> 'Exon':
