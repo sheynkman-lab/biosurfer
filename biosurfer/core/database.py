@@ -3,6 +3,7 @@ import os
 from itertools import chain, groupby
 from operator import attrgetter, itemgetter
 from pathlib import Path
+from sqlite3 import Connection as SQLite3Connection
 from typing import TYPE_CHECKING, Callable, Dict
 from warnings import warn
 
@@ -20,8 +21,9 @@ from biosurfer.core.models.biomolecules import (ORF, Chromosome, Exon,
 from biosurfer.core.models.features import (Domain, Feature, ProjectedFeature,
                                             ProteinFeature)
 from more_itertools import chunked
-from sqlalchemy import create_engine, delete, select
+from sqlalchemy import create_engine, delete, event, select
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import joinedload, scoped_session, sessionmaker
 from sqlalchemy.sql.expression import desc
 from sqlalchemy.sql.functions import func
@@ -34,7 +36,6 @@ SQANTI_DICT = {
     'novel_in_catalog': SQANTI.NIC,
     'novel_not_in_catalog': SQANTI.NNC
 }
-
 
 class Database:
     _databases_dir = Path(__file__).parent.parent.parent/'databases'
@@ -78,16 +79,20 @@ class Database:
 
     def get_session(self, **kwargs):
         return self._sessionmaker(**kwargs)
-    
+
+    def drop_all(self):
+        print(f'Dropping all tables from {self.url}...')
+        Base.metadata.drop_all(bind=self._engine)
+
     def load_gencode_gtf(self, gtf_file: str, overwrite=False) -> None:
         with self.get_session() as session:
-            if overwrite:
-                with session.begin():
-                    for model in (Chromosome, Gene, Exon, ORF):
-                        print(f'Clearing table \'{model.__tablename__}\'...')
-                        session.execute(delete(model.__table__))
-                    print(f'Clearing GENCODE transcripts from \'{Transcript.__tablename__}\'...')
-                    session.execute(delete(Transcript.__table__).where(Transcript.type == 'gencodetranscript'))
+            # if overwrite:
+            #     with session.begin():
+            #         for model in (Chromosome, Gene, Exon, ORF):
+            #             print(f'Clearing table \'{model.__tablename__}\'...')
+            #             session.execute(delete(model.__table__))
+            #         print(f'Clearing GENCODE transcripts from \'{Transcript.__tablename__}\'...')
+            #         session.execute(delete(Transcript.__table__).where(Transcript.type == 'gencodetranscript'))
 
             chromosomes = {}
             genes_to_upsert = []
@@ -209,17 +214,17 @@ class Database:
 
     def load_pacbio_gtf(self, gtf_file: str, overwrite=False) -> None:
         with self.get_session() as session:
-            if overwrite:
-                existing_genes = {}
-                with session.begin():
-                    for model in (Chromosome, Gene, Exon, ORF):
-                        print(f'Clearing table \'{model.__tablename__}\'...')
-                        session.execute(delete(model.__table__))
-                    print(f'Clearing PacBio transcripts from \'{Transcript.__tablename__}\'...')
-                    session.execute(delete(Transcript.__table__).where(Transcript.type == 'pacbiotranscript'))
-            else:
-                with session.begin():
-                    existing_genes = {row.name: row.accession for row in session.query(Gene.name, Gene.accession).all()}
+            # if overwrite:
+            #     existing_genes = {}
+            #     with session.begin():
+            #         for model in (Chromosome, Gene, Exon, ORF):
+            #             print(f'Clearing table \'{model.__tablename__}\'...')
+            #             session.execute(delete(model.__table__))
+            #         print(f'Clearing PacBio transcripts from \'{Transcript.__tablename__}\'...')
+            #         session.execute(delete(Transcript.__table__).where(Transcript.type == 'pacbiotranscript'))
+            # else:
+            with session.begin():
+                existing_genes = {row.name: row.accession for row in session.query(Gene.name, Gene.accession).all()}
 
             chromosomes = {}
             genes_to_insert = []
@@ -362,10 +367,10 @@ class Database:
 
     def load_translation_fasta(self, translation_fasta: str, id_extractor: Callable[[str], 'FastaHeaderFields'], id_filter: Callable[[str], bool] = lambda x: False, overwrite: bool = False):
         with self.get_session() as session:
-            if overwrite:
-                with session.begin():
-                    print(f'Clearing table \'{Protein.__tablename__}\'...')
-                    session.execute(delete(Protein.__table__))
+            # if overwrite:
+            #     with session.begin():
+            #         print(f'Clearing table \'{Protein.__tablename__}\'...')
+            #         session.execute(delete(Protein.__table__))
 
             with session.begin():
                 existing_orfs = {}
@@ -404,10 +409,10 @@ class Database:
                             break
                 
                 if i % CHUNK_SIZE == 0:
-                    bulk_upsert(session, ORF.__table__, orfs_to_update, primary_keys=('transcript_id', 'position'))
                     bulk_upsert(session, Protein.__table__, proteins_to_upsert)
-            bulk_upsert(session, ORF.__table__, orfs_to_update, primary_keys=('transcript_id', 'position'))
+                    bulk_upsert(session, ORF.__table__, orfs_to_update, primary_keys=('transcript_id', 'position'))
             bulk_upsert(session, Protein.__table__, proteins_to_upsert)
+            bulk_upsert(session, ORF.__table__, orfs_to_update, primary_keys=('transcript_id', 'position'))
 
     def load_sqanti_classifications(self, sqanti_file: str):
         with self.get_session() as session:
@@ -436,11 +441,11 @@ class Database:
                 bulk_upsert(session, PacBioTranscript.__table__, transcripts_to_update)
 
     def load_domains(self, domain_file: str, overwrite: bool = False):
-        if overwrite:
-            print(f'Clearing domains from table \'{Feature.__tablename__}\'...')
-            with self.get_session() as session:
-                with session.begin():
-                    session.execute(delete(Feature.__table__).where(Feature.type == FeatureType.DOMAIN))
+        # if overwrite:
+        #     print(f'Clearing domains from table \'{Feature.__tablename__}\'...')
+        #     with self.get_session() as session:
+        #         with session.begin():
+        #             session.execute(delete(Feature.__table__).where(Feature.type == FeatureType.DOMAIN))
 
         with open(domain_file) as f:
             lines = count_lines(f)
@@ -461,11 +466,11 @@ class Database:
     def load_domain_mappings(self, domain_mapping_file: str, appris_only: bool = True, overwrite: bool = False):
         with self.get_session() as session:
             with session.begin():
-                if overwrite:
-                    print(f'Clearing table \'{ProteinFeature.__tablename__}\'...')
-                    session.execute(delete(ProteinFeature.__table__))
-                    print(f'Clearing table \'{ProjectedFeature.__tablename__}\'...')
-                    session.execute(delete(ProjectedFeature.__table__))
+                # if overwrite:
+                #     print(f'Clearing table \'{ProteinFeature.__tablename__}\'...')
+                #     session.execute(delete(ProteinFeature.__table__))
+                #     print(f'Clearing table \'{ProjectedFeature.__tablename__}\'...')
+                #     session.execute(delete(ProjectedFeature.__table__))
                     # domain_mappings = (
                     #     select(feature_mapping_table).
                     #     join(feature_base_table, feature_mapping_table.c.feature_id == feature_base_table.c.accession).
@@ -492,6 +497,7 @@ class Database:
                     )
                 else:
                     proteins_to_map = set(session.execute(select(Protein.accession)).scalars())
+                existing_features = set(session.execute(select(Feature.accession)).scalars())
             with open(domain_mapping_file) as f:
                 f.readline()  # skip header
                 lines = count_lines(f)
@@ -505,7 +511,7 @@ class Database:
                         'protein_stop': row['Pfam end'],
                         'reference': True
                     }
-                    for row in t if row['Protein stable ID version'] in proteins_to_map
+                    for row in t if row['Pfam ID'] in existing_features and row['Protein stable ID version'] in proteins_to_map
                 )
                 domains_to_insert = list(domains_to_insert)
             with session.begin():
@@ -513,10 +519,10 @@ class Database:
             
     def project_domain_mappings(self, overwrite: bool = False):
         with self.get_session() as session:
-            if overwrite:
-                with session.begin():
-                    print(f'Clearing non-reference mappings from table \'{ProteinFeature.__tablename__}\'...')
-                    session.execute(delete(ProteinFeature.__table__).where(~ProteinFeature.reference))
+            # if overwrite:
+            #     with session.begin():
+            #         print(f'Clearing non-reference mappings from table \'{ProteinFeature.__tablename__}\'...')
+            #         session.execute(delete(ProteinFeature.__table__).where(~ProteinFeature.reference))
             q = (
                 select(Transcript.gene_id, Protein, Transcript.__table__.c.appris, func.length(Protein.sequence)).
                     execution_options(yield_per=1000).
@@ -529,7 +535,7 @@ class Database:
             nrows = session.execute(select(func.count(ORF.protein_id))).scalars().first()
             # rows = windowed_query(q, Transcript.gene_id, 500)
             rows = chain.from_iterable(session.execute(q).partitions(size=1000))
-            t = tqdm(rows, desc='Projecting domain mappings', total=nrows, unit='proteins')
+            t = tqdm(rows, desc='Projecting domain mappings', total=nrows, unit='proteins', miniters=1)
             proteins_by_gene = groupby(t, key=itemgetter(0))
             domains_to_insert = []
             for _, group in proteins_by_gene:
@@ -629,6 +635,14 @@ def _process_orfs(transcripts_to_cdss, transcripts_to_exons, minus_transcripts):
         })
     return orfs_to_upsert
 
+# Make sure SQLite enforces foreign key constraints
+# https://www.scrygroup.com/tutorial/2018-05-07/SQLite-foreign-keys/
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    if isinstance(dbapi_connection, SQLite3Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON;")
+        cursor.close()
 
 DB_MEMORY = Database(url='sqlite://')
 DB_GENCODE = Database('gencode')
