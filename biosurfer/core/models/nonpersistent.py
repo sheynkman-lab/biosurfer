@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from biosurfer.core.models.biomolecules import Chromosome, Gene, Transcript, Exon, ORF, Protein
 
 
-# TODO: save memory usage with __slots__?
 class Nucleotide:
     __slots__ = ('parent', 'coordinate', 'position', '_base', 'residue')
 
@@ -108,7 +107,7 @@ class Residue:
 class Junction:
     donor: int
     acceptor: int
-    chromosome: 'Chromosome'
+    chromosome: str
     strand: 'Strand'
     
     def __repr__(self) -> str:
@@ -117,7 +116,7 @@ class Junction:
     def __eq__(self, other: 'Junction') -> bool:
         if not isinstance(other, Junction):
             raise TypeError(f'Cannot compare Junction with {type(other)}')
-        if self.chromosome is not other.chromosome:
+        if self.chromosome != other.chromosome:
             return False
         if self.strand is not other.strand:
             return False
