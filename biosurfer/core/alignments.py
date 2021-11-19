@@ -221,10 +221,9 @@ class Alignment(ResidueAlignmentSequence):
     def __init__(self, anchor: 'Protein', other: 'Protein'):
         # if anchor.orf.gene is not other.orf.gene:
         #     raise ValueError(f'{anchor} and {other} belong to different genes')
-        if anchor.orf.transcript.strand is not other.orf.transcript.strand:
-            raise ValueError(f'{anchor.orf.transcript} and {other.orf.transcript} are on different strands')
-        else:
-            strand = anchor.orf.transcript.strand
+        strand = anchor.orf.transcript.strand
+        # if strand is not other.orf.transcript.strand:
+        #     raise ValueError(f'{anchor.orf.transcript} and {other.orf.transcript} are on different strands')
         self.anchor = anchor
         self.other = other
         self._chain = rough_alignment(anchor, other, strand)
@@ -544,7 +543,7 @@ class FeatureAlignment(AlignmentBlock):
         last_res = proteinfeature.residues[-1]
         first_res_aln_index, _ = parent.get_anchor_residue_alignment(first_res, include_index=True)
         last_res_aln_index, _ = parent.get_anchor_residue_alignment(last_res, include_index=True)
-        super().__init__(parent, first_res_aln_index, last_res_aln_index)
+        super().__init__(parent, first_res_aln_index, last_res_aln_index+1)
         self.proteinfeature = proteinfeature
         self.transcript_blocks = [tblock for tblock in parent.transcript_blocks if tblock.start <= self.end and self.start <= tblock.end]
         self.protein_blocks = [pblock for pblock in parent.protein_blocks if pblock.start <= self.end and self.start <= pblock.end]

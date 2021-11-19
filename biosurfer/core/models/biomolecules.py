@@ -14,6 +14,7 @@ from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import relationship
 
 
+# TODO: replace with Enum?
 class Chromosome(Base, TablenameMixin, NameMixin):
     name = Column(String, primary_key=True)
     genes = relationship('Gene', back_populates='chromosome')
@@ -28,9 +29,9 @@ class Gene(Base, TablenameMixin, NameMixin, AccessionMixin):
     chromosome = relationship('Chromosome', back_populates='genes')
     transcripts = relationship(
         'Transcript',
-        back_populates='gene',
-        order_by='Transcript.name',
-        lazy='selectin'  # always load transcripts along with gene
+        back_populates = 'gene',
+        order_by = 'Transcript.name',
+        lazy = 'selectin'  # always load transcripts along with gene
     )
 
     def __repr__(self) -> str:
@@ -55,17 +56,17 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
     gene = relationship('Gene', back_populates='transcripts')
     exons = relationship(
         'Exon',
-        order_by='Exon.transcript_start',
-        collection_class=ordering_list('position', count_from=1),
-        back_populates='transcript',
-        uselist=True,
-        lazy='selectin'  # always load exons along with transcript
+        order_by = 'Exon.transcript_start',
+        collection_class = ordering_list('position', count_from=1),
+        back_populates = 'transcript',
+        uselist = True,
+        lazy = 'selectin'  # always load exons along with transcript
     )
     orfs = relationship(
         'ORF',
-        order_by='ORF.transcript_start',
-        back_populates='transcript',
-        uselist=True
+        order_by = 'ORF.transcript_start',
+        back_populates = 'transcript',
+        uselist = True
     )
 
     __mapper_args__ = {
@@ -89,7 +90,7 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
             donor = up_exon.nucleotides[-1].coordinate
             acceptor = down_exon.nucleotides[0].coordinate
 
-            junction = Junction(donor, acceptor, self.chromosome, self.strand)
+            junction = Junction(donor, acceptor, self.chromosome.name, self.strand)
             mapping[junction] = (up_exon, down_exon)
         return mapping
     
@@ -234,7 +235,7 @@ class Exon(Base, TablenameMixin, AccessionMixin):
     transcript_id = Column(String, ForeignKey('transcript.accession'), primary_key=True)
     transcript = relationship(
         'Transcript', 
-        back_populates='exons'
+        back_populates = 'exons'
     )
 
     def __repr__(self) -> str:
@@ -281,13 +282,15 @@ class ORF(Base, TablenameMixin):
     transcript_id = Column(String, ForeignKey('transcript.accession'), primary_key=True)
     transcript = relationship(
         'Transcript', 
-        back_populates='orfs'
+        back_populates = 'orfs',
+        lazy = 'joined'
     )
     protein_id = Column(String, ForeignKey('protein.accession'))
     protein = relationship(
         'Protein',
-        back_populates='orf',
-        uselist=False
+        back_populates = 'orf',
+        uselist = False,
+        lazy = 'joined'
     )
 
     @property
@@ -397,7 +400,8 @@ class Protein(Base, TablenameMixin, AccessionMixin):
     orf = relationship(
         'ORF',
         back_populates = 'protein',
-        uselist = False
+        uselist = False,
+        lazy = 'joined'
     )
     features = relationship(
         'ProteinFeature',

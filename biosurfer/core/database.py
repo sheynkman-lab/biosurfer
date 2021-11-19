@@ -4,7 +4,7 @@ from itertools import chain, groupby
 from operator import attrgetter, itemgetter
 from pathlib import Path
 from sqlite3 import Connection as SQLite3Connection
-from typing import TYPE_CHECKING, Callable, Dict
+from typing import TYPE_CHECKING, Callable, Dict, Iterable
 from warnings import warn
 
 from Bio import SeqIO
@@ -24,12 +24,12 @@ from more_itertools import chunked
 from sqlalchemy import create_engine, delete, event, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import joinedload, scoped_session, sessionmaker
+from sqlalchemy.orm import contains_eager, joinedload, raiseload, scoped_session, sessionmaker
 from sqlalchemy.sql.expression import desc
 from sqlalchemy.sql.functions import func
 from tqdm import tqdm
 
-CHUNK_SIZE = 10000
+CHUNK_SIZE = 5000
 SQANTI_DICT = {
     'full-splice_match': SQANTI.FSM,
     'incomplete-splice_match': SQANTI.ISM,
@@ -64,7 +64,7 @@ class Database:
             url = Database._get_db_url_from_name(name)
         self.url = url
         self._engine = create_engine(self.url)
-        Base.metadata.create_all(self._engine)
+        # Base.metadata.create_all(self._engine)
         if sessionfactory is None:
             self._sessionmaker = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=self.engine, future=True))
         else:
@@ -80,9 +80,10 @@ class Database:
     def get_session(self, **kwargs):
         return self._sessionmaker(**kwargs)
 
-    def drop_all(self):
-        print(f'Dropping all tables from {self.url}...')
+    def recreate_tables(self):
+        print(f'Recreating tables in {self.url} ...')
         Base.metadata.drop_all(bind=self._engine)
+        Base.metadata.create_all(bind=self._engine)
 
     def load_gencode_gtf(self, gtf_file: str, overwrite=False) -> None:
         with self.get_session() as session:
@@ -249,9 +250,7 @@ class Database:
                         chromosomes[chr] = chromosome
                     gene_name = attributes['gene_id']
                     if gene_name not in existing_genes:
-                        warn(
-                            f'gene \'{gene_name}\' from PacBio data will be added with non-Ensembl accession'
-                        )
+                        tqdm.write(f'Could not find Ensembl accession for gene \'{gene_name}\'')
                         existing_genes[gene_name] = gene_name
                         gene = {
                             'accession': gene_name,
@@ -466,18 +465,9 @@ class Database:
     def load_domain_mappings(self, domain_mapping_file: str, appris_only: bool = True, overwrite: bool = False):
         with self.get_session() as session:
             with session.begin():
-                # if overwrite:
-                #     print(f'Clearing table \'{ProteinFeature.__tablename__}\'...')
-                #     session.execute(delete(ProteinFeature.__table__))
-                #     print(f'Clearing table \'{ProjectedFeature.__tablename__}\'...')
-                #     session.execute(delete(ProjectedFeature.__table__))
-                    # domain_mappings = (
-                    #     select(feature_mapping_table).
-                    #     join(feature_base_table, feature_mapping_table.c.feature_id == feature_base_table.c.accession).
-                    #     where(feature_base_table.c.type == ProteinFeatureType.DOMAIN)
-                    # )
-                    # session.execute(delete(feature_mapping_table).where(feature_mapping_table))
-                # session.execute(select(Protein.accession, Transcript.appris))
+                if overwrite:
+                    print(f'Clearing table \'{ProteinFeature.__tablename__}\'...')
+                    session.execute(delete(ProteinFeature.__table__))
                 if appris_only:
                     protein_length = func.length(Protein.sequence)
                     subq = (
@@ -486,7 +476,7 @@ class Database:
                         join(Protein.orf).
                         join(ORF.transcript).
                         order_by(GencodeTranscript.gene_id).
-                        order_by(GencodeTranscript.appris).
+                        order_by(desc(GencodeTranscript.appris)).
                         order_by(desc(protein_length)).
                         subquery()
                     )
@@ -517,59 +507,92 @@ class Database:
             with session.begin():
                 session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
             
-    def project_domain_mappings(self, overwrite: bool = False):
+    def project_domain_mappings(self, gene_ids: Iterable[str] = None, overwrite: bool = False):
         with self.get_session() as session:
             # if overwrite:
             #     with session.begin():
             #         print(f'Clearing non-reference mappings from table \'{ProteinFeature.__tablename__}\'...')
             #         session.execute(delete(ProteinFeature.__table__).where(~ProteinFeature.reference))
+            protein_tx = contains_eager(Protein.orf).contains_eager(ORF.transcript)
             q = (
-                select(Transcript.gene_id, Protein, Transcript.__table__.c.appris, func.length(Protein.sequence)).
-                    execution_options(yield_per=1000).
-                select_from(Protein).
+                select(Protein, Transcript.gene_id).
                 join(Protein.orf).
                 join(ORF.transcript).
-                    options(joinedload(Protein.orf).joinedload(ORF.transcript))
+                order_by(Transcript.gene_id).
+                order_by(desc(Transcript.__table__.c.appris)).
+                order_by(desc(ORF.length)).
+                options(
+                    protein_tx.joinedload(Transcript.orfs),
+                    protein_tx.joinedload(Transcript.exons).joinedload(Exon.transcript),
+                    contains_eager(Protein.orf).joinedload(ORF.protein),
+                    joinedload(Protein.features).joinedload(ProteinFeature.protein),
+                    joinedload(Protein.features).joinedload(ProteinFeature.feature),
+                    raiseload('*')
+                )
             )
             tqdm.write(str(q))
-            nrows = session.execute(select(func.count(ORF.protein_id))).scalars().first()
-            # rows = windowed_query(q, Transcript.gene_id, 500)
-            rows = chain.from_iterable(session.execute(q).partitions(size=1000))
-            t = tqdm(rows, desc='Projecting domain mappings', total=nrows, unit='proteins', miniters=1)
-            proteins_by_gene = groupby(t, key=itemgetter(0))
+            if not gene_ids:
+                gene_ids = list(session.execute(
+                    select(Transcript.gene_id).distinct().
+                    select_from(ORF).
+                    join(ORF.transcript).
+                    order_by(Transcript.gene_id)
+                ).scalars())
+            nrows = session.execute(
+                select(func.count(Transcript.accession)).
+                select_from(ORF).
+                join(ORF.transcript).
+                where(Transcript.gene_id.in_(gene_ids))
+            ).scalars().first()
+            rows = chain.from_iterable(
+                session.execute(
+                    q.where(Transcript.gene_id.in_(gene_chunk))
+                ).unique()
+                for gene_chunk in chunked(gene_ids, 200)
+            )
+            t = tqdm(None, desc='Projecting domain mappings', total=nrows, unit='proteins', mininterval=0.2)
             domains_to_insert = []
-            for _, group in proteins_by_gene:
-                proteins = [row[1] for row in sorted(group, key=itemgetter(2, 3))]
-                anchor = proteins[0]
-                for other in proteins[1:]:
-                    try:
-                        aln = Alignment(anchor, other)
-                    except Exception as e:
-                        tqdm.write(f'{anchor}|{other}\t{e}')
-                        continue
-                    for feat in anchor.features:
-                        proj_feat, _ = aln.project_feature(feat)
-                        if proj_feat:
-                            record = {
-                                k: getattr(proj_feat, k)
-                                for k in (
-                                    'protein_start',
-                                    'protein_stop',
-                                    'reference',
-                                    '_differences'
-                                )
-                            }
-                            record['feature_id'] = proj_feat.feature.accession
-                            record['protein_id'] = other.accession
-                            record['anchor_id'] = proj_feat.anchor.id
-                            domains_to_insert.append(record)
-                        if len(domains_to_insert) > CHUNK_SIZE:
-                            session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
-                            # session.commit()
-                            domains_to_insert[:] = []
-            session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
-            session.commit()
-            Alignment.__new__.cache_clear()
+            for gene_chunk in chunked(gene_ids, 200):
+                rows = session.execute(
+                    q.where(Transcript.gene_id.in_(gene_chunk))
+                ).unique()
+                rows_by_gene = groupby(rows, key=itemgetter(1))
+                for _, group in rows_by_gene:
+                    proteins = [row[0] for row in group]
+                    anchor = proteins[0]
+                    for other in proteins[1:]:
+                        if not anchor.features:
+                            continue
+                        try:
+                            aln = Alignment(anchor, other)
+                        except Exception as e:
+                            tqdm.write(f'{anchor}|{other}\t{e}')
+                            continue
+                        for feat in anchor.features:
+                            proj_feat, _ = aln.project_feature(feat)
+                            if proj_feat:
+                                record = {
+                                    k: getattr(proj_feat, k)
+                                    for k in (
+                                        'protein_start',
+                                        'protein_stop',
+                                        'reference',
+                                        '_differences'
+                                    )
+                                }
+                                record['feature_id'] = proj_feat.feature.accession
+                                record['protein_id'] = other.accession
+                                record['anchor_id'] = proj_feat.anchor.id
+                                domains_to_insert.append(record)
+                    t.update(len(proteins))
+                # if len(domains_to_insert) > CHUNK_SIZE:
+                session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
+                session.commit()
+                domains_to_insert[:] = []
+            # if domains_to_insert:
+            #     session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
+            # session.commit()
+            # Alignment.__new__.cache_clear()
 
 
 def _process_exons(transcripts_to_exons, minus_transcripts):
@@ -634,6 +657,7 @@ def _process_orfs(transcripts_to_cdss, transcripts_to_exons, minus_transcripts):
             'has_stop_codon': False,
         })
     return orfs_to_upsert
+
 
 # Make sure SQLite enforces foreign key constraints
 # https://www.scrygroup.com/tutorial/2018-05-07/SQLite-foreign-keys/

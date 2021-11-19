@@ -196,9 +196,7 @@ class FastaHeaderFields:
 
 
 def count_lines(file_handle: 'TextIOBase', only: Optional[Callable[..., bool]] = None):
-    lines = 0
-    for _ in filter(only, file_handle):
-        lines += 1
+    lines = sum(1 for _ in filter(only, file_handle))
     file_handle.seek(0)
     return lines
 
