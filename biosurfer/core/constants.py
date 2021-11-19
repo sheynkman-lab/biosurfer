@@ -153,9 +153,9 @@ class FeatureType(Enum):
 
 
 class APPRIS(OrderedEnum):
-    PRINCIPAL = 1
-    ALTERNATIVE = 2
-    NONE = 3
+    NONE = auto()
+    ALTERNATIVE = auto()
+    PRINCIPAL = auto()
 
 
 class SQANTI(OrderedEnum):
