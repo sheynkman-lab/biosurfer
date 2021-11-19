@@ -2,21 +2,21 @@
 import multiprocessing as mp
 import os
 import sys
-from itertools import groupby, product
+from itertools import groupby, islice, product
 from operator import attrgetter
 from statistics import median
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from biosurfer.analysis.sqtl import (get_event_counts,
-                                     get_pblocks_related_to_junction,
-                                     junction_causes_knockdown_in_pair,
-                                     split_transcripts_on_junction_usage)
-from biosurfer.core.alignments import (TranscriptBasedAlignment,
+import seaborn as sns
+from biosurfer.analysis.sqtl import (
+    get_event_counts, get_pblocks_related_to_junction,
+    junction_has_drastic_effect_in_pair, split_transcripts_on_junction_usage)
+from biosurfer.core.alignments import (Alignment,
                                        export_annotated_pblocks_to_tsv)
 from biosurfer.core.constants import APPRIS, SQANTI, Strand
-from biosurfer.core.database import db_session
+from biosurfer.core.database import Database
 from biosurfer.core.helpers import ExceptionLogger
 from biosurfer.core.models import (Chromosome, GencodeTranscript, Gene,
                                    Junction, PacBioTranscript, Transcript)
@@ -24,11 +24,16 @@ from biosurfer.plots.plotting import IsoformPlot
 from IPython.display import display
 from matplotlib.gridspec import GridSpec
 from sqlalchemy.sql.expression import and_, or_
-import seaborn as sns
 from tqdm import tqdm
+
+plt.switch_backend('agg')
 
 data_dir = '../data/bone'
 output_dir = '../output/bone'
+
+db = Database('bone')
+db_session = db.get_session()
+Gene.session = db_session
 
 # %%
 print('Loading isoform expression table...')
@@ -43,7 +48,7 @@ over3counts = set(expression.query('total > 3').index)
 
 # %%
 print('Loading sQTL table...')
-sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=None)
+sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=32)
 sqtls = sqtls_raw[sqtls_raw['gene_type'] == 'protein_coding']
 def optional_list(things):
     list_things = sorted(set(things))
@@ -84,7 +89,7 @@ def abundant_and_coding(transcript: 'Transcript'):
     return transcript.accession in over3counts and len(transcript.orfs) > 0
 
 def sortkey(transcript: 'Transcript'):
-    return expression.total[transcript.accession], getattr(transcript, 'sqanti', SQANTI.OTHER)
+    return -expression.total[transcript.accession], getattr(transcript, 'sqanti', SQANTI.OTHER)
 
 def abundance_str(transcript: 'Transcript'):
     if transcript.accession in expression.index:
@@ -114,18 +119,21 @@ def get_augmented_sqtl_record(row):
         'pairs': 0
     }
     pb_transcripts = {tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript)}
-    using, not_using = split_transcripts_on_junction_usage(junc, filter(abundant_and_coding, pb_transcripts))
+    using, not_using = split_transcripts_on_junction_usage(junc, filter(attrgetter('orfs'), pb_transcripts))
     using = sorted(using, key=sortkey)
     not_using = sorted(not_using, key=sortkey)
     if not all((using, not_using)):
         return None
     
+    anchor_tx = min((tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript)), key=attrgetter('appris'))
+    
+
     pairs = list(product(not_using, using))
     n_pairs = len(pairs)
     alns = []
     for tx1, tx2 in pairs:
         with ExceptionLogger(f'Error for {tx1.name} and {tx2.name}'):
-            alns.append(TranscriptBasedAlignment(tx1.protein, tx2.protein))
+            alns.append(Alignment(tx1.protein, tx2.protein))
     junc_info['pairs'] = n_pairs
 
     pblocks = get_pblocks_related_to_junction(junc, alns)
@@ -138,11 +146,11 @@ def get_augmented_sqtl_record(row):
     # calculate median change in sequence length for junction-related pblocks
     junc_info['median_delta_length'] = median(pblock.delta_length for pblock in pblocks) if pblocks else 0.0
 
-    # classify knockdown vs. alteration for each pair
+    # classify "drastic" vs. "subtle" changes for each pair
     # threshold = -not_using[0].protein.length * 2 // 5
     pair_pblocks = groupby(pblocks, key=attrgetter('anchor', 'other'))
-    knockdown_pair_count = sum(junction_causes_knockdown_in_pair(pblocks=list(pblock_group)) for _, pblock_group in pair_pblocks)
-    junc_info['knockdown_frequency'] = knockdown_pair_count / n_pairs
+    drastic_pair_count = sum(junction_has_drastic_effect_in_pair(pblocks=list(pblock_group)) for _, pblock_group in pair_pblocks)
+    junc_info['drastic_effect_frequency'] = drastic_pair_count / n_pairs
 
     counts = get_event_counts(pblocks)
     freqs = {event.name: count/n_pairs for event, count in counts.items()}
@@ -152,16 +160,9 @@ def get_augmented_sqtl_record(row):
         os.mkdir(f'{output_dir}/{gene.name}')
     export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
-    should_plot = (
-        junc_info['knockdown_frequency'] > 0.9 or
-        junc_info['MXIC'] >= 0.5 or
-        junc_info['SIF'] >= 0.5 or
-        junc_info['IR'] > 0 or
-        junc_info['IX'] > 0
-    )
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
-    # if should_plot and not os.path.isfile(fig_path):
-    if True:
+    if not os.path.isfile(fig_path):
+    # if True:
         isoplot = IsoformPlot(
             using + not_using,
             columns = {
@@ -173,11 +174,13 @@ def get_augmented_sqtl_record(row):
         with ExceptionLogger(f'Error plotting {gene.name} {junc}'):
             gs = GridSpec(1, 3)
             isoplot.draw_all_isoforms(subplot_spec=gs[:2])
-            isoplot.draw_frameshifts()
+            isoplot.draw_frameshifts(anchor=anchor_tx)
             isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(using) - 0.5, start=gene.start, stop=gene.stop)
             isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#f0f0f0')
             for pblock in pblocks:
                 isoplot.draw_protein_block(pblock, alpha=n_pairs**-0.5)
+            isoplot.draw_domains(anchors=[anchor_tx])
+            isoplot.draw_legend()
             heatmap_ax = isoplot.fig.add_subplot(gs[-1])
             # all_accessions = [tx.accession for tx in isoplot.transcripts]
             pb_accessions = [tx.accession for tx in isoplot.transcripts if isinstance(tx, PacBioTranscript)]

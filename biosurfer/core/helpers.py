@@ -7,10 +7,15 @@ from contextlib import AbstractContextManager
 from copy import copy
 from dataclasses import dataclass, field, fields
 from enum import Enum
+from itertools import filterfalse
 from operator import itemgetter
-from typing import Generic, Iterable, Iterator, Tuple, TypeVar
+from typing import TYPE_CHECKING, Callable, Generic, Iterable, Iterator, List, Optional, Tuple, TypeVar
 
 from intervaltree import Interval, IntervalTree
+from sqlalchemy.dialects.sqlite.dml import insert
+
+if TYPE_CHECKING:
+    from io import TextIOBase
 
 T = TypeVar('T')
 
@@ -162,6 +167,27 @@ class ExceptionLogger(AbstractContextManager):
             return True
 
 
+def run_length_encode(text: str) -> str:
+    if not text:
+        return ''
+    encoding = []
+    run_length = 1
+    prev_char = text[0]
+    for char in text[1:]:
+        if char == prev_char:
+            run_length += 1
+        else:
+            encoding.append(f'{run_length}{prev_char}')
+            prev_char = char
+            run_length = 1
+    encoding.append(f'{run_length}{prev_char}')
+    return ','.join(encoding)
+
+
+def run_length_decode(encoding: str) -> str:
+    return ''.join(int(token[:-1]) * token[-1] for token in encoding.split(',')) if encoding else ''
+
+
 # Helper functions/classes for loading into database
 @dataclass
 class FastaHeaderFields:
@@ -169,14 +195,25 @@ class FastaHeaderFields:
     protein_id: str = None
 
 
-def bulk_update_and_insert(session, mapper, mappings_to_update, mappings_to_insert):
-    with session.begin():
-        if mappings_to_update:
-            session.bulk_update_mappings(mapper, mappings_to_update)
-            mappings_to_update[:] = []
-        if mappings_to_insert:
-            session.bulk_insert_mappings(mapper, mappings_to_insert)
-            mappings_to_insert[:] = []
+def count_lines(file_handle: 'TextIOBase', only: Optional[Callable[..., bool]] = None):
+    lines = sum(1 for _ in filter(only, file_handle))
+    file_handle.seek(0)
+    return lines
+
+
+def bulk_upsert(session, table, records, primary_keys=('accession',)):
+    if records:
+        fields = [field for field in records[0] if field not in primary_keys]
+        with session.begin():
+            stmt = insert(table)
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements = primary_keys,
+                    set_ = {field: stmt.excluded[field] for field in fields}
+                ),
+                records
+            )
+        records[:] = []
 
 
 def read_gtf_line(line: str) -> list:

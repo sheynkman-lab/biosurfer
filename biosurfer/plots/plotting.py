@@ -1,26 +1,29 @@
 # functions to create different visualizations of isoforms/clones/domains/muts
-
 from copy import copy
 from dataclasses import dataclass
-from itertools import groupby
+from itertools import chain, groupby, islice
 from operator import attrgetter, sub
 from typing import (TYPE_CHECKING, Any, Callable, Collection, Dict, Iterable,
                     List, Literal, Optional, Set, Tuple, Union)
 from warnings import filterwarnings, warn
+from Bio import Align
 
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
-from biosurfer.core.alignments import TranscriptBasedAlignment
-from biosurfer.core.constants import (ProteinLevelAlignmentCategory,
-                                      TranscriptLevelAlignmentCategory)
-from biosurfer.core.helpers import Interval, IntervalTree
-from biosurfer.core.models import (ORF, GencodeTranscript, Gene, Junction,
-                                   PacBioTranscript, Protein, Strand,
-                                   Transcript)
+import numpy as np
+import seaborn as sns
+from biosurfer.core.alignments import (FRAMESHIFT, ProjectedFeature,
+                                       Alignment)
+from biosurfer.core.constants import (AminoAcid, FeatureType, ProteinLevelAlignmentCategory,
+                                      Strand, TranscriptLevelAlignmentCategory)
+from biosurfer.core.helpers import ExceptionLogger, Interval, IntervalTree
+from biosurfer.core.models.biomolecules import (GencodeTranscript,
+                                                PacBioTranscript, Transcript)
 from brokenaxes import BrokenAxes
+from graph_tool import Graph
+from graph_tool.topology import sequential_vertex_coloring
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-from matplotlib.transforms import Bbox
 
 if TYPE_CHECKING:
     from biosurfer.core.alignments import ProteinAlignmentBlock
@@ -33,8 +36,8 @@ filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
 # colors for different transcript types
 TRANSCRIPT_COLORS = {
-    GencodeTranscript: ('#505477', '#9698AD'),
-    PacBioTranscript: ('#975D73', '#DBB9C5')
+    GencodeTranscript: ('#343553', '#5D5E7C'),
+    PacBioTranscript: ('#61374D', '#91677D')
 }
 
 # alpha values for different absolute reading frames
@@ -84,13 +87,13 @@ class IsoformPlot:
 
         self.fig: Optional['Figure'] = None
         self._bax: Optional['BrokenAxes'] = None
-        self._columns: Dict[str, TableColumn] = columns if columns else dict()
+        self._columns: Dict[str, TableColumn] = columns if columns else {'': lambda x: ''}
         self.opts = IsoformPlotOptions(**kwargs)
         self.reset_xlims()
-    
-    # @property
-    # def fig(self) -> Optional['Figure']:
-    #     return self._bax.fig if self._bax else None
+
+        # keep track of artists for legend
+        self._handles = dict()
+
 
     # Internally, IsoformPlot stores _subaxes, which maps each genomic region to the subaxes that plots the region's features.
     # The xlims property provides a simple interface to allow users to control which genomic regions are plotted.
@@ -164,6 +167,7 @@ class IsoformPlot:
             warn(str(e))
         else:
             subaxes.add_artist(artist)
+        return artist
 
     def draw_region(self, track: int, start: int, stop: int,
                     y_offset: Optional[float] = None,
@@ -198,6 +202,7 @@ class IsoformPlot:
         subaxes = self._get_subaxes((start, stop))
         for ax in subaxes:
             ax.add_artist(copy(artist))
+        return artist
     
     def draw_background_rect(self, start: int, stop: int,
                             track_first: int = None, track_last: int = None,
@@ -224,10 +229,7 @@ class IsoformPlot:
         subaxes = self._get_subaxes((start, stop))
         for ax in subaxes:
             ax.add_artist(copy(artist))
-
-    # TODO: implement draw_track_label
-    def draw_track_label(self):
-        pass
+        return artist
 
     def draw_text(self, x: int, y: float, text: str, **kwargs):
         """Draw text at a specific location. x-coordinate is genomic, y-coordinate is w/ respect to tracks (0-indexed).
@@ -242,6 +244,25 @@ class IsoformPlot:
             warn(str(e))
         else:
             big_ax.text(x, y, text, transform=subaxes.transData, **kwargs)
+
+    def draw_legend(self, only_labels: Optional[Iterable[str]] = None, except_labels: Optional[Iterable[str]] = None):
+        if only_labels and except_labels:
+            raise ValueError('Cannot set both "only_labels" and "except_labels"')
+        elif only_labels:
+            labels = [label for label in self._handles if label in only_labels]
+        elif except_labels:
+            labels = [label for label in self._handles if label not in except_labels]
+        else:
+            labels = list(self._handles.keys())
+        handles = [self._handles[label] for label in labels]
+        self.fig.legend(
+            handles = handles,
+            labels = labels,
+            # ncol = 1,
+            loc = 'center left',
+            # mode = 'expand',
+            bbox_to_anchor = (1.05, 0.5)
+        )
 
     def draw_isoform(self, tx: 'Transcript', track: int):
         """Plot a single isoform in the given track."""
@@ -275,29 +296,33 @@ class IsoformPlot:
             'facecolor': TRANSCRIPT_COLORS[type(tx)][0],
             'zorder': 1.5
         }
-        orf = tx.orfs[0]
-        if orf.utr5:
-            for exon in orf.utr5.exons:
-                if self.strand is Strand.PLUS:
-                    start = exon.start
-                    stop = min(exon.stop, orf.start)
-                elif self.strand is Strand.MINUS:
-                    start = max(exon.start, orf.stop)
-                    stop = exon.stop
-                self.draw_region(track, start=start, stop=stop, **utr_kwargs)
-        for exon in orf.exons:
-            start = max(exon.start, orf.start)
-            stop = min(exon.stop, orf.stop)
-            self.draw_region(track, start=start, stop=stop, **cds_kwargs)
-        if orf.utr3:
-            for exon in orf.utr3.exons:
-                if self.strand is Strand.PLUS:
-                    start = max(exon.start, orf.stop)
-                    stop = exon.stop
-                elif self.strand is Strand.MINUS:
-                    start = exon.start
-                    stop = min(exon.stop, orf.start)
-                self.draw_region(track, start=start, stop=stop, **utr_kwargs)
+        if tx.orfs:
+            orf = tx.primary_orf
+            if orf.utr5:
+                for exon in orf.utr5.exons:
+                    if self.strand is Strand.PLUS:
+                        start = exon.start
+                        stop = min(exon.stop, orf.start)
+                    elif self.strand is Strand.MINUS:
+                        start = max(exon.start, orf.stop)
+                        stop = exon.stop
+                    self.draw_region(track, start=start, stop=stop, **utr_kwargs)
+            for exon in orf.exons:
+                start = max(exon.start, orf.start)
+                stop = min(exon.stop, orf.stop)
+                self.draw_region(track, start=start, stop=stop, **cds_kwargs)
+            if orf.utr3:
+                for exon in orf.utr3.exons:
+                    if self.strand is Strand.PLUS:
+                        start = max(exon.start, orf.stop)
+                        stop = exon.stop
+                    elif self.strand is Strand.MINUS:
+                        start = exon.start
+                        stop = min(exon.stop, orf.start)
+                    self.draw_region(track, start=start, stop=stop, **utr_kwargs)
+        else:
+            for exon in tx.exons:
+                self.draw_region(track, start=exon.start, stop=exon.stop, **utr_kwargs)
         
         for exon in tx.exons:
             # label every 5th exon in anchor isoform for easier navigation
@@ -315,10 +340,14 @@ class IsoformPlot:
             #         self.draw_text(exon.stop, track-0.1, delta_end, va='bottom', ha=align_stop, size='x-small')
         
         for orf in tx.orfs:
-            start_codon = orf.protein.residues[0].codon[0].coordinate
-            stop_codon = orf.protein.residues[-1].codon[2].coordinate
-            self.draw_point(track, start_codon, type='line', color='lime')
-            self.draw_point(track, stop_codon, type='line', color='red')
+            first_res = orf.protein.residues[0]
+            last_res = orf.protein.residues[-1]
+            if first_res.amino_acid is AminoAcid.MET:
+                start_codon = first_res.codon[0].coordinate
+                self.draw_point(track, start_codon, type='line', color='lime')
+            if last_res.amino_acid is AminoAcid.STOP:
+                stop_codon = last_res.codon[2].coordinate
+                self.draw_point(track, stop_codon, type='line', color='red')
 
         if hasattr(tx, 'start_nf') and tx.start_nf:
             self.draw_text(tx.start if self.strand is Strand.PLUS else tx.stop, track, '! ', ha='right', va='center', weight='bold', color='r')
@@ -331,17 +360,21 @@ class IsoformPlot:
         C = len(self._columns)
         self.fig = plt.figure()
         self._bax = BrokenAxes(fig=self.fig, xlims=self.xlims, ylims=((R-0.5, -0.5),), wspace=0, d=0.008, subplot_spec=subplot_spec)
+        self._handles['intron'] = mlines.Line2D([], [], linewidth=1.5, color='gray')
+        self._handles['exon (GENCODE)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[GencodeTranscript][0], edgecolor='k')
+        self._handles['exon (PacBio)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[PacBioTranscript][0], edgecolor='k')
 
         # process orfs to get ready for plotting
         # find_and_set_subtle_splicing_status(self.transcripts, self.opts.subtle_splicing_threshold)
         
         for i, tx in enumerate(self.transcripts):
-            self.draw_isoform(tx, i)
+            with ExceptionLogger(f'Error plotting {tx}'):
+                self.draw_isoform(tx, i)
         
         # plot genomic region label
-        gene = self.transcripts[0].gene
-        start, end = self.xlims[0][0], self.xlims[-1][1]
-        self._bax.set_title(f'{gene.chromosome}({self.strand}):{start}-{end}')
+        # gene = self.transcripts[0].gene
+        # start, end = self.xlims[0][0], self.xlims[-1][1]
+        # self._bax.set_title(f'{gene.chromosome}({self.strand}):{start}-{end}')
         
         # hide y axis spine
         left_subaxes = self._bax.axs[0]
@@ -369,16 +402,17 @@ class IsoformPlot:
                 label.set_rotation(90)
                 label.set_size(8)
     
-    def draw_frameshifts(self, hatch_color = 'white'):
-        """Plot relative frameshifts on all isoforms, using the first isoform as the anchor."""
-        FRAMESHIFT = {TranscriptLevelAlignmentCategory.FRAME_AHEAD, TranscriptLevelAlignmentCategory.FRAME_BEHIND}
-        anchor_tx = self.transcripts[0]
-        anchor = anchor_tx.orfs[0].protein
-        for i, other_tx in enumerate(self.transcripts[1:], start=1):
-            if not other_tx.orfs:
+    def draw_frameshifts(self, anchor: Optional['Transcript'] = None, hatch_color='white'):
+        """Plot relative frameshifts on all isoforms. Uses first isoform as the anchor by default."""
+        self._handles['frame +1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_AHEAD])
+        self._handles['frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_BEHIND])
+        
+        if anchor is None:
+            anchor = self.transcripts[0]
+        for i, other in enumerate(self.transcripts[1:], start=1):
+            if not other.protein:
                 continue
-            other = other_tx.orfs[0].protein
-            aln = TranscriptBasedAlignment(anchor, other)
+            aln = Alignment(anchor.protein, other.protein)
             for (category, exons), block in groupby(aln, key=attrgetter('category', 'other.exons')):
                 if category in FRAMESHIFT:
                     if len(exons) > 1:
@@ -393,11 +427,18 @@ class IsoformPlot:
                         facecolor = 'none',
                         edgecolor = hatch_color,
                         linewidth = 0.0,
-                        zorder = 1.5,
+                        zorder = 1.9,
                         hatch = REL_FRAME_STYLE[category]
                     )
     
     def draw_protein_block(self, pblock: 'ProteinAlignmentBlock', alpha: float = 0.5):
+        if 'deletion' not in self._handles:
+            self._handles['deletion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.DELETION])
+        if 'insertion' not in self._handles:
+            self._handles['insertion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.INSERTION])
+        if 'substitution' not in self._handles:
+            self._handles['substitution'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.SUBSTITUTION])
+
         if pblock.category is ProteinLevelAlignmentCategory.DELETION:
             other_start = pblock.anchor_residues[0].codon[1].coordinate
             other_stop = pblock.anchor_residues[-1].codon[1].coordinate
@@ -430,3 +471,72 @@ class IsoformPlot:
             facecolor = PBLOCK_COLORS[pblock.category],
             alpha = alpha
         )
+    
+    def draw_domains(self):
+        h = self.opts.max_track_width
+        domain_names = sorted({domain.name for tx in self.transcripts if tx.protein for domain in tx.protein.features if domain.reference})
+        cmap = sns.color_palette('pastel', len(domain_names))
+        domain_colors = dict(zip(domain_names, cmap))
+        self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in domain_colors.items()})
+        for track, tx in enumerate(self.transcripts):
+            if not tx.protein:
+                continue
+            domains = tx.protein.features
+            if not domains:
+                continue
+            subtracks, n_subtracks = generate_subtracks(
+                ((domain.protein_start, domain.protein_stop) for domain in domains),
+                (domain.name for domain in domains)
+            )
+            for domain in domains:
+                subtrack = subtracks[domain.name]
+                color = domain_colors[domain.name]
+                if domain.reference:
+                    subdomains = groupby(domain.residues, key=lambda res: (False, res.primary_exon))
+                    n_subtracks_temp = n_subtracks
+                else:
+                    subdomains = groupby(domain.residues, key=lambda res: (res in domain.altered_residues, res.primary_exon))
+                    n_subtracks_temp = 2*n_subtracks
+                for (altered, _), subdomain in subdomains:
+                    subdomain = list(subdomain)
+                    start = subdomain[0].codon[1].coordinate
+                    stop = subdomain[-1].codon[1].coordinate
+                    self.draw_region(
+                        track,
+                        start = start,
+                        stop = stop,
+                        y_offset = (-0.5 + subtrack/n_subtracks_temp)*h,
+                        height = h/n_subtracks_temp,
+                        edgecolor = 'none',
+                        facecolor = color,
+                        alpha = 0.5 if altered else 1.0,
+                        zorder = 1.8,
+                        label = domain.name
+                    )
+
+
+def generate_subtracks(intervals: Iterable[Tuple[int, int]], labels: Iterable):
+    # inspired by https://stackoverflow.com/a/19088519
+    labels = list(labels)
+    index_to_label = list(dict.fromkeys(labels))  # remove duplicates while preserving order
+    label_to_index = {label: i for i, label in enumerate(index_to_label)}
+    N = len(index_to_label)
+    active_labels = set()
+    # build graph of labels where labels are adjacent if their intervals overlap
+    g = Graph(directed=False)
+    boundaries = sorted(chain.from_iterable([(a, True, label), (b, False, label)] for (a, b), label in zip(intervals, labels)))
+    for _, start_of_interval, label in boundaries:
+        if start_of_interval:
+            for other_label in active_labels:
+                i = label_to_index[label]
+                j = label_to_index[other_label]
+                g.add_edge(i, j)
+            active_labels.add(label)
+        else:
+            active_labels.discard(label)
+    # find vertex coloring of graph
+    # all labels w/ same color can be put into same subtrack
+    coloring = sequential_vertex_coloring(g)
+    label_to_subtrack = {index_to_label[i]: coloring[i] for i in range(N)}
+    subtracks = max(label_to_subtrack.values(), default=0) + 1
+    return label_to_subtrack, subtracks

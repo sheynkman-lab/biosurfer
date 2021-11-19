@@ -6,7 +6,7 @@ from operator import attrgetter
 from warnings import warn
 
 import matplotlib.pyplot as plt
-from biosurfer.core.alignments import TranscriptBasedAlignment
+from biosurfer.core.alignments import Alignment
 from biosurfer.core.models import GencodeTranscript as Transcript
 from biosurfer.core.models import Gene, Protein
 from biosurfer.plots.plotting import IsoformPlot
@@ -50,7 +50,7 @@ for gene in genes:
     isoforms = [transcript.orfs[0].protein for transcript in transcript_list]
     anchor = isoforms[0]
     for other in isoforms[1:]:
-        aln_dict[other.orf.transcript.name] = TranscriptBasedAlignment(anchor, other)
+        aln_dict[other.orf.transcript.name] = Alignment(anchor, other)
 
     fig_path = f'../output/plots/{gene.name}_isoforms.png'
     if force_plotting or not os.path.isfile(fig_path):

@@ -1,27 +1,38 @@
 import csv
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections import deque
 from collections.abc import Sequence
+from functools import cached_property, lru_cache
 from itertools import chain, groupby, product
 from operator import attrgetter
-from typing import Iterable, List, MutableSequence, Optional, Union
+from typing import Dict, Iterable, List, MutableSequence, Optional, Tuple, Union
 
+from Bio.Align import substitution_matrices
+from Bio.pairwise2 import align
 from biosurfer.core.constants import AminoAcid, AnnotationFlag
-from biosurfer.core.constants import ProteinLevelAlignmentCategory as ProteinAlignCat
+from biosurfer.core.constants import \
+    ProteinLevelAlignmentCategory as ProteinAlignCat
 from biosurfer.core.constants import ProteinRegion, Strand
-from biosurfer.core.constants import TranscriptLevelAlignmentCategory as TranscriptAlignCat
-from biosurfer.core.models import Exon, Nucleotide, Protein, Residue, Transcript
-
+from biosurfer.core.constants import \
+    TranscriptLevelAlignmentCategory as TranscriptAlignCat
+from biosurfer.core.helpers import run_length_encode
+from biosurfer.core.models.biomolecules import Exon, Protein, Residue
+from biosurfer.core.models.features import ProjectedFeature, ProteinFeature
 
 PBLOCK_FIELDS = ('anchor', 'other', 'region', 'category', 'delta_length', 'event', 'flags', 'annotation')
 
+MATCH_OR_FRAME = {TranscriptAlignCat.MATCH, TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}
+FRAMESHIFT = {TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}
+
+SUBST_MATRIX = substitution_matrices.load('BLOSUM80')
 
 class GapResidue(Residue):
     def __init__(self, protein: 'Protein', position: int, upstream_exon: Optional['Exon'], downstream_exon: Optional['Exon']):
-        super().__init__(protein, AminoAcid.GAP, position)
+        super().__init__(protein, position)
+        self._aa = AminoAcid.GAP
         self.upstream_exon = upstream_exon
         self.downstream_exon = downstream_exon
-    
+
     @Residue.codon_str.getter
     def codon_str(self):
         return '-'
@@ -58,9 +69,8 @@ class ResidueAlignmentSequence(Sequence[ResidueAlignment]):  # this might break 
 
 
 class AlignmentBlock(ResidueAlignmentSequence):
-    def __init__(self, parent: 'TranscriptBasedAlignment', position: int, start: int, end: int):
+    def __init__(self, parent: 'Alignment', start: int, end: int):
         self.parent = parent
-        self.position = position
         self.start = start  # 0-based, inclusive
         self.end = end  # 0-based, exclusive
         self.length = end - start
@@ -95,50 +105,58 @@ class AlignmentBlock(ResidueAlignmentSequence):
     def other(self) -> 'Protein':
         return self[0].other.protein
 
-    @property
+    @cached_property
     def anchor_residues(self) -> List['Residue']:
         return [res_aln.anchor for res_aln in self if not res_aln.anchor.is_gap]
 
-    @property
+    @cached_property
     def anchor_exons(self):
         exons = {anchor_res.primary_exon for anchor_res in self.anchor_residues}
         exons = exons | {exon for res_aln in self for exon in res_aln.anchor.exons if res_aln.anchor.is_gap}
         return exons
 
-    @property
+    @cached_property
     def anchor_junctions(self):
         return {res_aln.anchor.junction for res_aln in self if res_aln.anchor.junction}
 
-    @property
+    @cached_property
     def anchor_sequence(self) -> str:
         return ''.join(str(res.amino_acid) for res in self.anchor_residues)
 
-    @property
+    @cached_property
     def other_residues(self) -> List['Residue']:
         return [res_aln.other for res_aln in self if not res_aln.other.is_gap]
 
-    @property
+    @cached_property
     def other_exons(self):
         exons = {other_res.primary_exon for other_res in self.other_residues}
         exons = exons | {exon for res_aln in self for exon in res_aln.other.exons if res_aln.other.is_gap}
         return exons
 
-    @property
+    @cached_property
     def other_junctions(self):
         return {res_aln.other.junction for res_aln in self if res_aln.other.junction}
 
-    @property
+    @cached_property
     def other_sequence(self) -> str:
         return ''.join(str(res.amino_acid) for res in self.other_residues)
     
     @property
     def delta_length(self) -> int:
         return len(self.other_residues) - len(self.anchor_residues)
+    
+    @property
+    def similarity(self) -> int:
+        return align.globalds(
+            self.anchor_sequence if self.anchor_sequence else 'X',
+            self.other_sequence if self.other_sequence else 'X',
+            SUBST_MATRIX, -11, -1, score_only=True)
 
 
 class TranscriptAlignmentBlock(AlignmentBlock):
     def __init__(self, parent, position, start, end, category: 'TranscriptAlignCat'):
-        super().__init__(parent, position, start, end)
+        super().__init__(parent, start, end)
+        self.position = position
         self.category = category
         # These attributes are useful in the annotation code
         self._prev_match_or_frame_tblock = None
@@ -154,7 +172,8 @@ class ProteinAlignmentBlock(AlignmentBlock):
     def __init__(self, parent, position, tblocks: Sequence['TranscriptAlignmentBlock'], category: 'ProteinAlignCat'):
         start = min(tblock.start for tblock in tblocks)
         end = max(tblock.end for tblock in tblocks)
-        super().__init__(parent, position, start, end)
+        super().__init__(parent, start, end)
+        self.position = position
         self.category = category
         self.transcript_blocks = list(tblocks)
         self._annotations = []
@@ -193,14 +212,18 @@ class ProteinAlignmentBlock(AlignmentBlock):
     def to_dict(self):
         return {field: getattr(self, field) for field in PBLOCK_FIELDS}
 
-class TranscriptBasedAlignment(ResidueAlignmentSequence):
+
+class Alignment(ResidueAlignmentSequence):
+    # @lru_cache()
+    # def __new__(cls, *args, **kwargs):
+    #     return object.__new__(cls)
+
     def __init__(self, anchor: 'Protein', other: 'Protein'):
-        if anchor.orf.gene is not other.orf.gene:
-            raise ValueError(f'{anchor} and {other} belong to different genes')
-        if anchor.orf.transcript.strand is not other.orf.transcript.strand:
-            raise ValueError(f'{anchor.orf.transcript} and {other.orf.transcript} are on different strands')
-        else:
-            strand = anchor.orf.transcript.strand
+        # if anchor.orf.gene is not other.orf.gene:
+        #     raise ValueError(f'{anchor} and {other} belong to different genes')
+        strand = anchor.orf.transcript.strand
+        # if strand is not other.orf.transcript.strand:
+        #     raise ValueError(f'{anchor.orf.transcript} and {other.orf.transcript} are on different strands')
         self.anchor = anchor
         self.other = other
         self._chain = rough_alignment(anchor, other, strand)
@@ -208,6 +231,7 @@ class TranscriptBasedAlignment(ResidueAlignmentSequence):
         self.transcript_blocks = get_transcript_blocks(self)
         self.protein_blocks = get_protein_blocks(self)
         self._annotate()
+        # self.projected_features = list(filter(None, (self.project_feature(feature) for feature in self.anchor.features)))
 
     def __repr__(self):
         return f'{self.anchor}|{self.other}'
@@ -221,7 +245,6 @@ class TranscriptBasedAlignment(ResidueAlignmentSequence):
     # TODO: use Annotation classes in the future
     # TODO: detect NAGNAG splicing
     def _annotate(self) -> None:
-        FRAMESHIFT = {TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}
         # DELETE_INSERT = {TranscriptAlignCat.DELETION, TranscriptAlignCat.INSERTION}
 
         strand = self.anchor.orf.transcript.strand
@@ -339,7 +362,7 @@ class TranscriptBasedAlignment(ResidueAlignmentSequence):
                     pblock.event = 'FS'
         
         # classify N-terminal changes (if any)
-        if nterminal_pblock.category is not ProteinAlignCat.MATCH:
+        if nterminal_pblock and nterminal_pblock.category is not ProteinAlignCat.MATCH:
             upstream_start_codon = tuple(nt.coordinate for nt in self.anchor.residues[0].codon)
             downstream_start_codon = tuple(nt.coordinate for nt in self.other.residues[0].codon)
             upstream_start_transcript, downstream_start_transcript = anchor_transcript, other_transcript
@@ -425,7 +448,7 @@ class TranscriptBasedAlignment(ResidueAlignmentSequence):
                         nterminal_pblock.event = 'MXIC-splice'
         
         # classify C-terminal changes (if any)
-        if cterminal_pblock.category is not ProteinAlignCat.MATCH:
+        if cterminal_pblock and cterminal_pblock.category is not ProteinAlignCat.MATCH:
             if upstream_cterm_res_aln.category in FRAMESHIFT:
                 for tblock in cterminal_pblock.transcript_blocks:
                     tblock.flags |= AnnotationFlag.SIF
@@ -455,7 +478,8 @@ class TranscriptBasedAlignment(ResidueAlignmentSequence):
                         tblock.flags |= AnnotationFlag.DTC
                     cterminal_pblock.event = 'DTC-splice'
             elif upstream_cterm_res_aln.category is TranscriptAlignCat.INSERTION:
-                exon_extension_introduces_stop = upstream_cterm_tblock._prev_match_or_frame_tblock[-1].other.codon[0].exon is upstream_cterm_res_aln.other.codon[2].exon
+                exon_extension_introduces_stop = (upstream_cterm_tblock._prev_match_or_frame_tblock and 
+                    upstream_cterm_tblock._prev_match_or_frame_tblock[-1].other.codon[0].exon is upstream_cterm_res_aln.other.codon[2].exon)
                 if strand is Strand.PLUS:
                     alt_cterm_exons = upstream_cterm_res_aln.other.exons[-1].stop < self.anchor.orf.exons[-1].start
                 elif strand is Strand.MINUS:
@@ -482,6 +506,89 @@ class TranscriptBasedAlignment(ResidueAlignmentSequence):
             if self.other.orf.nmd:
                 cterminal_pblock._annotations.append('NMD candidate')
                 cterminal_pblock.event = 'NMD'
+
+    def get_anchor_residue_alignment(self, anchor_residue: 'Residue', include_index: bool = False):
+        if anchor_residue.protein is not self.anchor:
+            raise ValueError(f'{anchor_residue} does not belong to {self.anchor}')
+        for i, res_aln in enumerate(self):
+            if res_aln.anchor is anchor_residue:
+                return (i, res_aln) if include_index else res_aln
+
+    def get_other_residue_alignment(self, other_residue: 'Residue', include_index: bool = False):
+        if other_residue.protein is not self.other:
+            raise ValueError(f'{other_residue} does not belong to {self.other}')
+        for i, res_aln in enumerate(self):
+            if res_aln.other is other_residue:
+                return (i, res_aln) if include_index else res_aln
+
+    def project_feature(self, anchor_feature: 'ProteinFeature'):
+        if anchor_feature.protein is not self.anchor:
+            raise ValueError(f'{anchor_feature} is not a feature of {self.anchor}')
+        feat_aln = FeatureAlignment(self, anchor_feature)
+        projected_feature = feat_aln.projected_feature
+        return projected_feature, feat_aln
+    
+    # @property
+    # def feature_alignments(self):
+    #     return [self.get_feature_alignment(feature) for feature in self.anchor.features]
+
+    # @property
+    # def projected_features(self):
+    #     return list(filter(None, (feat_aln.projected_feature for feat_aln in self.feature_alignments)))
+
+
+class FeatureAlignment(AlignmentBlock):
+    def __init__(self, parent: 'Alignment', proteinfeature: 'ProteinFeature'):
+        first_res = proteinfeature.residues[0]
+        last_res = proteinfeature.residues[-1]
+        first_res_aln_index, _ = parent.get_anchor_residue_alignment(first_res, include_index=True)
+        last_res_aln_index, _ = parent.get_anchor_residue_alignment(last_res, include_index=True)
+        super().__init__(parent, first_res_aln_index, last_res_aln_index+1)
+        self.proteinfeature = proteinfeature
+        self.transcript_blocks = [tblock for tblock in parent.transcript_blocks if tblock.start <= self.end and self.start <= tblock.end]
+        self.protein_blocks = [pblock for pblock in parent.protein_blocks if pblock.start <= self.end and self.start <= pblock.end]
+
+    def __repr__(self):
+        return f'{self.proteinfeature}>>{self.parent.other}'
+    
+    @cached_property
+    def projected_feature(self):
+        if any(res_aln.other for res_aln in self if res_aln.category in MATCH_OR_FRAME):
+            residues = self.other_residues
+            diff_string = ''.join(str(res_aln.category) for res_aln in self if res_aln.category is not TranscriptAlignCat.DELETION)
+            assert len(diff_string) == len(residues)
+            proj_feat = ProjectedFeature(
+                feature = self.proteinfeature.feature,
+                protein = self.parent.other,
+                protein_start = residues[0].position,
+                protein_stop = residues[-1].position,
+                reference = False,
+                anchor = self.proteinfeature,
+                _differences = run_length_encode(diff_string)
+            )
+            return proj_feat
+        else:
+            return None
+
+
+# class ProjectedFeature:
+#     def __init__(self, feature_alignment: 'FeatureAlignment'):
+#         self.alignment = feature_alignment
+
+#         self.residues = feature_alignment.other_residues
+#         self.altered_residues = [res_aln.other for res_aln in feature_alignment if res_aln.category not in {TranscriptAlignCat.MATCH, TranscriptAlignCat.EDGE_MATCH, TranscriptAlignCat.DELETION}]
+#         self.sequence = ''.join(str(res.amino_acid) for res in self.residues)
+#         self.protein_start = self.residues[0].position
+#         self.protein_stop = self.residues[-1].position
+
+#         self.type = feature_alignment.feature.type
+#         self.name = feature_alignment.feature.name
+#         self.accession = feature_alignment.feature.accession
+#         self.protein_id = feature_alignment.feature.protein_id
+#         self.protein = feature_alignment.feature.protein
+    
+#     def __repr__(self):
+#         return f'{self.alignment.feature.protein}>>' + ProteinFeature.__repr__(self)
 
 
 def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> List['ResidueAlignment']:
@@ -611,7 +718,6 @@ def get_transcript_blocks(aln: Iterable['ResidueAlignment']) -> List['Transcript
     tblocks = []
     start = 0
     prev_match_or_frame_tblock = None
-    MATCH_OR_FRAME = {TranscriptAlignCat.MATCH, TranscriptAlignCat.FRAME_AHEAD, TranscriptAlignCat.FRAME_BEHIND}
     for i, (category, res_alns) in enumerate(groupby(aln, key=attrgetter('category'))):
         tblock_length = len(list(res_alns))
         tblock = TranscriptAlignmentBlock(aln, i, start, start+tblock_length, category)
@@ -628,7 +734,7 @@ def get_transcript_blocks(aln: Iterable['ResidueAlignment']) -> List['Transcript
     return tblocks
 
 
-def get_protein_blocks(parent: 'TranscriptBasedAlignment') -> List['ProteinAlignmentBlock']:
+def get_protein_blocks(parent: 'Alignment') -> List['ProteinAlignmentBlock']:
     EDGE = {TranscriptAlignCat.EDGE_MATCH, TranscriptAlignCat.EDGE_MISMATCH}
     # TODO: account for amino acid sequence
     pblocks = []
@@ -651,7 +757,7 @@ def get_protein_blocks(parent: 'TranscriptBasedAlignment') -> List['ProteinAlign
 ### helper functions ###
 
 def pairwise_align_protein_sets(setA: Iterable['Protein'], setB: Iterable['Protein']):
-    return [TranscriptBasedAlignment(protA, protB) for protA, protB in product(setA, setB)]
+    return [Alignment(protA, protB) for protA, protB in product(setA, setB)]
 
 
 def export_annotated_pblocks_to_tsv(output_path, pblocks: Iterable['ProteinAlignmentBlock']):

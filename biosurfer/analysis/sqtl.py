@@ -1,17 +1,17 @@
 from itertools import filterfalse, tee
 from statistics import median
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Iterable, List
 
-from biosurfer.core.alignments import pairwise_align_protein_sets
+from biosurfer.core.alignments import (FeatureAlignment,
+                                       pairwise_align_protein_sets)
 from biosurfer.core.constants import (AnnotationFlag,
                                       ProteinLevelAlignmentCategory,
                                       ProteinRegion, Strand)
-from biosurfer.core.models import Junction, Transcript
 
 if TYPE_CHECKING:
     from biosurfer.core.alignments import (ProteinAlignmentBlock,
-                                           TranscriptBasedAlignment)
-    from biosurfer.core.models import Protein
+                                           Alignment)
+    from biosurfer.core.models import Junction, Protein, Transcript
 
 
 def split_transcripts_on_junction_usage(junction: 'Junction', transcripts: Iterable['Transcript']):
@@ -30,8 +30,8 @@ def pairwise_align_on_junction_usage(junction: 'Junction', transcripts: Iterable
     alns = pairwise_align_protein_sets((tx.protein for tx in not_using), (tx.protein for tx in using))
     return alns, using, not_using
 
-def get_pblocks_related_to_junction(junction: 'Junction', alns: Iterable['TranscriptBasedAlignment']):
-    pblocks = []
+def get_pblocks_related_to_junction(junction: 'Junction', alns: Iterable['Alignment']):
+    pblocks: List['ProteinAlignmentBlock'] = []
     for aln in alns:
         up_exon, down_exon = aln.other.transcript.get_exons_from_junction(junction)
         def is_related_to_junc(pblock):
@@ -49,11 +49,12 @@ def get_pblocks_related_to_junction(junction: 'Junction', alns: Iterable['Transc
             if pblock.region is ProteinRegion.NTERMINUS:
                 result |= down_exon in pblock.other_exons
             return result
-        pblocks.extend(pblock for pblock in aln.protein_blocks 
-                       if pblock.category is not ProteinLevelAlignmentCategory.MATCH and is_related_to_junc(pblock))
+        junc_related_pblocks = [pblock for pblock in aln.protein_blocks 
+                       if pblock.category is not ProteinLevelAlignmentCategory.MATCH and is_related_to_junc(pblock)]
+        pblocks.extend(junc_related_pblocks)
     return pblocks
 
-def junction_causes_knockdown_in_pair(
+def junction_has_drastic_effect_in_pair(
     junction: 'Junction' = None,
     anchor: 'Protein' = None,
     other: 'Protein' = None,
@@ -61,7 +62,7 @@ def junction_causes_knockdown_in_pair(
     threshold_delta_length: int = None) -> bool:
 
     if pblocks is None:
-        pblocks = get_pblocks_related_to_junction(junction, [TranscriptBasedAlignment(anchor, other)])
+        pblocks = get_pblocks_related_to_junction(junction, [Alignment(anchor, other)])
     else:
         anchor = pblocks[0].anchor
         other = pblocks[0].other

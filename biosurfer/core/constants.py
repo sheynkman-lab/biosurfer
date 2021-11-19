@@ -145,10 +145,17 @@ class ProteinRegion(OrderedEnum):
             return 'Cterm'
 
 
+class FeatureType(Enum):
+    DOMAIN = auto()
+    PTM = auto()
+    NONE = auto()
+    # TODO: add more types
+
+
 class APPRIS(OrderedEnum):
-    PRINCIPAL = 1
-    ALTERNATIVE = 2
-    NONE = 3
+    NONE = auto()
+    ALTERNATIVE = auto()
+    PRINCIPAL = auto()
 
 
 class SQANTI(OrderedEnum):
@@ -160,3 +167,7 @@ class SQANTI(OrderedEnum):
 
     def __str__(self):
         return self.name
+
+
+START_CODON = 'ATG'
+STOP_CODONS = {'TGA', 'TAA', 'TAG'}
