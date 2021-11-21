@@ -409,8 +409,8 @@ class IsoformPlot:
         
         if anchor is None:
             anchor = self.transcripts[0]
-        for i, other in enumerate(self.transcripts[1:], start=1):
-            if not other.protein:
+        for i, other in enumerate(self.transcripts):
+            if not other.protein or other is anchor:
                 continue
             aln = Alignment(anchor.protein, other.protein)
             for (category, exons), block in groupby(aln, key=attrgetter('category', 'other.exons')):
