@@ -434,7 +434,7 @@ class Database:
                             tx['gencode_id'] = associated_tx
                         else:
                             tx['gencode_id'] = None
-                    
+                        transcripts_to_update.append(tx)
                     if len(transcripts_to_update) == CHUNK_SIZE:
                         bulk_upsert(session, PacBioTranscript.__table__, transcripts_to_update)
                 bulk_upsert(session, PacBioTranscript.__table__, transcripts_to_update)
