@@ -474,7 +474,7 @@ class IsoformPlot:
     
     def draw_domains(self):
         h = self.opts.max_track_width
-        domain_names = sorted({domain.name for tx in self.transcripts if tx.protein for domain in tx.protein.features if domain.reference})
+        domain_names = sorted({domain.name for tx in self.transcripts if tx.protein for domain in tx.protein.features})
         cmap = sns.color_palette('pastel', len(domain_names))
         domain_colors = dict(zip(domain_names, cmap))
         self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in domain_colors.items()})
@@ -513,6 +513,18 @@ class IsoformPlot:
                         zorder = 1.8,
                         label = domain.name
                     )
+                # draw box behind entire domain
+                self.draw_region(
+                    track,
+                    start = domain.residues[0].codon[1].coordinate,
+                    stop = domain.residues[-1].codon[1].coordinate,
+                    y_offset = (-0.5 + subtrack/n_subtracks_temp)*h,
+                    height = h/n_subtracks_temp,
+                    edgecolor = 'none',
+                    facecolor = color,
+                    alpha = 0.5,
+                    zorder = 1.4
+                )
 
 
 def generate_subtracks(intervals: Iterable[Tuple[int, int]], labels: Iterable):
