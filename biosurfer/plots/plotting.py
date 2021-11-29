@@ -245,7 +245,7 @@ class IsoformPlot:
         else:
             big_ax.text(x, y, text, transform=subaxes.transData, **kwargs)
 
-    def draw_legend(self, only_labels: Optional[Iterable[str]] = None, except_labels: Optional[Iterable[str]] = None):
+    def draw_legend(self, only_labels: Optional[Iterable[str]] = None, except_labels: Optional[Iterable[str]] = None, **kwargs):
         if only_labels and except_labels:
             raise ValueError('Cannot set both "only_labels" and "except_labels"')
         elif only_labels:
@@ -259,9 +259,10 @@ class IsoformPlot:
             handles = handles,
             labels = labels,
             # ncol = 1,
-            loc = 'center left',
+            # loc = 'center left',
             # mode = 'expand',
-            bbox_to_anchor = (1.05, 0.5)
+            # bbox_to_anchor = (1.05, 0.5),
+            **kwargs
         )
 
     def draw_isoform(self, tx: 'Transcript', track: int):
