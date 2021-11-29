@@ -478,6 +478,7 @@ class Database:
                         order_by(GencodeTranscript.gene_id).
                         order_by(desc(GencodeTranscript.appris)).
                         order_by(desc(protein_length)).
+                        order_by(GencodeTranscript.name).
                         subquery()
                     )
                     proteins_to_map = set(
@@ -521,6 +522,7 @@ class Database:
                 order_by(Transcript.gene_id).
                 order_by(desc(Transcript.__table__.c.appris)).
                 order_by(desc(ORF.length)).
+                order_by(Transcript.name).
                 options(
                     protein_tx.joinedload(Transcript.orfs),
                     protein_tx.joinedload(Transcript.exons).joinedload(Exon.transcript),
@@ -557,7 +559,7 @@ class Database:
                     q.where(Transcript.gene_id.in_(gene_chunk))
                 ).unique()
                 rows_by_gene = groupby(rows, key=itemgetter(1))
-                for _, group in rows_by_gene:
+                for gene, group in rows_by_gene:
                     proteins = [row[0] for row in group]
                     anchor = proteins[0]
                     for other in proteins[1:]:
