@@ -18,11 +18,12 @@ from biosurfer.core.alignments import (Alignment,
 from biosurfer.core.constants import APPRIS, SQANTI, Strand
 from biosurfer.core.database import Database
 from biosurfer.core.helpers import ExceptionLogger
-from biosurfer.core.models import (Chromosome, GencodeTranscript, Gene,
+from biosurfer.core.models.biomolecules import (Chromosome, GencodeTranscript, Gene,
                                    Junction, PacBioTranscript, Transcript)
 from biosurfer.plots.plotting import IsoformPlot
 from IPython.display import display
 from matplotlib.gridspec import GridSpec
+from matplotlib.colors import LogNorm
 from sqlalchemy.sql.expression import and_, or_
 from tqdm import tqdm
 
@@ -32,23 +33,22 @@ data_dir = '../data/bone'
 output_dir = '../output/bone'
 
 db = Database('bone')
-db_session = db.get_session()
-Gene.session = db_session
+session = db.get_session()
 
 # %%
 print('Loading isoform expression table...')
 expr_raw = pd.read_csv(f'{data_dir}/all_transcriptome_cupcake.mapped_fl_count.csv', index_col=0)
-all_pb_ids = set(row.accession for row in db_session.query(PacBioTranscript.accession))
+all_pb_ids = set(row.accession for row in session.query(PacBioTranscript.accession))
 expression = expr_raw.filter(items=all_pb_ids, axis=0).rename(lambda name: name.split('_')[0], axis=1)
 expression['total'] = expression.sum(axis=1)
 expression['frac_total'] = expression['total'] / sum(expression['total'])
 for days in (0, 2, 4, 10):
     expression[f't{days}'] = expression[[f't{days}{x}' for x in 'abc']].sum(axis=1)
-over3counts = set(expression.query('total > 3').index)
+# over3counts = set(expression.query('total > 3').index)
 
 # %%
 print('Loading sQTL table...')
-sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=32)
+sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=None)
 sqtls = sqtls_raw[sqtls_raw['gene_type'] == 'protein_coding']
 def optional_list(things):
     list_things = sorted(set(things))
@@ -57,15 +57,13 @@ def optional_list(things):
     return list_things
 sqtls = sqtls.groupby('event_id').agg(optional_list)
 
-chromosomes = Chromosome.from_names(set(sqtls['chr']))
-
 def stem(accession):
     return accession.split('.')[0]
 def similar(acc1, acc2):
     return stem(acc1) == stem(acc2)
 gene_id_stems = {stem(gene_id) for gene_id in sqtls['gene']}
 gene_ids = {row.accession for row in
-    db_session.query(Gene.accession).where(
+    session.query(Gene.accession).where(
         or_(
             False,
             *(Gene.accession.startswith(gene_id_stem) 
@@ -73,7 +71,8 @@ gene_ids = {row.accession for row in
         )
     )
 }
-gene_query = db_session.query(Gene).join(Gene.transcripts).\
+db.project_domain_mappings(gene_ids=gene_ids)
+gene_query = session.query(Gene).join(Gene.transcripts).\
     where(
         and_(
             Transcript.sequence != None,
@@ -85,8 +84,8 @@ print('Loading database objects...')
 genes = {stem(gene.accession): gene for gene in gene_query}
 
 # %%
-def abundant_and_coding(transcript: 'Transcript'):
-    return transcript.accession in over3counts and len(transcript.orfs) > 0
+# def abundant_and_coding(transcript: 'Transcript'):
+#     return transcript.accession in over3counts and len(transcript.orfs) > 0
 
 def sortkey(transcript: 'Transcript'):
     return -expression.total[transcript.accession], getattr(transcript, 'sqanti', SQANTI.OTHER)
@@ -103,12 +102,12 @@ def get_augmented_sqtl_record(row):
         gene = genes[stem(gene_id)]
     except KeyError:
         return None
-    if not any(tx.accession in over3counts for tx in gene.transcripts):
-        # skip genes for which we have no high-abundance PacBio data
-        return None
+    # if not any(tx.accession in over3counts for tx in gene.transcripts):
+    #     # skip genes for which we have no high-abundance PacBio data
+    #     return None
     if gene.strand is Strand.MINUS:
         start, end = end, start
-    junc = Junction(start, end, chromosomes[chr], gene.strand)
+    junc = Junction(start, end, chr, gene.strand)
     junc_info = {
         'chr': chr,
         'strand': str(junc.strand),
@@ -122,10 +121,10 @@ def get_augmented_sqtl_record(row):
     using, not_using = split_transcripts_on_junction_usage(junc, filter(attrgetter('orfs'), pb_transcripts))
     using = sorted(using, key=sortkey)
     not_using = sorted(not_using, key=sortkey)
-    if not all((using, not_using)):
+    if not using or not not_using:
         return None
     
-    anchor_tx = min((tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript)), key=attrgetter('appris'))
+    anchor_tx = max((tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript)), key=attrgetter('appris'))
     
 
     pairs = list(product(not_using, using))
@@ -160,9 +159,9 @@ def get_augmented_sqtl_record(row):
         os.mkdir(f'{output_dir}/{gene.name}')
     export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
+    force_plotting = False
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
-    if not os.path.isfile(fig_path):
-    # if True:
+    if force_plotting or not os.path.isfile(fig_path):
         isoplot = IsoformPlot(
             using + not_using,
             columns = {
@@ -172,15 +171,15 @@ def get_augmented_sqtl_record(row):
             }
         )
         with ExceptionLogger(f'Error plotting {gene.name} {junc}'):
-            gs = GridSpec(1, 3)
-            isoplot.draw_all_isoforms(subplot_spec=gs[:2])
+            gs = GridSpec(1, 5)
+            isoplot.draw_all_isoforms(subplot_spec=gs[:-1])
             isoplot.draw_frameshifts(anchor=anchor_tx)
             isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(using) - 0.5, start=gene.start, stop=gene.stop)
             isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#f0f0f0')
             for pblock in pblocks:
                 isoplot.draw_protein_block(pblock, alpha=n_pairs**-0.5)
-            isoplot.draw_domains(anchors=[anchor_tx])
-            isoplot.draw_legend()
+            isoplot.draw_domains()
+            isoplot.draw_legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
             heatmap_ax = isoplot.fig.add_subplot(gs[-1])
             # all_accessions = [tx.accession for tx in isoplot.transcripts]
             pb_accessions = [tx.accession for tx in isoplot.transcripts if isinstance(tx, PacBioTranscript)]
@@ -189,16 +188,17 @@ def get_augmented_sqtl_record(row):
             heatmap = sns.heatmap(
                 expression_sub,
                 ax = heatmap_ax,
-                robust = True,
                 xticklabels = True,
                 yticklabels = False,
                 linecolor = '#dedede',
                 linewidths = 0.5,
-                cmap = sns.cubehelix_palette(as_cmap=True, light=1.0),
-                cbar_kws = {'label': 'counts'}
+                cmap = sns.cubehelix_palette(as_cmap=True, light=0.95, dark=0.05),
+                cbar_kws = {'label': 'counts'},
+                norm = LogNorm(vmin=1.0, vmax=1000.0),
+                mask = expression_sub.applymap(lambda x: x == 0)
             )
             heatmap.set_ylabel(None)
-            isoplot.fig.set_size_inches(18, 0.25*len(gene.transcripts))
+            isoplot.fig.set_size_inches(16, 0.35*len(gene.transcripts))
             plt.savefig(fig_path, facecolor='w', transparent=False, dpi=200, bbox_inches='tight')
             tqdm.write('\tsaved '+fig_path)
         plt.close(isoplot.fig)
