@@ -462,8 +462,18 @@ class Database:
         with self.get_session() as session:
             bulk_upsert(session, Domain.__table__, domains_to_upsert)
 
-    def load_domain_mappings(self, domain_mapping_file: str, appris_only: bool = True, overwrite: bool = False):
+    def load_feature_mappings(self, domain_mapping_file: str, appris_only: bool = True, overwrite: bool = False):
         with self.get_session() as session:
+            feature_types = [
+                {
+                    'type': FeatureType.IDR,
+                    'accession': 'mobidb-lite',
+                    'name': 'MobiDB',
+                    'description': 'intrinsically disordered region (MobiDB)'
+                }
+            ]
+            bulk_upsert(session, Feature.__table__, feature_types)
+
             with session.begin():
                 if overwrite:
                     print(f'Clearing table \'{ProteinFeature.__tablename__}\'...')
@@ -496,19 +506,19 @@ class Database:
                 t = tqdm(reader, desc='Reading reference domain mappings', total=lines, unit='mappings')
                 domains_to_insert = (
                     {
-                        'feature_id': row['Pfam ID'],
+                        'feature_id': row['feature id'],
                         'protein_id': row['Protein stable ID version'],
-                        'protein_start': row['Pfam start'],
-                        'protein_stop': row['Pfam end'],
+                        'protein_start': row['start'],
+                        'protein_stop': row['end'],
                         'reference': True
                     }
-                    for row in t if row['Pfam ID'] in existing_features and row['Protein stable ID version'] in proteins_to_map
+                    for row in t if row['feature id'] in existing_features and row['Protein stable ID version'] in proteins_to_map
                 )
                 domains_to_insert = list(domains_to_insert)
             with session.begin():
                 session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
             
-    def project_domain_mappings(self, gene_ids: Iterable[str] = None, overwrite: bool = False):
+    def project_feature_mappings(self, gene_ids: Iterable[str] = None, overwrite: bool = False):
         with self.get_session() as session:
             # if overwrite:
             #     with session.begin():

@@ -71,7 +71,7 @@ gene_ids = {row.accession for row in
         )
     )
 }
-db.project_domain_mappings(gene_ids=gene_ids)
+db.project_feature_mappings(gene_ids=gene_ids)
 gene_query = session.query(Gene).join(Gene.transcripts).\
     where(
         and_(

@@ -51,6 +51,13 @@ class Domain(Feature):
     }
 
 
+class IDR(Feature):
+    __tablename__ = None
+    __mapper_args__ = {
+        'polymorphic_identity': FeatureType.IDR
+    }
+
+
 class ProteinFeature(Base, TablenameMixin):
     id = Column(Integer, primary_key=True, autoincrement=True)
     feature_id = Column(String, ForeignKey('feature.accession'), nullable=False)
