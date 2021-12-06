@@ -3,6 +3,7 @@ from itertools import groupby
 from operator import itemgetter
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from biosurfer.core.alignments import (Alignment,
                                        export_annotated_pblocks_to_tsv)
@@ -26,7 +27,7 @@ gtex = pd.read_csv('../data/gencode/b_gtex_isoform_medians_53tiss.tsv', sep='\t'
 
 #%%
 try:
-    frac_abundances = pd.read_csv('../output/ts-cassette-exons/frac_abundances.tsv', sep='\t')
+    frac_abundances = pd.read_csv('../output/ts-cassette-exons/frac_abundances.tsv', sep='\t', index_col='TargetID')
 except FileNotFoundError:
     tissues = gtex.columns[3:]
     total_abundances = gtex.drop(columns='Coord').groupby('Gene_Symbol', sort=False).agg('sum')
@@ -38,7 +39,18 @@ except FileNotFoundError:
     frac_abundances = gtex.apply(get_frac_abundance, axis=1)
     frac_abundances.to_csv('../output/ts-cassette-exons/frac_abundances.tsv', sep='\t')
 
+enst_to_ensg = dict(gtex['Gene_Symbol'])
+
 display(frac_abundances)
+
+#%%
+genes = frac_abundances.index.map(enst_to_ensg.get)
+normalized_frac_abundances = frac_abundances.divide(frac_abundances.max(axis=1).replace(0.0, 1.0), axis=0)
+display(normalized_frac_abundances)
+
+tau = (1 - normalized_frac_abundances).sum(axis=1) / (len(normalized_frac_abundances.columns) - 1)
+tau[tau > 1.0] = np.nan
+display(tau)
 
 #%%
 with db.get_session() as session:
