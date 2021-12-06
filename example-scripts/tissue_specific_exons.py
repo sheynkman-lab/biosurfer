@@ -1,21 +1,44 @@
 #%%
-from itertools import chain, groupby
+from itertools import groupby
 from operator import itemgetter
 
 import matplotlib.pyplot as plt
-from biosurfer.core.helpers import ExceptionLogger
-from biosurfer.core.alignments import Alignment, export_annotated_pblocks_to_tsv
-from biosurfer.core.constants import AnnotationFlag, ProteinLevelAlignmentCategory as PblockCategory, FeatureType
+import pandas as pd
+from biosurfer.core.alignments import (Alignment,
+                                       export_annotated_pblocks_to_tsv)
+from biosurfer.core.constants import FeatureType
+from biosurfer.core.constants import \
+    ProteinLevelAlignmentCategory as PblockCategory
 from biosurfer.core.database import Database
-from biosurfer.core.models.biomolecules import ORF, Gene, Protein, Transcript, Exon
+from biosurfer.core.helpers import ExceptionLogger
+from biosurfer.core.models.biomolecules import (ORF, Exon, Gene, Protein,
+                                                Transcript)
 from biosurfer.core.models.features import ProteinFeature
 from biosurfer.plots.plotting import IsoformPlot
+from IPython.display import display
 from more_itertools import chunked
-from sqlalchemy import select, desc, func
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import contains_eager, joinedload, raiseload
 from tqdm import tqdm
 
 db = Database('gencode')
+gtex = pd.read_csv('../data/gencode/b_gtex_isoform_medians_53tiss.tsv', sep='\t').set_index('TargetID').sort_values('Gene_Symbol')
+
+#%%
+try:
+    frac_abundances = pd.read_csv('../output/ts-cassette-exons/frac_abundances.tsv', sep='\t')
+except FileNotFoundError:
+    tissues = gtex.columns[3:]
+    total_abundances = gtex.drop(columns='Coord').groupby('Gene_Symbol', sort=False).agg('sum')
+
+    def get_frac_abundance(col):
+        gene_symbol = col[0]
+        return col[3:].divide(total_abundances.loc[gene_symbol].replace(0.0, 1.0))
+
+    frac_abundances = gtex.apply(get_frac_abundance, axis=1)
+    frac_abundances.to_csv('../output/ts-cassette-exons/frac_abundances.tsv', sep='\t')
+
+display(frac_abundances)
 
 #%%
 with db.get_session() as session:
@@ -75,10 +98,9 @@ with db.get_session() as session:
             for other in proteins[1:]:
                 with ExceptionLogger(f'{anchor}|{other}'):
                     aln = Alignment(anchor, other)
-                    del_or_ins_pblocks = [pblock for pblock in aln.protein_blocks if pblock.category in {PblockCategory.DELETION, PblockCategory.INSERTION}]
-                    if len(del_or_ins_pblocks) == 1:
-                        pblock = del_or_ins_pblocks[0]
-                        if pblock.event == 'SE' or pblock.event == 'IE':
+                    nonmatch_pblocks = [pblock for pblock in aln.protein_blocks if pblock.category is not PblockCategory.MATCH]
+                    if len(nonmatch_pblocks) == 1 and (pblock := nonmatch_pblocks[0]).category is not PblockCategory.SUBSTITUTION:
+                        if pblock.event == 'SE' and ' to ' not in pblock.annotation or pblock.event == 'IE' and 'exons' not in pblock.annotation:
                             cassette_exon_pblocks.add(pblock)
                             transcripts.append(other.transcript)
                             if pblock.category is PblockCategory.DELETION:
@@ -87,12 +109,10 @@ with db.get_session() as session:
                             else:
                                 pblock_start = pblock[0].anchor.position
                                 pblock_stop = pblock_start
-                            for dom_start, dom_stop in domains:
-                                if pblock_start <= dom_stop and dom_start <= pblock_stop:
-                                    intersects_domain.add(pblock)
-                            for idr_start, idr_stop in idrs:
-                                if pblock_start <= idr_stop and idr_start <= pblock_stop:
-                                    intersects_idr.add(pblock)
+                            if any(pblock_start <= dom_stop and dom_start <= pblock_stop for dom_start, dom_stop in domains):
+                                intersects_domain.add(pblock)
+                            if any(pblock_start <= idr_stop and idr_start <= pblock_stop for idr_start, idr_stop in idrs):
+                                intersects_idr.add(pblock)
             if len(transcripts) > 1:
                 with ExceptionLogger(anchor):
                     isoplot = IsoformPlot(transcripts)
