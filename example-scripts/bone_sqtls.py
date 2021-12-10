@@ -178,7 +178,7 @@ def get_augmented_sqtl_record(row):
             isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#f0f0f0')
             for pblock in pblocks:
                 isoplot.draw_protein_block(pblock, alpha=n_pairs**-0.5)
-            isoplot.draw_domains()
+            isoplot.draw_features()
             isoplot.draw_legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
             heatmap_ax = isoplot.fig.add_subplot(gs[-1])
             # all_accessions = [tx.accession for tx in isoplot.transcripts]

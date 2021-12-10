@@ -55,6 +55,9 @@ PBLOCK_COLORS = {
     ProteinLevelAlignmentCategory.SUBSTITUTION: '#FFD700'
 }
 
+FEATURE_COLORS = {
+    'MobiDB': '#AAAAAA'
+}
 
 @dataclass
 class IsoformPlotOptions:
@@ -473,35 +476,36 @@ class IsoformPlot:
             alpha = alpha
         )
     
-    def draw_domains(self):
+    def draw_features(self):
         h = self.opts.max_track_width
-        domain_names = sorted({domain.name for tx in self.transcripts if tx.protein for domain in tx.protein.features})
+        domain_names = sorted({feature.name for tx in self.transcripts if tx.protein for feature in tx.protein.features if feature.type is FeatureType.DOMAIN})
         cmap = sns.color_palette('pastel', len(domain_names))
-        domain_colors = dict(zip(domain_names, cmap))
-        self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in domain_colors.items()})
+        colors = dict(zip(domain_names, cmap))
+        colors.update(FEATURE_COLORS)
+        self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in colors.items()})
         for track, tx in enumerate(self.transcripts):
             if not tx.protein:
                 continue
-            domains = tx.protein.features
-            if not domains:
+            features = tx.protein.features
+            if not features:
                 continue
             subtracks, n_subtracks = generate_subtracks(
-                ((domain.protein_start, domain.protein_stop) for domain in domains),
-                (domain.name for domain in domains)
+                ((feature.protein_start, feature.protein_stop) for feature in features),
+                (feature.name for feature in features)
             )
-            for domain in domains:
-                subtrack = subtracks[domain.name]
-                color = domain_colors[domain.name]
-                if domain.reference:
-                    subdomains = groupby(domain.residues, key=lambda res: (False, res.primary_exon))
+            for feature in features:
+                subtrack = subtracks[feature.name]
+                color = colors[feature.name]
+                if feature.reference:
+                    subfeatures = groupby(feature.residues, key=lambda res: (False, res.primary_exon))
                     n_subtracks_temp = n_subtracks
                 else:
-                    subdomains = groupby(domain.residues, key=lambda res: (res in domain.altered_residues, res.primary_exon))
+                    subfeatures = groupby(feature.residues, key=lambda res: (res in feature.altered_residues, res.primary_exon))
                     n_subtracks_temp = 2*n_subtracks
-                for (altered, _), subdomain in subdomains:
-                    subdomain = list(subdomain)
-                    start = subdomain[0].codon[1].coordinate
-                    stop = subdomain[-1].codon[1].coordinate
+                for (altered, _), subfeature in subfeatures:
+                    subfeature = list(subfeature)
+                    start = subfeature[0].codon[1].coordinate
+                    stop = subfeature[-1].codon[1].coordinate
                     self.draw_region(
                         track,
                         start = start,
@@ -512,13 +516,13 @@ class IsoformPlot:
                         facecolor = color,
                         alpha = 0.5 if altered else 1.0,
                         zorder = 1.8,
-                        label = domain.name
+                        label = feature.name
                     )
-                # draw box behind entire domain
+                # draw box behind entire feature
                 self.draw_region(
                     track,
-                    start = domain.residues[0].codon[1].coordinate,
-                    stop = domain.residues[-1].codon[1].coordinate,
+                    start = feature.residues[0].codon[1].coordinate,
+                    stop = feature.residues[-1].codon[1].coordinate,
                     y_offset = (-0.5 + subtrack/n_subtracks_temp)*h,
                     height = h/n_subtracks_temp,
                     edgecolor = 'none',

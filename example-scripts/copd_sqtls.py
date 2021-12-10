@@ -7,7 +7,6 @@ from warnings import filterwarnings
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from sqlalchemy.sql.expression import and_, or_
 from biosurfer.analysis.sqtl import (get_event_counts,
                                      get_pblocks_related_to_junction,
                                      junction_has_drastic_effect_in_pair,
@@ -15,12 +14,19 @@ from biosurfer.analysis.sqtl import (get_event_counts,
 from biosurfer.core.alignments import (Alignment,
                                        export_annotated_pblocks_to_tsv)
 from biosurfer.core.constants import Strand
-from biosurfer.core.models import Chromosome, Gene, Junction, Exon, Transcript
+from biosurfer.core.database import Database
+from biosurfer.core.models.biomolecules import (Chromosome, Exon, Gene,
+                                                Junction, Transcript)
 from biosurfer.plots.plotting import IsoformPlot
 from IPython.display import display
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
+from sqlalchemy import select
+from sqlalchemy.sql.expression import and_, or_
 
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
+
+db = Database('gencode')
+session = db.get_session()
 
 data_dir = '../data/copd'
 output_dir = '../output/copd'
@@ -31,8 +37,9 @@ with open(f'{data_dir}/GWAS_sQTL.tsv') as csvfile:
     reader = csv.reader(csvfile, delimiter='\t')
     next(reader)  # skip header
     sqtls_raw = [row[0].split(':') for row in reader]
-chromosomes = Chromosome.from_names({f'chr{sqtl[0]}' for sqtl in sqtls_raw})
-genes = {gene.name: gene for gene in Gene.query.join(Gene.transcripts).join(Transcript.exons).\
+gene_ids = list(session.execute(
+    select(Transcript.gene_id).
+    join(Transcript.exons).
     where(
         and_(
             Transcript.sequence != None,  # filter out noncoding transcripts
@@ -41,11 +48,14 @@ genes = {gene.name: gene for gene in Gene.query.join(Gene.transcripts).join(Tran
                 *((Exon.start <= int(row[2])) & (int(row[1]) <= Exon.stop) for row in sqtls_raw)
             )
         )
-    )}
+    )
+).scalars())
+db.project_feature_mappings(gene_ids=gene_ids)
+genes = Gene.from_accessions(session, gene_ids)
 
 records = []
 for chr_number, start, stop, cluster in sqtls_raw:
-    chr = chromosomes[f'chr{chr_number}']
+    chr = f'chr{chr_number}'
     start = int(start)
     stop = int(stop)
     donor, acceptor = start, stop
@@ -55,7 +65,7 @@ for chr_number, start, stop, cluster in sqtls_raw:
     junc = Junction(donor, acceptor, chr, strand)
     gene = [gene for gene in genes.values()
         if any(transcript.sequence for transcript in gene.transcripts) and
-            gene.chromosome is chr and
+            gene.chromosome_id == chr and
             gene.start <= acceptor and donor <= gene.stop][0]
     coding_transcripts = [transcript for transcript in gene.transcripts if transcript.sequence and transcript.orfs]
 
@@ -107,17 +117,19 @@ for chr_number, start, stop, cluster in sqtls_raw:
     export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
-    if not os.path.isfile(fig_path):
-        isoplot = IsoformPlot(using + not_using)
-        isoplot.draw_all_isoforms()
-        isoplot.draw_frameshifts()
-        isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#ffffb7')
-        for pblock in pblocks:
-            isoplot.draw_protein_block(pblock)
-        isoplot.fig.set_size_inches(9, 0.5*len(gene.transcripts))
-        plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
-        print('\tsaved '+fig_path)
-        plt.close(isoplot.fig)
+    isoplot = IsoformPlot(using + not_using)
+    isoplot.draw_all_isoforms()
+    isoplot.draw_frameshifts()
+    isoplot.draw_features()
+    isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#f0f0f0')
+    isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(using) - 0.5, start=gene.start, stop=gene.stop)
+    for pblock in pblocks:
+        isoplot.draw_protein_block(pblock, alpha=n_pairs**-0.5)
+    isoplot.draw_legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+    isoplot.fig.set_size_inches(9, 0.3*len(gene.transcripts))
+    plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
+    print('\tsaved '+fig_path)
+    plt.close(isoplot.fig)
 
 sqtls_augmented = pd.DataFrame.from_records(records)
 display(sqtls_augmented)
