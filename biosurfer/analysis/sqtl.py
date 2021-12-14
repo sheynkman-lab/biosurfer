@@ -1,4 +1,4 @@
-from itertools import filterfalse, tee
+from more_itertools import partition
 from statistics import median
 from typing import TYPE_CHECKING, Iterable, List
 
@@ -20,10 +20,7 @@ def split_transcripts_on_junction_usage(junction: 'Junction', transcripts: Itera
     #             transcript.start <= junction.acceptor <= transcript.stop)
     def uses_junction(transcript):
         return junction in transcript.junctions
-    tx1, tx2 = tee(transcripts)
-    transcripts_using = filter(uses_junction, tx1)
-    transcripts_not_using = filterfalse(uses_junction, tx2)
-    return set(transcripts_using), set(transcripts_not_using)
+    return partition(uses_junction, transcripts)
 
 def pairwise_align_on_junction_usage(junction: 'Junction', transcripts: Iterable['Transcript']):
     using, not_using = split_transcripts_on_junction_usage(junction, transcripts)

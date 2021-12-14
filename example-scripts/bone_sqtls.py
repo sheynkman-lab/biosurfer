@@ -157,6 +157,25 @@ def get_augmented_sqtl_record(row):
 
     if not os.path.isdir(f'{output_dir}/{gene.name}'):
         os.mkdir(f'{output_dir}/{gene.name}')
+    
+    fig_path = f'{output_dir}/{gene.name}/{gene.name}_gencode.png'
+    if not os.path.isfile(fig_path):
+        isoplot = IsoformPlot(
+            sorted((tx for tx in gene.transcripts if tx.type == 'gencodetranscript'), key=attrgetter('appris'), reverse=True),
+            columns = {
+                'APPRIS': attrgetter('appris')
+            }
+        )
+        with ExceptionLogger(f'Error plotting {gene.name} GENCODE isoforms'):
+            isoplot.draw_all_isoforms()
+            isoplot.draw_frameshifts()
+            isoplot.draw_features()
+            isoplot.draw_legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+            isoplot.fig.set_size_inches(16, 0.35*len(gene.transcripts))
+            plt.savefig(fig_path, facecolor='w', transparent=False, dpi=200, bbox_inches='tight')
+            tqdm.write('\tsaved '+fig_path)
+        plt.close(isoplot.fig)
+
     export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
     force_plotting = False
