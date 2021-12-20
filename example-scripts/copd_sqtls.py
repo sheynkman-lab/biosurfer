@@ -41,10 +41,11 @@ if not os.path.isdir(output_dir):
 
 # %%
 tqdm.write('Reading phenotype IDs...')
-raw = pd.read_csv(f'{data_dir}/LTRC_sqtl_GWAS_0.1FDR_result.tsv', sep='\t', usecols=['phenotype_id'], nrows=None)
-sqtls_raw = list(raw['phenotype_id'].unique())
+raw = pd.read_csv(f'{data_dir}/LTRC_sqtl_GWAS_0.1FDR_result.tsv', sep='\t', usecols=['phenotype_id', 'pval_nominal'], nrows=None)
+sqtl_pvals = raw.groupby('phenotype_id').agg({'pval_nominal': 'min'}).nsmallest(n=500, columns='pval_nominal')
+sqtls_raw = list(sqtl_pvals.index.unique())
 sqtls = dict()
-for id in raw['phenotype_id'].unique():
+for id in sqtls_raw:
     chr, start, stop, cluster = id.split(':')
     sqtls[id] = {
         'chr': 'chr'+chr,
@@ -127,17 +128,16 @@ for gene_chunk in chunked(gene_to_sqtls.keys(), 100):
                 'donor': junc.donor,
                 'acceptor': junc.acceptor,
                 'gene': gene.name,
-                'pairs': 0
+                'pairs': 0,
+                'min_pval': float(sqtl_pvals['pval_nominal'][id])
             }
 
             not_using, using = split_transcripts_on_junction_usage(junc, coding_transcripts)
             using = list(using)
             not_using = list(not_using)
-            # print(junc)
-            # print(f'\t{len(using)} transcripts using: {using}')
-            # print(f'\t{len(not_using)} transcripts not using: {not_using}')
-            # if not all((using, not_using)):
-            #     continue
+
+            if not all((using, not_using)):
+                continue
             
             pairs = list(product(not_using, using))
             n_pairs = len(pairs)
@@ -169,7 +169,7 @@ for gene_chunk in chunked(gene_to_sqtls.keys(), 100):
 
             export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
-            force_plotting = True
+            force_plotting = False
             fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
             if force_plotting or not os.path.isfile(fig_path):
                 isoplot = IsoformPlot(using + not_using, columns={'APPRIS': attrgetter('appris.name')})
@@ -188,6 +188,8 @@ for gene_chunk in chunked(gene_to_sqtls.keys(), 100):
                 except Exception as e:
                     tqdm.write(f'\tcould not plot {gene.name}_{junc.donor}_{junc.acceptor}: {e}')
                 plt.close(isoplot.fig)
+        if not os.listdir(f'{output_dir}/{gene.name}'):
+            os.rmdir(f'{output_dir}/{gene.name}')
 
 sqtls_augmented = pd.DataFrame.from_records(records)
 # display(sqtls_augmented)
