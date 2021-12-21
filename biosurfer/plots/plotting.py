@@ -478,9 +478,9 @@ class IsoformPlot:
     
     def draw_features(self):
         h = self.opts.max_track_width
-        domain_names = sorted({feature.name for tx in self.transcripts if tx.protein for feature in tx.protein.features if feature.type is FeatureType.DOMAIN})
-        cmap = sns.color_palette('pastel', len(domain_names))
-        colors = dict(zip(domain_names, cmap))
+        feature_names = sorted({feature.name for tx in self.transcripts if tx.protein for feature in tx.protein.features if feature.type is not FeatureType.IDR})
+        cmap = sns.color_palette('pastel', len(feature_names))
+        colors = dict(zip(feature_names, cmap))
         colors.update(FEATURE_COLORS)
         self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in colors.items()})
         for track, tx in enumerate(self.transcripts):

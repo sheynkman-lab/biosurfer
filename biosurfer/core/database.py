@@ -1,5 +1,6 @@
 import csv
 import os
+import re
 from itertools import chain, groupby
 from operator import attrgetter, itemgetter
 from pathlib import Path
@@ -461,6 +462,27 @@ class Database:
             domains_to_upsert = list(domains_to_upsert)
         with self.get_session() as session:
             bulk_upsert(session, Domain.__table__, domains_to_upsert)
+    
+    def load_patterns(self, pattern_file: str):
+        with open(pattern_file) as f:
+            name_getter = re.compile(r'(ID   )(\S+)(; PATTERN.)')
+            acc_getter = re.compile(r'(AC   )(\S+)(;)')
+            desc_getter = re.compile(r'(DE   )(.+)')
+
+            lines = count_lines(f, only=lambda s: name_getter.match(s))
+            t = tqdm(None, desc='Reading pattern info', total=lines, unit='patterns')
+            patterns_to_upsert = []
+            for line in f:
+                if (name := name_getter.match(line)):
+                    pattern = {'name': name.group(2), 'type': FeatureType.NONE}
+                    t.update()
+                elif (acc := acc_getter.match(line)):
+                    pattern['accession'] = acc.group(2)
+                elif (desc := desc_getter.match(line)):
+                    pattern['description'] = desc.group(2)
+                    patterns_to_upsert.append(pattern)
+        with self.get_session() as session:
+            bulk_upsert(session, Feature.__table__, patterns_to_upsert)
 
     def load_feature_mappings(self, domain_mapping_file: str, appris_only: bool = True, overwrite: bool = False):
         with self.get_session() as session:

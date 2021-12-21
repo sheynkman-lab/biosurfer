@@ -27,6 +27,7 @@ def database(database_path):
         id_extractor=get_ids_from_gencode_fasta,
     )
     db.load_domains(data_dir/'pfamA.tsv')
+    db.load_patterns(data_dir/'prosite.dat')
     db.load_feature_mappings(data_dir/'grch38-protein-features.tsv')
     db.project_feature_mappings()
     yield db

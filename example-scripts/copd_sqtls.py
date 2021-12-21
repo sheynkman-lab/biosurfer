@@ -1,6 +1,7 @@
 # %%
 import csv
 import os
+import traceback
 from itertools import chain, groupby, product
 from operator import attrgetter, itemgetter
 from statistics import median
@@ -169,7 +170,7 @@ for gene_chunk in chunked(gene_to_sqtls.keys(), 100):
 
             export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
-            force_plotting = False
+            force_plotting = True
             fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
             if force_plotting or not os.path.isfile(fig_path):
                 isoplot = IsoformPlot(using + not_using, columns={'APPRIS': attrgetter('appris.name')})
@@ -186,7 +187,8 @@ for gene_chunk in chunked(gene_to_sqtls.keys(), 100):
                     plt.savefig(fig_path, facecolor='w', transparent=False, dpi=300, bbox_inches='tight')
                     tqdm.write('\tsaved '+fig_path)
                 except Exception as e:
-                    tqdm.write(f'\tcould not plot {gene.name}_{junc.donor}_{junc.acceptor}: {e}')
+                    tqdm.write(f'\tcould not plot {gene.name}_{junc.donor}_{junc.acceptor}:')
+                    tqdm.write(traceback.format_exc())
                 plt.close(isoplot.fig)
         if not os.listdir(f'{output_dir}/{gene.name}'):
             os.rmdir(f'{output_dir}/{gene.name}')
