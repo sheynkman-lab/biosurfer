@@ -498,10 +498,10 @@ class IsoformPlot:
                 color = colors[feature.name]
                 if feature.reference:
                     subfeatures = groupby(feature.residues, key=lambda res: (False, res.primary_exon))
-                    n_subtracks_temp = n_subtracks
+                    # n_subtracks_temp = n_subtracks
                 else:
                     subfeatures = groupby(feature.residues, key=lambda res: (res in feature.altered_residues, res.primary_exon))
-                    n_subtracks_temp = 2*n_subtracks
+                    # n_subtracks_temp = 2*n_subtracks
                 for (altered, _), subfeature in subfeatures:
                     subfeature = list(subfeature)
                     start = subfeature[0].codon[1].coordinate
@@ -510,8 +510,8 @@ class IsoformPlot:
                         track,
                         start = start,
                         stop = stop,
-                        y_offset = (-0.5 + subtrack/n_subtracks_temp)*h,
-                        height = h/n_subtracks_temp,
+                        y_offset = (-0.5 + subtrack/n_subtracks)*h,
+                        height = h/n_subtracks,
                         edgecolor = 'none',
                         facecolor = color,
                         alpha = 0.5 if altered else 1.0,
@@ -523,8 +523,8 @@ class IsoformPlot:
                     track,
                     start = feature.residues[0].codon[1].coordinate,
                     stop = feature.residues[-1].codon[1].coordinate,
-                    y_offset = (-0.5 + subtrack/n_subtracks_temp)*h,
-                    height = h/n_subtracks_temp,
+                    y_offset = (-0.5 + subtrack/n_subtracks)*h,
+                    height = h/n_subtracks,
                     edgecolor = 'none',
                     facecolor = color,
                     alpha = 0.5,
