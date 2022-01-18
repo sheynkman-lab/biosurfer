@@ -564,7 +564,7 @@ class Database:
                     raiseload('*')
                 )
             )
-            tqdm.write(str(q))
+            # tqdm.write(str(q))
             if not gene_ids:
                 gene_ids = list(session.execute(
                     select(Transcript.gene_id).distinct().
