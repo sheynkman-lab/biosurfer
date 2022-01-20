@@ -7,8 +7,9 @@ path = '../data/'
 gencode_gtf = 'gencode/gencode.v38.basic.annotation.gtf'
 gencode_tx = 'gencode/gencode.v38.pc_transcripts.fa'
 gencode_tl = 'gencode/gencode.v38.pc_translations.fa'
-gencode_doms = 'gencode/grch38-pfam-mappings.tsv'
+gencode_doms = 'gencode/grch38-protein-features.tsv'
 pfam_dom_info = 'gencode/pfamA.tsv'
+prosite_pattern_info = 'gencode/prosite.dat'
 pacbio_gtf = 'bone/bone_with_cds.gtf'
 pacbio_tx = 'bone/filtered_bone_corrected.fasta'
 pacbio_tl = 'bone/bone_orf_refined.fasta'
@@ -36,6 +37,7 @@ start = time()
 # db.load_translation_fasta(path + pacbio_tl, get_ids_from_hybrid_fasta, skip_gencode)
 # db.load_sqanti_classifications(path + sqanti)
 db.load_domains(path + pfam_dom_info)
+db.load_patterns(path + prosite_pattern_info)
 db.load_feature_mappings(path + gencode_doms, appris_only=True, overwrite=False)
 # db.project_domain_mappings()
 end = time()
