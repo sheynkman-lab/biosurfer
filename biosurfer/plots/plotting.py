@@ -80,10 +80,10 @@ class IsoformPlot:
     """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
     def __init__(self, transcripts: Iterable['Transcript'], columns: Dict[str, TableColumn] = None, **kwargs):
         self.transcripts: List['Transcript'] = list(transcripts)  # list of orf objects to be drawn
-        gene = {tx.gene for tx in self.transcripts}
+        gene = {tx.gene for tx in filter(None, self.transcripts)}
         if len(gene) > 1:
             raise ValueError(f'Found isoforms from multiple genes: {", ".join(g.name for g in gene)}')
-        strand = {tx.strand for tx in self.transcripts}
+        strand = {tx.strand for tx in filter(None, self.transcripts)}
         if len(strand) > 1:
             raise ValueError("Can't plot isoforms from different strands")
         self.strand: Strand = list(strand)[0]
@@ -120,7 +120,7 @@ class IsoformPlot:
     def reset_xlims(self):
         """Set xlims automatically based on exons in isoforms."""
         space = self.opts.intron_spacing
-        self.xlims = tuple((exon.start - space, exon.stop + space) for tx in self.transcripts for exon in tx.exons)
+        self.xlims = tuple((exon.start - space, exon.stop + space) for tx in filter(None, self.transcripts) for exon in tx.exons)
 
     # This method speeds up plotting by allowing IsoformPlot to add artists only to the subaxes where they are needed.
     def _get_subaxes(self, xcoords: Union[int, StartStop]) -> Tuple['Axes']:
@@ -367,13 +367,17 @@ class IsoformPlot:
         self._handles['intron'] = mlines.Line2D([], [], linewidth=1.5, color='gray')
         self._handles['exon (GENCODE)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[GencodeTranscript][0], edgecolor='k')
         self._handles['exon (PacBio)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[PacBioTranscript][0], edgecolor='k')
+        self._handles['start codon'] = mlines.Line2D([], [], linestyle='None', color='lime', marker='|', markersize=10, markeredgewidth=1)
+        self._handles['stop codon'] = mlines.Line2D([], [], linestyle='None', color='red', marker='|', markersize=10, markeredgewidth=1)
+
 
         # process orfs to get ready for plotting
         # find_and_set_subtle_splicing_status(self.transcripts, self.opts.subtle_splicing_threshold)
         
         for i, tx in enumerate(self.transcripts):
             with ExceptionLogger(f'Error plotting {tx}'):
-                self.draw_isoform(tx, i)
+                if tx:
+                    self.draw_isoform(tx, i)
         
         # plot genomic region label
         # gene = self.transcripts[0].gene
@@ -388,9 +392,9 @@ class IsoformPlot:
         # plot table
         # https://stackoverflow.com/a/57169705
         table = self._bax.big_ax.table(
-            rowLabels = [tx.name for tx in self.transcripts],
+            rowLabels = [getattr(tx, 'name', '') for tx in self.transcripts],
             colLabels = list(self._columns.keys()),
-            cellText = [[f(transcript) for f in self._columns.values()] for transcript in self.transcripts],
+            cellText = [[f(tx) if tx else '' for f in self._columns.values()] for tx in self.transcripts],
             cellLoc = 'center',
             edges = 'open',
             bbox = (-0.1*C, 0.0, 0.1*C, (R+1)/R)
@@ -412,9 +416,9 @@ class IsoformPlot:
         self._handles['frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_BEHIND])
         
         if anchor is None:
-            anchor = self.transcripts[0]
+            anchor = next(filter(None, self.transcripts))
         for i, other in enumerate(self.transcripts):
-            if not other.protein or other is anchor:
+            if not other or not other.protein or other is anchor:
                 continue
             aln = Alignment(anchor.protein, other.protein)
             for (category, exons), block in groupby(aln, key=attrgetter('category', 'other.exons')):
@@ -478,13 +482,13 @@ class IsoformPlot:
     
     def draw_features(self):
         h = self.opts.max_track_width
-        feature_names = sorted({feature.name for tx in self.transcripts if tx.protein for feature in tx.protein.features if feature.type is not FeatureType.IDR})
+        feature_names = sorted({feature.name for tx in filter(None, self.transcripts) if tx.protein for feature in tx.protein.features if feature.type is not FeatureType.IDR})
         cmap = sns.color_palette('pastel', len(feature_names))
         colors = dict(zip(feature_names, cmap))
         colors.update(FEATURE_COLORS)
         self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in colors.items()})
         for track, tx in enumerate(self.transcripts):
-            if not tx.protein:
+            if not tx or not tx.protein:
                 continue
             features = tx.protein.features
             if not features:
