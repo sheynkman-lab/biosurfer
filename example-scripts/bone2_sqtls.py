@@ -69,6 +69,10 @@ for days in (0, 2, 4, 10):
 print('Loading sQTL table...')
 sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=None)
 sqtls = sqtls_raw[sqtls_raw['gene_type'] == 'protein_coding']
+# sqtls = sqtls.sample(frac=0.01, axis=0)
+# with open(f'{data_dir}/problems.txt') as f:
+#     problems = set(line.strip() for line in f)
+# sqtls = sqtls[sqtls['gene_name'].isin(problems)]
 def optional_list(things):
     list_things = sorted(set(things))
     if len(list_things) == 1:
@@ -90,7 +94,7 @@ gene_ids = {row.accession for row in
         )
     )
 }
-db.project_feature_mappings(gene_ids=gene_ids)
+# db.project_feature_mappings(gene_ids=gene_ids)
 
 # %%
 gene_query = session.query(Gene).join(Gene.transcripts).\
@@ -136,7 +140,7 @@ def get_augmented_sqtl_record(row):
         'H4': h4,
         'pairs': 0
     }
-    pb_transcripts = {tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript)}
+    pb_transcripts = {tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript) and all(orf.has_stop_codon for orf in tx.orfs)}
     not_using, using = split_transcripts_on_junction_usage(junc, filter(attrgetter('orfs'), pb_transcripts))
     using = sorted(using, key=sortkey)
     not_using = sorted(not_using, key=sortkey)
@@ -178,11 +182,11 @@ def get_augmented_sqtl_record(row):
 
     export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
-    force_plotting = True
+    force_plotting = False
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
     if force_plotting or not os.path.isfile(fig_path):
         isoplot = IsoformPlot(
-            gc_transcripts + [None] + using + not_using,
+            gc_transcripts + [None] + using + not_using + [None],
             columns = {
                 'novelty': lambda tx: str(getattr(tx, 'sqanti', '')),
                 'GENCODE': lambda tx: tx.gencode.name if getattr(tx, 'gencode', False) else '',
@@ -193,7 +197,6 @@ def get_augmented_sqtl_record(row):
             gs = GridSpec(1, 5)
             isoplot.draw_all_isoforms(subplot_spec=gs[:-1])
             isoplot.draw_frameshifts(anchor=anchor_tx)
-            # isoplot.draw_region(type='line', color='#bbbbbb', linestyle='-', linewidth=2, track=len(gc_transcripts), start=gene.start, stop=gene.stop)
             isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(gc_transcripts) + len(using) + 0.5, start=gene.start, stop=gene.stop)
             isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#f0f0f0')
             for pblock in pblocks:
@@ -205,7 +208,7 @@ def get_augmented_sqtl_record(row):
             pb_accessions = [getattr(tx, 'accession', None) for tx in isoplot.transcripts if isinstance(tx, PacBioTranscript)]
             expression_sub = expression.loc[pb_accessions].iloc[:, -4:]
             expression_sub = expression_sub.reindex(index=all_accessions, fill_value=0)
-            expression_sub.iloc[len(gc_transcripts), :] = expression_sub.sum(axis=0)
+            expression_sub.iloc[-1, :] = expression_sub.sum(axis=0)
             heatmap = sns.heatmap(
                 expression_sub,
                 ax = heatmap_ax,

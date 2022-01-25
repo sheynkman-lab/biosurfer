@@ -396,7 +396,9 @@ class Database:
                 if transcript_id in existing_orfs:
                     orfs = existing_orfs[transcript_id]
                     for position, start, stop, has_stop_codon in orfs:
-                        if stop - start + 1 == (seq_length + int(has_stop_codon))*3:
+                        orf_nt_length = stop - start + 1
+                        orf_aa_length = seq_length + int(has_stop_codon)
+                        if orf_nt_length == orf_aa_length*3:
                             orfs_to_update.append({
                                 'transcript_id': transcript_id,
                                 'position': position,
