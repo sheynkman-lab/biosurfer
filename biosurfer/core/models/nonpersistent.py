@@ -82,7 +82,7 @@ class Residue:
 
     @property
     def exons(self) -> List['Exon']:
-        return [nt.exon for nt in self.codon]
+        return list(set(nt.exon for nt in self.codon))
     
     @property
     def primary_exon(self) -> 'Exon':

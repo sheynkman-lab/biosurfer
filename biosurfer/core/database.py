@@ -1,5 +1,6 @@
 import csv
 import os
+import re
 from itertools import chain, groupby
 from operator import attrgetter, itemgetter
 from pathlib import Path
@@ -395,7 +396,9 @@ class Database:
                 if transcript_id in existing_orfs:
                     orfs = existing_orfs[transcript_id]
                     for position, start, stop, has_stop_codon in orfs:
-                        if stop - start + 1 == (seq_length + int(has_stop_codon))*3:
+                        orf_nt_length = stop - start + 1
+                        orf_aa_length = seq_length + int(has_stop_codon)
+                        if orf_nt_length == orf_aa_length*3:
                             orfs_to_update.append({
                                 'transcript_id': transcript_id,
                                 'position': position,
@@ -434,7 +437,7 @@ class Database:
                             tx['gencode_id'] = associated_tx
                         else:
                             tx['gencode_id'] = None
-                    
+                        transcripts_to_update.append(tx)
                     if len(transcripts_to_update) == CHUNK_SIZE:
                         bulk_upsert(session, PacBioTranscript.__table__, transcripts_to_update)
                 bulk_upsert(session, PacBioTranscript.__table__, transcripts_to_update)
@@ -461,9 +464,40 @@ class Database:
             domains_to_upsert = list(domains_to_upsert)
         with self.get_session() as session:
             bulk_upsert(session, Domain.__table__, domains_to_upsert)
+    
+    def load_patterns(self, pattern_file: str):
+        with open(pattern_file) as f:
+            name_getter = re.compile(r'(ID   )(\S+)(; PATTERN.)')
+            acc_getter = re.compile(r'(AC   )(\S+)(;)')
+            desc_getter = re.compile(r'(DE   )(.+)')
 
-    def load_domain_mappings(self, domain_mapping_file: str, appris_only: bool = True, overwrite: bool = False):
+            lines = count_lines(f, only=lambda s: name_getter.match(s))
+            t = tqdm(None, desc='Reading pattern info', total=lines, unit='patterns')
+            patterns_to_upsert = []
+            for line in f:
+                if (name := name_getter.match(line)):
+                    pattern = {'name': name.group(2), 'type': FeatureType.NONE}
+                    t.update()
+                elif (acc := acc_getter.match(line)):
+                    pattern['accession'] = acc.group(2)
+                elif (desc := desc_getter.match(line)):
+                    pattern['description'] = desc.group(2)
+                    patterns_to_upsert.append(pattern)
         with self.get_session() as session:
+            bulk_upsert(session, Feature.__table__, patterns_to_upsert)
+
+    def load_feature_mappings(self, domain_mapping_file: str, appris_only: bool = True, overwrite: bool = False):
+        with self.get_session() as session:
+            feature_types = [
+                {
+                    'type': FeatureType.IDR,
+                    'accession': 'mobidb-lite',
+                    'name': 'MobiDB',
+                    'description': 'intrinsically disordered region (MobiDB)'
+                }
+            ]
+            bulk_upsert(session, Feature.__table__, feature_types)
+
             with session.begin():
                 if overwrite:
                     print(f'Clearing table \'{ProteinFeature.__tablename__}\'...')
@@ -478,6 +512,7 @@ class Database:
                         order_by(GencodeTranscript.gene_id).
                         order_by(desc(GencodeTranscript.appris)).
                         order_by(desc(protein_length)).
+                        order_by(GencodeTranscript.name).
                         subquery()
                     )
                     proteins_to_map = set(
@@ -495,19 +530,19 @@ class Database:
                 t = tqdm(reader, desc='Reading reference domain mappings', total=lines, unit='mappings')
                 domains_to_insert = (
                     {
-                        'feature_id': row['Pfam ID'],
+                        'feature_id': row['feature id'],
                         'protein_id': row['Protein stable ID version'],
-                        'protein_start': row['Pfam start'],
-                        'protein_stop': row['Pfam end'],
+                        'protein_start': row['start'],
+                        'protein_stop': row['end'],
                         'reference': True
                     }
-                    for row in t if row['Pfam ID'] in existing_features and row['Protein stable ID version'] in proteins_to_map
+                    for row in t if row['feature id'] in existing_features and row['Protein stable ID version'] in proteins_to_map
                 )
                 domains_to_insert = list(domains_to_insert)
             with session.begin():
                 session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
             
-    def project_domain_mappings(self, gene_ids: Iterable[str] = None, overwrite: bool = False):
+    def project_feature_mappings(self, gene_ids: Iterable[str] = None, overwrite: bool = False):
         with self.get_session() as session:
             # if overwrite:
             #     with session.begin():
@@ -521,6 +556,7 @@ class Database:
                 order_by(Transcript.gene_id).
                 order_by(desc(Transcript.__table__.c.appris)).
                 order_by(desc(ORF.length)).
+                order_by(Transcript.name).
                 options(
                     protein_tx.joinedload(Transcript.orfs),
                     protein_tx.joinedload(Transcript.exons).joinedload(Exon.transcript),
@@ -530,7 +566,7 @@ class Database:
                     raiseload('*')
                 )
             )
-            tqdm.write(str(q))
+            # tqdm.write(str(q))
             if not gene_ids:
                 gene_ids = list(session.execute(
                     select(Transcript.gene_id).distinct().
@@ -557,7 +593,7 @@ class Database:
                     q.where(Transcript.gene_id.in_(gene_chunk))
                 ).unique()
                 rows_by_gene = groupby(rows, key=itemgetter(1))
-                for _, group in rows_by_gene:
+                for gene, group in rows_by_gene:
                     proteins = [row[0] for row in group]
                     anchor = proteins[0]
                     for other in proteins[1:]:

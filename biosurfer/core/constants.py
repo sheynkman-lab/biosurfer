@@ -147,7 +147,12 @@ class ProteinRegion(OrderedEnum):
 
 class FeatureType(Enum):
     DOMAIN = auto()
+    IDR = auto()
+    COILED = auto()
+    LCR = auto()
     PTM = auto()
+    SIGNALP = auto()
+    TRANSMEMBRANE = auto()
     NONE = auto()
     # TODO: add more types
 

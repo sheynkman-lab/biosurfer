@@ -55,6 +55,9 @@ PBLOCK_COLORS = {
     ProteinLevelAlignmentCategory.SUBSTITUTION: '#FFD700'
 }
 
+FEATURE_COLORS = {
+    'MobiDB': '#AAAAAA'
+}
 
 @dataclass
 class IsoformPlotOptions:
@@ -77,10 +80,10 @@ class IsoformPlot:
     """Encapsulates methods for drawing one or more isoforms aligned to the same genomic x-axis."""
     def __init__(self, transcripts: Iterable['Transcript'], columns: Dict[str, TableColumn] = None, **kwargs):
         self.transcripts: List['Transcript'] = list(transcripts)  # list of orf objects to be drawn
-        gene = {tx.gene for tx in self.transcripts}
+        gene = {tx.gene for tx in filter(None, self.transcripts)}
         if len(gene) > 1:
             raise ValueError(f'Found isoforms from multiple genes: {", ".join(g.name for g in gene)}')
-        strand = {tx.strand for tx in self.transcripts}
+        strand = {tx.strand for tx in filter(None, self.transcripts)}
         if len(strand) > 1:
             raise ValueError("Can't plot isoforms from different strands")
         self.strand: Strand = list(strand)[0]
@@ -117,7 +120,7 @@ class IsoformPlot:
     def reset_xlims(self):
         """Set xlims automatically based on exons in isoforms."""
         space = self.opts.intron_spacing
-        self.xlims = tuple((exon.start - space, exon.stop + space) for tx in self.transcripts for exon in tx.exons)
+        self.xlims = tuple((exon.start - space, exon.stop + space) for tx in filter(None, self.transcripts) for exon in tx.exons)
 
     # This method speeds up plotting by allowing IsoformPlot to add artists only to the subaxes where they are needed.
     def _get_subaxes(self, xcoords: Union[int, StartStop]) -> Tuple['Axes']:
@@ -245,7 +248,7 @@ class IsoformPlot:
         else:
             big_ax.text(x, y, text, transform=subaxes.transData, **kwargs)
 
-    def draw_legend(self, only_labels: Optional[Iterable[str]] = None, except_labels: Optional[Iterable[str]] = None):
+    def draw_legend(self, only_labels: Optional[Iterable[str]] = None, except_labels: Optional[Iterable[str]] = None, **kwargs):
         if only_labels and except_labels:
             raise ValueError('Cannot set both "only_labels" and "except_labels"')
         elif only_labels:
@@ -259,9 +262,10 @@ class IsoformPlot:
             handles = handles,
             labels = labels,
             # ncol = 1,
-            loc = 'center left',
+            # loc = 'center left',
             # mode = 'expand',
-            bbox_to_anchor = (1.05, 0.5)
+            # bbox_to_anchor = (1.05, 0.5),
+            **kwargs
         )
 
     def draw_isoform(self, tx: 'Transcript', track: int):
@@ -363,13 +367,17 @@ class IsoformPlot:
         self._handles['intron'] = mlines.Line2D([], [], linewidth=1.5, color='gray')
         self._handles['exon (GENCODE)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[GencodeTranscript][0], edgecolor='k')
         self._handles['exon (PacBio)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[PacBioTranscript][0], edgecolor='k')
+        self._handles['start codon'] = mlines.Line2D([], [], linestyle='None', color='lime', marker='|', markersize=10, markeredgewidth=1)
+        self._handles['stop codon'] = mlines.Line2D([], [], linestyle='None', color='red', marker='|', markersize=10, markeredgewidth=1)
+
 
         # process orfs to get ready for plotting
         # find_and_set_subtle_splicing_status(self.transcripts, self.opts.subtle_splicing_threshold)
         
         for i, tx in enumerate(self.transcripts):
             with ExceptionLogger(f'Error plotting {tx}'):
-                self.draw_isoform(tx, i)
+                if tx:
+                    self.draw_isoform(tx, i)
         
         # plot genomic region label
         # gene = self.transcripts[0].gene
@@ -384,9 +392,9 @@ class IsoformPlot:
         # plot table
         # https://stackoverflow.com/a/57169705
         table = self._bax.big_ax.table(
-            rowLabels = [tx.name for tx in self.transcripts],
+            rowLabels = [getattr(tx, 'name', '') for tx in self.transcripts],
             colLabels = list(self._columns.keys()),
-            cellText = [[f(transcript) for f in self._columns.values()] for transcript in self.transcripts],
+            cellText = [[f(tx) if tx else '' for f in self._columns.values()] for tx in self.transcripts],
             cellLoc = 'center',
             edges = 'open',
             bbox = (-0.1*C, 0.0, 0.1*C, (R+1)/R)
@@ -408,9 +416,9 @@ class IsoformPlot:
         self._handles['frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_BEHIND])
         
         if anchor is None:
-            anchor = self.transcripts[0]
-        for i, other in enumerate(self.transcripts[1:], start=1):
-            if not other.protein:
+            anchor = next(filter(None, self.transcripts))
+        for i, other in enumerate(self.transcripts):
+            if not other or not other.protein or other is anchor:
                 continue
             aln = Alignment(anchor.protein, other.protein)
             for (category, exons), block in groupby(aln, key=attrgetter('category', 'other.exons')):
@@ -472,47 +480,60 @@ class IsoformPlot:
             alpha = alpha
         )
     
-    def draw_domains(self):
+    def draw_features(self):
         h = self.opts.max_track_width
-        domain_names = sorted({domain.name for tx in self.transcripts if tx.protein for domain in tx.protein.features if domain.reference})
-        cmap = sns.color_palette('pastel', len(domain_names))
-        domain_colors = dict(zip(domain_names, cmap))
-        self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in domain_colors.items()})
+        feature_names = sorted({feature.name for tx in filter(None, self.transcripts) if tx.protein for feature in tx.protein.features if feature.type is not FeatureType.IDR})
+        cmap = sns.color_palette('pastel', len(feature_names))
+        colors = dict(zip(feature_names, cmap))
+        colors.update(FEATURE_COLORS)
+        self._handles.update({name: mpatches.Patch(facecolor=color) for name, color in colors.items()})
         for track, tx in enumerate(self.transcripts):
-            if not tx.protein:
+            if not tx or not tx.protein:
                 continue
-            domains = tx.protein.features
-            if not domains:
+            features = tx.protein.features
+            if not features:
                 continue
             subtracks, n_subtracks = generate_subtracks(
-                ((domain.protein_start, domain.protein_stop) for domain in domains),
-                (domain.name for domain in domains)
+                ((feature.protein_start, feature.protein_stop) for feature in features),
+                (feature.name for feature in features)
             )
-            for domain in domains:
-                subtrack = subtracks[domain.name]
-                color = domain_colors[domain.name]
-                if domain.reference:
-                    subdomains = groupby(domain.residues, key=lambda res: (False, res.primary_exon))
-                    n_subtracks_temp = n_subtracks
+            for feature in features:
+                subtrack = subtracks[feature.name]
+                color = colors[feature.name]
+                if feature.reference:
+                    subfeatures = groupby(feature.residues, key=lambda res: (False, res.primary_exon))
+                    # n_subtracks_temp = n_subtracks
                 else:
-                    subdomains = groupby(domain.residues, key=lambda res: (res in domain.altered_residues, res.primary_exon))
-                    n_subtracks_temp = 2*n_subtracks
-                for (altered, _), subdomain in subdomains:
-                    subdomain = list(subdomain)
-                    start = subdomain[0].codon[1].coordinate
-                    stop = subdomain[-1].codon[1].coordinate
+                    subfeatures = groupby(feature.residues, key=lambda res: (res in feature.altered_residues, res.primary_exon))
+                    # n_subtracks_temp = 2*n_subtracks
+                for (altered, _), subfeature in subfeatures:
+                    subfeature = list(subfeature)
+                    start = subfeature[0].codon[1].coordinate
+                    stop = subfeature[-1].codon[1].coordinate
                     self.draw_region(
                         track,
                         start = start,
                         stop = stop,
-                        y_offset = (-0.5 + subtrack/n_subtracks_temp)*h,
-                        height = h/n_subtracks_temp,
+                        y_offset = (-0.5 + subtrack/n_subtracks)*h,
+                        height = h/n_subtracks,
                         edgecolor = 'none',
                         facecolor = color,
                         alpha = 0.5 if altered else 1.0,
                         zorder = 1.8,
-                        label = domain.name
+                        label = feature.name
                     )
+                # draw box behind entire feature
+                self.draw_region(
+                    track,
+                    start = feature.residues[0].codon[1].coordinate,
+                    stop = feature.residues[-1].codon[1].coordinate,
+                    y_offset = (-0.5 + subtrack/n_subtracks)*h,
+                    height = h/n_subtracks,
+                    edgecolor = 'none',
+                    facecolor = color,
+                    alpha = 0.5,
+                    zorder = 1.4
+                )
 
 
 def generate_subtracks(intervals: Iterable[Tuple[int, int]], labels: Iterable):
