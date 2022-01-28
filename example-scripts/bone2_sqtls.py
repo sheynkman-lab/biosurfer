@@ -60,15 +60,16 @@ transform = coo_matrix((data, (row, col))).tocsr()
 all_pb_ids = set(row.accession for row in session.query(PacBioTranscript.accession))
 expression = pd.DataFrame(data=transform.dot(expr_raw.to_numpy()), index=expr_raw.index, columns=expr_raw.columns)
 expression = expression.filter(items=all_pb_ids, axis=0).rename(lambda name: name.split('_')[0], axis=1)
-expression['total'] = expression.sum(axis=1)
-expression['frac_total'] = expression['total'] / sum(expression['total'])
 for days in (0, 2, 4, 10):
     expression[f't{days}'] = expression[[col for col in expression.columns if col.startswith(f't{days}')]].mean(axis=1)
+expression['total'] = expression.iloc[:, -4:].sum(axis=1)
+expression['frac_total'] = expression['total'] / sum(expression['total'])
 
 # %%
 print('Loading sQTL table...')
 sqtls_raw = pd.read_csv(f'{data_dir}/coloc_sig_pc_full.tsv', sep='\t', nrows=None)
 sqtls = sqtls_raw[sqtls_raw['gene_type'] == 'protein_coding']
+sqtls = sqtls[sqtls['gene_name'] == 'TPM2']
 # sqtls = sqtls.sample(frac=0.01, axis=0)
 # with open(f'{data_dir}/problems.txt') as f:
 #     problems = set(line.strip() for line in f)
@@ -116,11 +117,11 @@ genes = {stem(gene.accession): gene for gene in gene_query}
 def sortkey(transcript: 'Transcript'):
     return -expression.total[transcript.accession], getattr(transcript, 'sqanti', SQANTI.OTHER)
 
-def abundance_str(transcript: 'Transcript'):
-    if transcript.accession in expression.index:
-        return f'{expression.total.loc[transcript.accession]:.5g}'
-    else:
-        return None
+def abundance(transcript: 'Transcript'):
+    try:
+        return expression.loc[transcript.accession]['total']
+    except KeyError:
+        return 0.0
 
 def get_augmented_sqtl_record(row):
     chr, gene_id, start, end, h4 = row
@@ -141,37 +142,51 @@ def get_augmented_sqtl_record(row):
         'pairs': 0
     }
     pb_transcripts = {tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript) and all(orf.has_stop_codon for orf in tx.orfs)}
-    not_using, using = split_transcripts_on_junction_usage(junc, filter(attrgetter('orfs'), pb_transcripts))
-    using = sorted(using, key=sortkey)
-    not_using = sorted(not_using, key=sortkey)
-    if not using or not not_using:
+    lacking, containing = split_transcripts_on_junction_usage(junc, filter(attrgetter('orfs'), pb_transcripts))
+    containing = sorted(containing, key=sortkey)
+    lacking = sorted(lacking, key=sortkey)
+    if not containing or not lacking:
         return None
     
     gc_transcripts = sorted((tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript)), key=attrgetter('appris'), reverse=True)
     anchor_tx = gc_transcripts[0]
 
-    pairs = list(product(not_using, using))
+    pairs = list(product(lacking, containing))
     n_pairs = len(pairs)
     alns = []
     for tx1, tx2 in pairs:
         with ExceptionLogger(f'Error for {tx1.name} and {tx2.name}'):
             alns.append(Alignment(tx1.protein, tx2.protein))
-    junc_info['pairs'] = n_pairs
+    # junc_info['pairs'] = n_pairs
+    abundance_denom = sum(abundance(tx) for tx in containing) * sum(abundance(tx) for tx in lacking)
+    weights = {
+        (tx1, tx2): abundance(tx1) * abundance(tx2) / abundance_denom
+        for tx1, tx2 in pairs
+    }
+    assert abs(sum(weights.values()) - 1) < 2**-8
 
     pblocks = get_pblocks_related_to_junction(junc, alns)
 
     # calculate fraction of pairs where one isoform is NMD and other is not
     junc_info['NMD'] = None
     with ExceptionLogger(f'Error for {gene.name} {junc}'):
-        junc_info['NMD'] = sum(tx1.primary_orf.nmd ^ tx2.primary_orf.nmd for tx1, tx2 in pairs) / n_pairs
+        junc_info['NMD'] = sum(
+            float(tx1.primary_orf.nmd ^ tx2.primary_orf.nmd) * weights[tx1, tx2]
+            for tx1, tx2 in pairs
+        )
 
-    # calculate median change in sequence length for junction-related pblocks
-    junc_info['median_delta_length'] = median(pblock.delta_length for pblock in pblocks) if pblocks else 0.0
+    # calculate weighted mean of change in sequence length for junction-related pblocks
+    junc_info['avg_delta_length'] = np.average(
+        [pblock.delta_length for pblock in pblocks],
+        weights = [weights[pblock.anchor.transcript, pblock.other.transcript] for pblock in pblocks]
+    ) if pblocks else 0.0
 
     # classify "drastic" vs. "subtle" changes for each pair
     pair_pblocks = groupby(pblocks, key=attrgetter('anchor', 'other'))
-    drastic_pair_count = sum(junction_has_drastic_effect_in_pair(pblocks=list(pblock_group)) for _, pblock_group in pair_pblocks)
-    junc_info['drastic_effect_frequency'] = drastic_pair_count / n_pairs
+    junc_info['drastic_effect_frequency'] = sum(
+        float(junction_has_drastic_effect_in_pair(pblocks=list(pblock_group))) * weights[p1.transcript, p2.transcript]
+        for (p1, p2), pblock_group in pair_pblocks
+    )
 
     counts = get_event_counts(pblocks)
     freqs = {event.name: count/n_pairs for event, count in counts.items()}
@@ -186,7 +201,7 @@ def get_augmented_sqtl_record(row):
     fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
     if force_plotting or not os.path.isfile(fig_path):
         isoplot = IsoformPlot(
-            gc_transcripts + [None] + using + not_using + [None],
+            gc_transcripts + [None] + containing + lacking + [None],
             columns = {
                 'novelty': lambda tx: str(getattr(tx, 'sqanti', '')),
                 'GENCODE': lambda tx: tx.gencode.name if getattr(tx, 'gencode', False) else '',
@@ -197,16 +212,16 @@ def get_augmented_sqtl_record(row):
             gs = GridSpec(1, 5)
             isoplot.draw_all_isoforms(subplot_spec=gs[:-1])
             isoplot.draw_frameshifts(anchor=anchor_tx)
-            isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(gc_transcripts) + len(using) + 0.5, start=gene.start, stop=gene.stop)
+            isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(gc_transcripts) + len(containing) + 0.5, start=gene.start, stop=gene.stop)
             isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor='#f0f0f0')
             for pblock in pblocks:
-                isoplot.draw_protein_block(pblock, alpha=n_pairs**-0.5)
+                isoplot.draw_protein_block(pblock, alpha=weights[pblock.anchor.transcript, pblock.other.transcript]**0.5)
             isoplot.draw_features()
             isoplot.draw_legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
             heatmap_ax = isoplot.fig.add_subplot(gs[-1])
             all_accessions = [getattr(tx, 'accession', None) for tx in isoplot.transcripts]
             pb_accessions = [getattr(tx, 'accession', None) for tx in isoplot.transcripts if isinstance(tx, PacBioTranscript)]
-            expression_sub = expression.loc[pb_accessions].iloc[:, -4:]
+            expression_sub = expression.loc[pb_accessions][['t0', 't2', 't4', 't10', 'total']]
             expression_sub = expression_sub.reindex(index=all_accessions, fill_value=0)
             expression_sub.iloc[-1, :] = expression_sub.sum(axis=0)
             heatmap = sns.heatmap(
