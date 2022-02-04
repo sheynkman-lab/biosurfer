@@ -71,6 +71,10 @@ expression['noFBS'] = expression.iloc[:, 1:12:2].mean(axis=1)
 expression['average'] = expression.iloc[:, 0:12].mean(axis=1)
 
 # %%
+def first(x):
+    f = sorted(filter(None, x))
+    return f[0] if f else None
+
 print('Loading sQTL table...')
 sqtls_raw: pd.DataFrame = pd.read_csv(f'{data_dir}/smc-sqtls.tsv', sep='\t', nrows=None)
 sqtls_raw['gene_id'] = sqtls_raw['Cluster and ENSEMBL Gene ID'].apply(lambda x: x.split(':')[-1])
@@ -83,9 +87,9 @@ sqtls = sqtls_raw.rename(columns={
     'P-value': 'pval',
     'Effect direction': 'effect_dir'
 })
-both_condition_sqtls = sqtls.duplicated(['gene_id', 'start', 'end'], keep=False)
-sqtls.loc[both_condition_sqtls, 'condition'] = 'Both'
-sqtls = sqtls.drop_duplicates(['gene_id', 'start', 'end', 'condition'])
+sqtls['pval_pro'] = sqtls['pval'].mask(sqtls['condition'] != 'Proliferative', 0)
+sqtls['pval_qui'] = sqtls['pval'].mask(sqtls['condition'] != 'Quiescent', 0)
+sqtls = sqtls.groupby(['gene_id', 'start', 'end']).agg(first).reset_index()
 # sqtls = sqtls[sqtls['gene'].isin(['PROCR', 'DMAC2', 'NDUFAF6', 'NME7', 'PARP12'])]
 
 # %%
@@ -122,9 +126,9 @@ genes = {stem(gene.accession): gene for gene in gene_query}
 # def abundant_and_coding(transcript: 'Transcript'):
 #     return transcript.accession in over3counts and len(transcript.orfs) > 0
 junc_colors = {
-    'Proliferative': '#FEEFF4',
-    'Quiescent': '#F0F0FD',
-    'Both': '#F8EEFD'
+    (True, False): '#FEEFF4',
+    (False, True): '#F0F0FD',
+    (True, True): '#F8EEFD'
 }
 
 def sortkey(transcript: 'Transcript'):
@@ -137,7 +141,11 @@ def abundance(transcript: 'Transcript'):
         return 0.0
 
 def get_augmented_sqtl_record(row):
-    chr, strand, gene_id, start, end, condition, pval, effect_dir = row
+    chr, strand, gene_id, start, end, pval_pro, pval_qui, effect_dir = row
+    if np.isnan(pval_pro):
+        pval_pro = None
+    if np.isnan(pval_qui):
+        pval_qui = None
     try:
         gene = genes[stem(gene_id)]
     except KeyError:
@@ -151,8 +159,8 @@ def get_augmented_sqtl_record(row):
         'donor': start,
         'acceptor': end,
         'gene': gene.name,
-        'condition': condition,
-        'pval': pval,
+        'pval_pro': pval_pro,
+        'pval_qui': pval_qui,
         'effect_dir': effect_dir
     }
     pb_transcripts = {tx for tx in gene.transcripts if isinstance(tx, PacBioTranscript) and all(orf.has_stop_codon for orf in tx.orfs)}
@@ -241,8 +249,9 @@ def get_augmented_sqtl_record(row):
             isoplot.draw_all_isoforms(subplot_spec=gs[:-1])
             isoplot.draw_frameshifts(anchor=anchor_tx)
             isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(gc_transcripts) + len(containing) + 0.5, start=gene.start, stop=gene.stop)
-            isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor=junc_colors[condition])
-            isoplot._handles['sQTL junction'] = mpatches.Patch(facecolor=junc_colors[condition])
+            junc_color = junc_colors[bool(pval_pro), bool(pval_qui)]
+            isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor=junc_color)
+            isoplot._handles['sQTL junction'] = mpatches.Patch(facecolor=junc_color)
             for pblock in pblocks:
                 isoplot.draw_protein_block(pblock, alpha=weights[pblock.anchor.transcript, pblock.other.transcript]**0.5)
             isoplot.draw_features()
@@ -269,14 +278,14 @@ def get_augmented_sqtl_record(row):
                 fmt = '0.0f',
             )
             heatmap.set_ylabel(None)
-            isoplot._bax.set_title(f'Condition: {condition}\np-value: {pval}\n{effect_dir}', loc='left', size='x-small')
+            isoplot._bax.set_title(f'p-value (proliferative): {pval_pro if pval_pro else ""}\np-value (quiescent): {pval_qui if pval_qui else ""}\n{effect_dir}', loc='left', size='x-small')
             isoplot.fig.set_size_inches(20, 0.8 + 0.4*len(gene.transcripts))
             plt.savefig(fig_path, facecolor='w', transparent=False, dpi=200, bbox_inches='tight')
             tqdm.write('\tsaved '+fig_path)
         plt.close(isoplot.fig)
     return junc_info
 
-rows = [(row.chr, row.strand, row.gene_id, row.start, row.end, row.condition, row.pval, row.effect_dir) for row in sqtls.itertuples()]
+rows = [(row.chr, row.strand, row.gene_id, row.start, row.end, row.pval_pro, row.pval_qui, row.effect_dir) for row in sqtls.itertuples()]
 t = tqdm(
     map(get_augmented_sqtl_record, rows),
     desc = 'Analyzing sQTL junctions',
