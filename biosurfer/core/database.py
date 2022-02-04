@@ -622,9 +622,10 @@ class Database:
                                 domains_to_insert.append(record)
                     t.update(len(proteins))
                 # if len(domains_to_insert) > CHUNK_SIZE:
-                session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
-                session.commit()
-                domains_to_insert[:] = []
+                if domains_to_insert:
+                    session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
+                    session.commit()
+                    domains_to_insert[:] = []
             # if domains_to_insert:
             #     session.execute(insert(ProteinFeature.__table__).on_conflict_do_nothing(), domains_to_insert)
             # session.commit()
