@@ -417,6 +417,11 @@ class IsoformPlot:
         
         if anchor is None:
             anchor = next(filter(None, self.transcripts))
+        if not anchor or not anchor.protein:
+            warn(
+                'Cannot draw frameshifts without an anchor ORF'
+            )
+            return
         for i, other in enumerate(self.transcripts):
             if not other or not other.protein or other is anchor:
                 continue
