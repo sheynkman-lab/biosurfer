@@ -5,7 +5,8 @@ import pytest
 from Bio.Seq import Seq
 from biosurfer.core.constants import (START_CODON, STOP_CODONS, AminoAcid,
                                       Strand)
-from biosurfer.core.models.biomolecules import ORF, Exon, Protein, Transcript
+from biosurfer.core.models.biomolecules import (ORF, Exon, Gene, Protein,
+                                                Transcript)
 from biosurfer.core.models.features import ProteinFeature
 from hypothesis import given, note
 from hypothesis.control import assume
@@ -87,7 +88,7 @@ def transcript(draw, coding=False, min_size=1):
     )
 
     exon_tx_start = 1
-    exon_genome_start = draw(st.integers(min_value=0))
+    exon_genome_start = draw(st.integers(min_value=1))
     for i, exon_tx_stop in enumerate(exon_tx_stops, start=1):
         exon = Exon(
             position = i,
@@ -103,6 +104,7 @@ def transcript(draw, coding=False, min_size=1):
     
     tx = Transcript(
         name = 'TEST-1',
+        gene = Gene(name='TEST', chromosome_id='chrZ'),
         strand = strand,
         sequence = tx_seq,
         exons = exons,
@@ -171,6 +173,18 @@ def test_exon_coords_correct(data, transcript_getter):
     transcript = transcript_getter(data)
     for exon in transcript.exons:
         assert exon.stop - exon.start == exon.transcript_stop - exon.transcript_start
+
+@given(data=st.data())
+def test_junction_coords_correct(data, transcript_getter):
+    transcript = transcript_getter(data)
+    for junction in transcript.junctions:
+        upstream_exon, downstream_exon = transcript.get_exons_from_junction(junction)
+        donor_nt = transcript.get_nucleotide_from_coordinate((junction.donor.coordinate))
+        acceptor_nt = transcript.get_nucleotide_from_coordinate((junction.acceptor.coordinate))
+        note(f'junction: {junction}')
+        note(f'upstream exon: {upstream_exon}, {upstream_exon.start}-{upstream_exon.stop}')
+        note(f'downstream exon: {downstream_exon}, {downstream_exon.start}-{downstream_exon.stop}')
+        assert donor_nt.exon is upstream_exon and acceptor_nt.exon is downstream_exon
 
 @given(data=st.data())
 def test_orf_utr_lengths_correct(data, coding_transcript_getter):

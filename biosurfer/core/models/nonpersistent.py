@@ -2,14 +2,80 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from functools import cached_property
 from operator import attrgetter
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 from warnings import warn
 
+from attrs import define, frozen, field, evolve, validators
 from biosurfer.core.constants import Nucleobase, AminoAcid, Strand
-from biosurfer.core.helpers import frozendataclass
 
 if TYPE_CHECKING:
     from biosurfer.core.models.biomolecules import Chromosome, Gene, Transcript, Exon, ORF, Protein
+
+
+@frozen(hash=True)
+class Position:
+    chromosome: str  # TODO: convert to dynamic Enum?
+    strand: 'Strand' = field(validator=validators.instance_of(Strand))
+    coordinate: int = field(validator=validators.gt(0))
+
+    def __repr__(self):
+        return f'{self.chromosome}({self.strand}):{self.coordinate}'
+
+    def _is_comparable(self, other: 'Position'):
+        return isinstance(other, Position) and (self.chromosome, self.strand) == (other.chromosome, other.strand)
+
+    def __lt__(self, other: 'Position'):
+        if not self._is_comparable(other):
+            return NotImplemented
+        elif self.strand is Strand.MINUS:
+            return self.coordinate > other.coordinate
+        else:
+            return self.coordinate < other.coordinate
+    
+    def __le__(self, other: 'Position'):
+        if not self._is_comparable(other):
+            return NotImplemented
+        elif self.strand is Strand.MINUS:
+            return self.coordinate >= other.coordinate
+        else:
+            return self.coordinate <= other.coordinate
+    
+    def __gt__(self, other: 'Position'):
+        if not self._is_comparable(other):
+            return NotImplemented
+        elif self.strand is Strand.MINUS:
+            return self.coordinate < other.coordinate
+        else:
+            return self.coordinate > other.coordinate
+    
+    def __ge__(self, other: 'Position'):
+        if not self._is_comparable(other):
+            return NotImplemented
+        elif self.strand is Strand.MINUS:
+            return self.coordinate <= other.coordinate
+        else:
+            return self.coordinate >= other.coordinate
+    
+    def __add__(self, offset: int):
+        if not isinstance(offset, int):
+            return NotImplemented
+        else:
+            if self.strand is Strand.MINUS:
+                offset = -offset
+            return evolve(self, coordinate=self.coordinate + offset)
+    
+    def __radd__(self, offset: int):
+        return self.__add__(offset)
+
+    def __sub__(self, other: Union['Position', int]):
+        if isinstance(other, int):
+            return self.__add__(-other)
+        elif not self._is_comparable(other):
+            return NotImplemented
+        delta = self.coordinate - other.coordinate
+        if self.strand is Strand.MINUS:
+            delta = -delta
+        return delta
 
 
 class Nucleotide:
@@ -103,30 +169,51 @@ class Residue:
         return self.amino_acid is AminoAcid.GAP
 
 
-@frozendataclass
+@frozen(hash=True)
 class Junction:
-    donor: int
-    acceptor: int
-    chromosome: str
-    strand: 'Strand'
+    donor: 'Position' = field(validator=validators.instance_of(Position))
+    acceptor: 'Position' = field()
+    @acceptor.validator
+    def _check_acceptor(self, attribute, value):
+        if not self.donor._is_comparable(value):
+            raise ValueError(f'{self.donor} and {value} are not on the same strand')
+
+    @property
+    def chromosome(self):
+        return self.donor.chromosome
     
-    def __repr__(self) -> str:
-        return f'{self.chromosome}({self.strand}):{self.donor}^{self.acceptor}'
+    @property
+    def strand(self):
+        return self.donor.strand
     
-    def __eq__(self, other: 'Junction') -> bool:
+    def __bool__(self):
+        return self.donor < self.acceptor
+
+    def __repr__(self):
+        return f'{self.donor.chromosome}({self.donor.strand}):{self.donor.coordinate}^{self.acceptor.coordinate}'
+    
+    def __eq__(self, other: 'Junction'):
         if not isinstance(other, Junction):
-            raise TypeError(f'Cannot compare Junction with {type(other)}')
-        if self.chromosome != other.chromosome:
-            return False
-        if self.strand is not other.strand:
-            return False
+            return NotImplemented
         delta_donor = abs(self.donor - other.donor)
         delta_acceptor = abs(self.acceptor - other.acceptor)
         if delta_donor <= 2 and delta_acceptor <= 2 and (delta_donor != 0 or delta_acceptor != 0):
             warn(f'Possible off-by-one error for junctions {self} and {other}')
-        if self.strand is Strand.MINUS and self.donor == other.acceptor and self.acceptor == other.donor:
-            warn(f'Reversed coords for junctions {self} and {other}')
         return delta_donor == 0 and delta_acceptor == 0
+    
+    def __and__(self, other: 'Junction'):
+        if not isinstance(other, Junction):
+            return NotImplemented
+        return evolve(self, donor=max(self.donor, other.donor), acceptor=min(self.acceptor, other.acceptor))
+
+    def __or__(self, other: 'Junction'):
+        if not isinstance(other, Junction):
+            return NotImplemented
+        return evolve(self, donor=min(self.donor, other.donor), acceptor=max(self.acceptor, other.acceptor))
+
+    @classmethod
+    def from_coordinates(cls, chromosome: str, strand: 'Strand', donor: int, acceptor: int):
+        return Junction(Position(chromosome, strand, donor), Position(chromosome, strand, acceptor))
 
 
 class UTR(ABC):
