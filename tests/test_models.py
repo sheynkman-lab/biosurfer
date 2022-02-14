@@ -5,7 +5,8 @@ import pytest
 from Bio.Seq import Seq
 from biosurfer.core.constants import (START_CODON, STOP_CODONS, AminoAcid,
                                       Strand)
-from biosurfer.core.models.biomolecules import ORF, Exon, Protein, Transcript
+from biosurfer.core.models.biomolecules import (ORF, Exon, Gene, Protein,
+                                                Transcript)
 from biosurfer.core.models.features import ProteinFeature
 from hypothesis import given, note
 from hypothesis.control import assume
@@ -80,29 +81,36 @@ def transcript(draw, coding=False, min_size=1):
     exon_tx_stops.sort()
 
     intron_lengths = draw(
-        st.iterables(
+        st.lists(
             st.integers(min_value=31),
             min_size = len(exon_tx_stops)
         )
     )
 
     exon_tx_start = 1
-    exon_genome_start = draw(st.integers(min_value=0))
-    for i, exon_tx_stop in enumerate(exon_tx_stops, start=1):
+    pos = draw(st.integers(min_value=length + 2*sum(intron_lengths)))
+    for i, exon_tx_stop in enumerate(exon_tx_stops):
+        exon_length = exon_tx_stop - exon_tx_start
         exon = Exon(
-            position = i,
+            position = i + 1,
             transcript_start = exon_tx_start,
-            transcript_stop = exon_tx_stop,
-            start = exon_genome_start,
-            stop = exon_genome_start + exon_tx_stop - exon_tx_start
+            transcript_stop = exon_tx_stop
         )
-        exons.append(exon)
-        exon_tx_start = exon_tx_stop + 1
-        exon_genome_start = exon.stop + next(intron_lengths)
+        if strand is Strand.MINUS:
+            exon.stop = pos
+            exon.start = pos - exon_length
+            pos = exon.start - intron_lengths[i]
+        else:
+            exon.start = pos
+            exon.stop = pos + exon_length
+            pos = exon.stop + intron_lengths[i]
 
+        exon_tx_start = exon_tx_stop + 1
+        exons.append(exon)
     
     tx = Transcript(
         name = 'TEST-1',
+        gene = Gene(name='TEST', chromosome_id='chrZ'),
         strand = strand,
         sequence = tx_seq,
         exons = exons,
@@ -171,6 +179,18 @@ def test_exon_coords_correct(data, transcript_getter):
     transcript = transcript_getter(data)
     for exon in transcript.exons:
         assert exon.stop - exon.start == exon.transcript_stop - exon.transcript_start
+
+@given(data=st.data())
+def test_junction_coords_correct(data, transcript_getter):
+    transcript = transcript_getter(data)
+    for junction in transcript.junctions:
+        upstream_exon, downstream_exon = transcript.get_exons_from_junction(junction)
+        donor_nt = transcript.get_nucleotide_from_coordinate((junction.donor.coordinate))
+        acceptor_nt = transcript.get_nucleotide_from_coordinate((junction.acceptor.coordinate))
+        note(f'junction: {junction}')
+        note(f'upstream exon: {upstream_exon}, {upstream_exon.start}-{upstream_exon.stop}')
+        note(f'downstream exon: {downstream_exon}, {downstream_exon.start}-{downstream_exon.stop}')
+        assert bool(junction) and donor_nt.exon is upstream_exon and acceptor_nt.exon is downstream_exon
 
 @given(data=st.data())
 def test_orf_utr_lengths_correct(data, coding_transcript_getter):
