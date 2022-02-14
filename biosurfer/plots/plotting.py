@@ -17,7 +17,7 @@ from biosurfer.core.alignments import (FRAMESHIFT, ProjectedFeature,
                                        Alignment)
 from biosurfer.core.constants import (AminoAcid, FeatureType, ProteinLevelAlignmentCategory,
                                       Strand, TranscriptLevelAlignmentCategory)
-from biosurfer.core.helpers import ExceptionLogger, Interval, IntervalTree
+from biosurfer.core.helpers import ExceptionLogger, Interval, IntervalTree, get_interval_overlap_graph
 from biosurfer.core.models.biomolecules import (GencodeTranscript,
                                                 PacBioTranscript, Transcript)
 from brokenaxes import BrokenAxes
@@ -543,26 +543,11 @@ class IsoformPlot:
 
 def generate_subtracks(intervals: Iterable[Tuple[int, int]], labels: Iterable):
     # inspired by https://stackoverflow.com/a/19088519
-    labels = list(labels)
-    index_to_label = list(dict.fromkeys(labels))  # remove duplicates while preserving order
-    label_to_index = {label: i for i, label in enumerate(index_to_label)}
-    N = len(index_to_label)
-    active_labels = set()
     # build graph of labels where labels are adjacent if their intervals overlap
-    g = Graph(directed=False)
-    boundaries = sorted(chain.from_iterable([(a, True, label), (b, False, label)] for (a, b), label in zip(intervals, labels)))
-    for _, start_of_interval, label in boundaries:
-        if start_of_interval:
-            for other_label in active_labels:
-                i = label_to_index[label]
-                j = label_to_index[other_label]
-                g.add_edge(i, j)
-            active_labels.add(label)
-        else:
-            active_labels.discard(label)
+    g, vertex_labels = get_interval_overlap_graph(intervals, labels)
     # find vertex coloring of graph
     # all labels w/ same color can be put into same subtrack
     coloring = sequential_vertex_coloring(g)
-    label_to_subtrack = {index_to_label[i]: coloring[i] for i in range(N)}
+    label_to_subtrack = dict(zip(vertex_labels, coloring))
     subtracks = max(label_to_subtrack.values(), default=0) + 1
     return label_to_subtrack, subtracks
