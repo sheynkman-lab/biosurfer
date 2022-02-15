@@ -175,8 +175,8 @@ class Junction:
     acceptor: 'Position' = field()
     @acceptor.validator
     def _check_acceptor(self, attribute, value):
-        if not self.donor._is_comparable(value):
-            raise ValueError(f'{self.donor} and {value} are not on the same strand')
+        if self.donor >= value:
+            raise ValueError(f'Donor {self.donor} is downstream of acceptor {value}')
 
     @property
     def chromosome(self):
@@ -185,9 +185,6 @@ class Junction:
     @property
     def strand(self):
         return self.donor.strand
-    
-    def __bool__(self):
-        return self.donor < self.acceptor
 
     def __repr__(self):
         return f'{self.donor.chromosome}({self.donor.strand}):{self.donor.coordinate}^{self.acceptor.coordinate}'
@@ -204,12 +201,19 @@ class Junction:
     def __and__(self, other: 'Junction'):
         if not isinstance(other, Junction):
             return NotImplemented
-        return evolve(self, donor=max(self.donor, other.donor), acceptor=min(self.acceptor, other.acceptor))
+        donor = max(self.donor, other.donor)
+        acceptor = min(self.acceptor, other.acceptor)
+        return evolve(self, donor=donor, acceptor=acceptor) if donor < acceptor else None
 
     def __or__(self, other: 'Junction'):
         if not isinstance(other, Junction):
             return NotImplemented
-        return evolve(self, donor=min(self.donor, other.donor), acceptor=max(self.acceptor, other.acceptor))
+        donor = min(self.donor, other.donor)
+        acceptor = max(self.acceptor, other.acceptor)
+        return evolve(self, donor=donor, acceptor=acceptor) if donor < acceptor else None
+
+    def as_tuple(self):
+        return self.chromosome, self.strand, self.donor.coordinate, self.acceptor.coordinate
 
     @classmethod
     def from_coordinates(cls, chromosome: str, strand: 'Strand', donor: int, acceptor: int):
