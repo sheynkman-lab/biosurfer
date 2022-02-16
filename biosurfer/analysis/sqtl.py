@@ -11,7 +11,7 @@ from biosurfer.core.constants import (AnnotationFlag,
 if TYPE_CHECKING:
     from biosurfer.core.alignments import (ProteinAlignmentBlock,
                                            Alignment)
-    from biosurfer.core.models import Junction, Protein, Transcript
+    from biosurfer.core.models.nonpersistent import Junction, Protein, Transcript
 
 
 def split_transcripts_on_junction_usage(junction: 'Junction', transcripts: Iterable['Transcript']):
@@ -40,9 +40,9 @@ def get_pblocks_related_to_junction(junction: 'Junction', alns: Iterable['Alignm
                 start = pblock.other_residues[0].codon[1].coordinate
                 stop = pblock.other_residues[-1].codon[1].coordinate
             if junction.strand is Strand.PLUS:
-                result = junction.donor <= stop + 1 and start - 1 <= junction.acceptor
+                result = junction.donor.coordinate <= stop + 1 and start - 1 <= junction.acceptor.coordinate
             elif junction.strand is Strand.MINUS:
-                result = junction.donor >= stop - 1 and start + 1 >= junction.acceptor
+                result = junction.donor.coordinate >= stop - 1 and start + 1 >= junction.acceptor.coordinate
             if pblock.region is ProteinRegion.NTERMINUS:
                 result |= down_exon in pblock.other_exons
             return result
