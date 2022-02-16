@@ -175,7 +175,7 @@ class Junction:
     acceptor: 'Position' = field()
     @acceptor.validator
     def _check_acceptor(self, attribute, value):
-        if self.donor >= value:
+        if self.donor > value:
             raise ValueError(f'Donor {self.donor} is downstream of acceptor {value}')
 
     @property
@@ -211,6 +211,10 @@ class Junction:
         donor = min(self.donor, other.donor)
         acceptor = max(self.acceptor, other.acceptor)
         return evolve(self, donor=donor, acceptor=acceptor) if donor < acceptor else None
+
+    @property
+    def length(self) -> int:
+        return (self.acceptor - self.donor) + 1
 
     def as_tuple(self):
         return self.chromosome, self.strand, self.donor.coordinate, self.acceptor.coordinate
