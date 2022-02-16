@@ -86,11 +86,10 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
         for i in range(1, len(self.exons)):
             up_exon = self.exons[i-1]
             down_exon = self.exons[i]
-
-            donor = up_exon.nucleotides[-1].coordinate
-            acceptor = down_exon.nucleotides[0].coordinate
-
-            junction = Junction.from_coordinates(self.gene.chromosome_id, self.strand, donor, acceptor)
+            chr = self.gene.chromosome_id
+            donor = Position(chr, self.strand, up_exon.nucleotides[-1].coordinate) + 1
+            acceptor = Position(chr, self.strand, down_exon.nucleotides[0].coordinate) - 1
+            junction = Junction(donor, acceptor)
             mapping[junction] = (up_exon, down_exon)
         return mapping
     

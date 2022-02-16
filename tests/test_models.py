@@ -185,8 +185,8 @@ def test_junction_coords_correct(data, transcript_getter):
     transcript = transcript_getter(data)
     for junction in transcript.junctions:
         upstream_exon, downstream_exon = transcript.get_exons_from_junction(junction)
-        donor_nt = transcript.get_nucleotide_from_coordinate((junction.donor.coordinate))
-        acceptor_nt = transcript.get_nucleotide_from_coordinate((junction.acceptor.coordinate))
+        donor_nt = transcript.get_nucleotide_from_coordinate((junction.donor - 1).coordinate)
+        acceptor_nt = transcript.get_nucleotide_from_coordinate((junction.acceptor + 1).coordinate)
         note(f'junction: {junction}')
         note(f'upstream exon: {upstream_exon}, {upstream_exon.start}-{upstream_exon.stop}')
         note(f'downstream exon: {downstream_exon}, {downstream_exon.start}-{downstream_exon.stop}')
@@ -254,5 +254,3 @@ def test_feature_residues_correct(data, feature_getter):
     note(f'protein seq: {protein.sequence}')
     note(f'feature seq: {feature.sequence}')
     assert [(res.position, res.amino_acid) for res in feature.residues] == [(feature.protein_start + i, AminoAcid(aa)) for i, aa in enumerate(feature.sequence)]
-
-# TODO: test junctions
