@@ -1,10 +1,8 @@
 # %%
-from abc import ABC
-from enum import Enum, Flag, auto
-from functools import partial
 import heapq
+import warnings
+from enum import Enum, auto
 from itertools import chain
-from multiprocessing.sharedctypes import Value
 from operator import attrgetter, methodcaller
 from typing import Iterable, List, Tuple
 from warnings import warn
@@ -12,18 +10,17 @@ from warnings import warn
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from attrs import frozen, field, evolve
-from biosurfer.core.constants import Strand
+from attrs import evolve, field, frozen
 from biosurfer.core.database import Database
-from biosurfer.core.helpers import ExceptionLogger, frozendataclass, get_interval_overlap_graph
+from biosurfer.core.helpers import (ExceptionLogger,
+                                    get_interval_overlap_graph)
 from biosurfer.core.models.biomolecules import Transcript
 from biosurfer.core.models.nonpersistent import Junction, Position
-from graph_tool.topology import label_components, is_bipartite, shortest_path
-from graph_tool.draw.cairo_draw import graph_draw
 from graph_tool import GraphView
+from graph_tool.draw.cairo_draw import graph_draw
+from graph_tool.topology import is_bipartite, label_components, shortest_path
 from more_itertools import windowed
 from tqdm import tqdm
-
 
 df = pd.read_csv('complex-splice-events.csv', names=['anchor', 'other', 'score'])
 # df['gene'] = df['anchor'].str.split('-').str.get(0)
@@ -59,52 +56,11 @@ ACCEPTOR = {SpliceEventCategory.AI, SpliceEventCategory.AX}
 EXON = {SpliceEventCategory.EI, SpliceEventCategory.ES}
 
 
-# @dataclass(frozen=True)
 @frozen(hash=True)
 class BasicSpliceEvent:
     category: 'SpliceEventCategory' = field(default=SpliceEventCategory.UNKNOWN)
     anchor_junctions: tuple['Junction'] = field(factory=tuple)
     other_junctions: tuple['Junction'] = field(factory=tuple)
-
-    @classmethod
-    def from_junctions(cls, anchor_junctions: Iterable['Junction'], other_junctions: Iterable['Junction']) -> 'BasicSpliceEvent':
-        A = len(anchor_junctions)
-        O = len(other_junctions)
-        N = A + O
-        if N == 1:
-            if anchor_junctions:
-                category = SpliceEventCategory.IR
-            elif other_junctions:
-                category = SpliceEventCategory.IX
-        elif N == 2:
-            anchor_junc = anchor_junctions[0]
-            other_junc = other_junctions[0]
-            if anchor_junc == other_junc:
-                raise ValueError(f'Invalid BasicSpliceEvent between {anchor_junc} and {other_junc}')
-            elif anchor_junc.acceptor == other_junc.acceptor:
-                if anchor_junc.donor < other_junc.donor:
-                    category = SpliceEventCategory.DI
-                else:
-                    category = SpliceEventCategory.DX
-            elif anchor_junc.donor == other_junc.donor:
-                if anchor_junc.acceptor > other_junc.acceptor:
-                    category = SpliceEventCategory.AI
-                else:
-                    category = SpliceEventCategory.AX
-            else:
-                raise ValueError(f'Invalid BasicSpliceEvent between {anchor_junc} and {other_junc}')
-        elif N == 3:
-            if A == 1:
-                category = SpliceEventCategory.EI
-            elif O == 1:
-                category = SpliceEventCategory.ES
-            if len(set(chain.from_iterable((j.donor, j.acceptor) for j in anchor_junctions + other_junctions))) != 4:
-                raise ValueError(f'Invalid BasicSpliceEvent between {anchor_junctions} and {other_junctions}')
-        else:
-            raise ValueError(f'BasicSpliceEvent cannot have more than 3 junctions')
-        anchor_juncs = tuple(sorted(anchor_junctions, key=attrgetter('donor')))
-        other_juncs = tuple(sorted(other_junctions, key=attrgetter('donor')))
-        return BasicSpliceEvent(category, anchor_juncs, other_juncs)
     
     def __neg__(self):
         return evolve(
@@ -162,12 +118,11 @@ def call_splice_event(comp: 'GraphView', start: 'Position', stop: 'Position') ->
         # TODO: detect altTSS, altPA
         return None
     else:
-        try:
-            # Call basic splice events
-            basic_event = BasicSpliceEvent.from_junctions(anchor_junctions, other_junctions)
-            basic_events = [basic_event]
-        except ValueError:
-            # Call compound splice events
+        if comp.num_vertices() == 1:
+            # call alt. intron event
+            intron_event_cat = SpliceEventCategory.IR if anchor_junctions else SpliceEventCategory.IX
+            basic_events = [BasicSpliceEvent(intron_event_cat, anchor_junctions, other_junctions)]
+        else:
             # check for alt. donor usage
             v0, v1 = heapq.nsmallest(2, comp.vertices(), key=lambda v: comp.vp.label[v])
             junc0 = interval_to_junc(comp.vp.label[v0])
@@ -243,10 +198,12 @@ for a, o, _ in df.sort_values('anchor').itertuples(index=False):
     stop = Position(chr, strand, min(anchor.stop, other.stop))
     if start > stop:
         start, stop = stop, start
-    events = sorted(
-        filter(None, (call_splice_event(comp, start, stop) for comp in components.values())),
-        key = lambda e: min(j.donor for j in (e.anchor_junctions + e.other_junctions))
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        events = sorted(
+            filter(None, (call_splice_event(comp, start, stop) for comp in components.values())),
+            key = lambda e: min(j.donor for j in (e.anchor_junctions + e.other_junctions))
+        )
     all_events[a, o] = events
     for event in events:
         if event.category:
