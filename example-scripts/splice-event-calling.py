@@ -1,9 +1,11 @@
 # %%
 from abc import ABC
-from enum import Flag, auto
+from enum import Enum, Flag, auto
+from functools import partial
+import heapq
 from itertools import chain
 from multiprocessing.sharedctypes import Value
-from operator import attrgetter
+from operator import attrgetter, methodcaller
 from typing import Iterable, List, Tuple
 from warnings import warn
 
@@ -31,26 +33,31 @@ session = db.get_session()
 txs = Transcript.from_names(session, pd.concat([df['anchor'], df['other']]).unique())
 
 # %%
-class SpliceEventCategory(Flag):
-    INCLUSION = auto()
-    EXCLUSION = auto()
-    INTRON = auto()
-    DONOR = auto()
-    ACCEPTOR = auto()
-    EXON = auto()
-    UNKNOWN = auto()
-
-    IR = INTRON | INCLUSION
-    IX = INTRON | EXCLUSION
-    DI = DONOR | INCLUSION
-    DX = DONOR | EXCLUSION
-    AI = ACCEPTOR | INCLUSION
-    AX = ACCEPTOR | EXCLUSION
-    EI = EXON | INCLUSION
-    ES = EXON | EXCLUSION
-
+class SpliceEventCategory(Enum):
+    IR = auto()
+    DI = auto()
+    AI = auto()
+    EI = auto()
+    IX = -IR
+    DX = -DI
+    AX = -AI
+    ES = -EI
+    UNKNOWN = 0
+    
     def __repr__(self):
         return self.name
+    
+    def __neg__(self):
+        return SpliceEventCategory(-self.value)
+
+
+INCLUSION = {SpliceEventCategory.IR, SpliceEventCategory.DI, SpliceEventCategory.AI, SpliceEventCategory.EI}
+EXCLUSION = {SpliceEventCategory.IX, SpliceEventCategory.DX, SpliceEventCategory.AX, SpliceEventCategory.ES}
+INTRON = {SpliceEventCategory.IR, SpliceEventCategory.IX}
+DONOR = {SpliceEventCategory.DI, SpliceEventCategory.DX}
+ACCEPTOR = {SpliceEventCategory.AI, SpliceEventCategory.AX}
+EXON = {SpliceEventCategory.EI, SpliceEventCategory.ES}
+
 
 # @dataclass(frozen=True)
 @frozen(hash=True)
@@ -99,19 +106,19 @@ class BasicSpliceEvent:
         other_juncs = tuple(sorted(other_junctions, key=attrgetter('donor')))
         return BasicSpliceEvent(category, anchor_juncs, other_juncs)
     
-    def __invert__(self):
+    def __neg__(self):
         return evolve(
             self,
             anchor_junctions = self.other_junctions,
             other_junctions = self.anchor_junctions,
-            category = self.category ^ SpliceEventCategory.INCLUSION ^ SpliceEventCategory.EXCLUSION
+            category = -self.category
         )
     
     @property
     def delta_nt(self):
-        if self.category & SpliceEventCategory.DONOR:
+        if self.category in DONOR:
             return self.other_junctions[0].donor - self.anchor_junctions[0].donor
-        elif self.category & SpliceEventCategory.ACCEPTOR:
+        elif self.category in ACCEPTOR:
             return self.anchor_junctions[0].acceptor - self.other_junctions[0].acceptor
         elif self.category is SpliceEventCategory.IR:
             return self.anchor_junctions[0].length
@@ -124,7 +131,6 @@ class BasicSpliceEvent:
         else:
             raise AttributeError(f'Cannot calculate delta_nt for category {self.category}')
         
-            
 
 @frozen(hash=True)
 class SpliceEvent:
@@ -142,7 +148,7 @@ class SpliceEvent:
         return SpliceEvent(category, events, tuple(anchor_junctions), tuple(other_junctions))
 
 # %%
-def call_splice_event(comp: 'GraphView', start: int, stop: int, chr: str, strand: 'Strand') -> 'SpliceEvent':
+def call_splice_event(comp: 'GraphView', start: 'Position', stop: 'Position') -> 'SpliceEvent':
     def interval_to_junc(interval: tuple['Position', 'Position']) -> 'Junction':
         return Junction(*interval)
     
@@ -159,34 +165,53 @@ def call_splice_event(comp: 'GraphView', start: int, stop: int, chr: str, strand
         try:
             # Call basic splice events
             basic_event = BasicSpliceEvent.from_junctions(anchor_junctions, other_junctions)
-            basic_events.append(basic_event)
+            basic_events = [basic_event]
         except ValueError:
             # Call compound splice events
-            N = comp.num_vertices()
-            if N == 2:
-                donor_event_cat = SpliceEventCategory.DI if anchor_junctions[0].donor < other_junctions[0].donor else SpliceEventCategory.DX
-                acceptor_event_cat = SpliceEventCategory.AI if anchor_junctions[0].acceptor > other_junctions[0].acceptor else SpliceEventCategory.AX
-                basic_events.append(BasicSpliceEvent(donor_event_cat, anchor_junctions, other_junctions))
-                basic_events.append(BasicSpliceEvent(acceptor_event_cat, anchor_junctions, other_junctions))
-            elif N > 2:
-                first_vertex = min(comp.vertices(), key=lambda v: comp.vp.label[v])
-                last_vertex = max(comp.vertices(), key=lambda v: comp.vp.label[v])
-                path, _ = shortest_path(comp, first_vertex, last_vertex)
-                for r in path[1:-1]:
-                    r_junc = interval_to_junc(comp.vp.label[r])
-                    neighbors = sorted(comp.vp.label[v] for v in r.out_neighbors())
-                    for p, q in windowed(neighbors, 2):
-                        p_junc = interval_to_junc(p)
-                        q_junc = interval_to_junc(q)
-                        event = BasicSpliceEvent(SpliceEventCategory.EI, (r_junc,), (p_junc, q_junc))
-                        if comp.vp.transcript[r]:
-                            event = ~event
-                        basic_events.append(event)
+            # check for alt. donor usage
+            v0, v1 = heapq.nsmallest(2, comp.vertices(), key=lambda v: comp.vp.label[v])
+            junc0 = interval_to_junc(comp.vp.label[v0])
+            junc1 = interval_to_junc(comp.vp.label[v1])
+            if junc0.donor != junc1.donor:
+                anchor_junc, other_junc = (junc0, junc1) if comp.vp.transcript[v0] == 0 else (junc1, junc0)
+                donor_event_cat = SpliceEventCategory.DI if anchor_junc.donor < other_junc.donor else SpliceEventCategory.DX
+                donor_event = [BasicSpliceEvent(donor_event_cat, (anchor_junc,), (other_junc,))]
+            else:
+                donor_event = []
+            # check for alt. acceptor usage
+            vM, vN = heapq.nlargest(2, comp.vertices(), key=lambda v: comp.vp.label[v][::-1])
+            juncM = interval_to_junc(comp.vp.label[vM])
+            juncN = interval_to_junc(comp.vp.label[vN])
+            if juncM.acceptor != juncN.acceptor:
+                anchor_junc, other_junc = (juncM, juncN) if comp.vp.transcript[vM] == 0 else (juncN, juncM)
+                donor_event_cat = SpliceEventCategory.AI if anchor_junc.acceptor > other_junc.acceptor else SpliceEventCategory.AX
+                acceptor_event = [BasicSpliceEvent(donor_event_cat, (anchor_junc,), (other_junc,))]
+            else:
+                acceptor_event = []
+            # list all alt. exon events
+            exon_events = []
+            path, _ = shortest_path(
+                comp,
+                source = min(v0, v1, key=methodcaller('out_degree')),
+                target = min(vM, vN, key=methodcaller('out_degree'))
+            )
+            for r in path[1:-1]:
+                r_junc = interval_to_junc(comp.vp.label[r])
+                neighbors = sorted(comp.vp.label[v] for v in r.out_neighbors())
+                for p, q in windowed(neighbors, 2):
+                    p_junc = interval_to_junc(p)
+                    q_junc = interval_to_junc(q)
+                    exon_event = BasicSpliceEvent(SpliceEventCategory.EI, (r_junc,), (p_junc, q_junc))
+                    if comp.vp.transcript[r] == 1:
+                        exon_event = -exon_event
+                    exon_events.append(exon_event)
+            basic_events = donor_event + exon_events + acceptor_event
 
     return SpliceEvent.from_basic_events(basic_events) if basic_events else None
     
 
 # %%
+all_events = dict()
 for a, o, _ in df.sort_values('anchor').itertuples(index=False):
     anchor: 'Transcript' = txs[a]
     other: 'Transcript' = txs[o]
@@ -219,11 +244,17 @@ for a, o, _ in df.sort_values('anchor').itertuples(index=False):
     if start > stop:
         start, stop = stop, start
     events = sorted(
-        filter(None, (call_splice_event(comp, start, stop, chr, strand) for comp in components.values())),
+        filter(None, (call_splice_event(comp, start, stop) for comp in components.values())),
         key = lambda e: min(j.donor for j in (e.anchor_junctions + e.other_junctions))
     )
+    all_events[a, o] = events
     for event in events:
         if event.category:
-            print(event)
+            print(f'\t{event.category}')
+            for j in event.anchor_junctions:
+                print('\t\t' + str(j))
+            print('\t\t---')
+            for j in event.other_junctions:
+                print('\t\t' + str(j))
 
 # %%
