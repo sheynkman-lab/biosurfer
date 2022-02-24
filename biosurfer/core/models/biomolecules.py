@@ -120,11 +120,11 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
     # FIXME: make this work in SQL queries
     @property
     def start(self) -> int:
-        return min(exon.start for exon in self.exons)
+        return self.exons[0].stop if self.strand is Strand.MINUS else self.exons[0].start
     
     @property
     def stop(self) -> int:
-        return max(exon.stop for exon in self.exons)
+        return self.exons[-1].start if self.strand is Strand.MINUS else self.exons[-1].stop
     
     @hybrid_property
     def length(self):
