@@ -9,7 +9,7 @@ from warnings import warn
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from attrs import evolve, field, frozen
+from attrs import define, evolve, field, frozen
 from biosurfer.core.database import Database
 from biosurfer.core.helpers import (ExceptionLogger,
                                     get_interval_overlap_graph)
@@ -223,7 +223,7 @@ class SpliceEvent(CompoundTranscriptEvent):
         code = ''.join(SPLICE_EVENT_CODES[type(event)][event.is_deletion] for event in events)
         anchor_junctions = sorted({junc for event in events for junc in event.anchor_junctions}, key=attrgetter('donor'))
         other_junctions = sorted({junc for event in events for junc in event.other_junctions}, key=attrgetter('donor'))
-        return SpliceEvent(members=events, code=code, anchor_junctions=tuple(anchor_junctions), other_junctions=tuple(other_junctions))
+        return cls(members=events, code=code, anchor_junctions=tuple(anchor_junctions), other_junctions=tuple(other_junctions))
 
 
 @frozen(eq=True)
@@ -272,7 +272,6 @@ class APAEvent(CompoundTranscriptEvent):
         return super().from_basic_events(basic_events)
 
 
-# %%
 def call_splice_event(comp: 'GraphView') -> 'SpliceEvent':
     def by_donor(v):
         junc = comp.vp.label[v]
@@ -339,108 +338,117 @@ def call_splice_event(comp: 'GraphView') -> 'SpliceEvent':
     return SpliceEvent.from_basic_events(basic_events) if basic_events else None
 
 # %%
-all_events: dict[Any, list['CompoundTranscriptEvent']] = dict()
+@define
+class TranscriptAlignment:
+    anchor: 'Transcript' = field(default=None)
+    other: 'Transcript' = field(default=None)
+    events: tuple['CompoundTranscriptEvent'] = field(factory=tuple, repr=False)
+
+    @other.validator
+    def _check_transcripts(self, attribute, value):
+        if value.gene_id != self.anchor.gene_id:
+            raise ValueError(f'{self.anchor} and {value} are from different genes')
+
+    @classmethod
+    def from_transcripts(cls, anchor: 'Transcript', other: 'Transcript'):
+        chr = anchor.chromosome.name
+        strand = anchor.strand
+        anchor_start = Position(chr, strand, anchor.start)
+        anchor_stop = Position(chr, strand, anchor.stop)
+        if anchor_start > anchor_stop:
+            anchor_start, anchor_stop = anchor_stop, anchor_start
+        other_start = Position(chr, strand, other.start)
+        other_stop = Position(chr, strand, other.stop)
+        if other_start > other_stop:
+            other_start, other_stop = other_stop, other_start
+        downstream_start = max(anchor_start, other_start)
+        upstream_stop = min(anchor_stop, other_stop)
+
+        anchor_junctions = set(anchor.junctions)
+        diff_junctions = set(anchor.junctions) ^ set(other.junctions)
+        diff_junctions = {junc for junc in diff_junctions if downstream_start <= junc.acceptor and junc.donor <= upstream_stop}
+        tss_overlap_junction = first((junc for junc in diff_junctions if junc.donor <= downstream_start <= junc.acceptor + 1), None)
+        pas_overlap_junction = first((junc for junc in diff_junctions if junc.donor - 1 <= upstream_stop <= junc.acceptor), None)
+
+        g, _ = get_interval_overlap_graph(((j.donor, j.acceptor+1) for j in diff_junctions), diff_junctions, label_type='object')
+        if not is_bipartite(g):
+            warn(f'Overlap graph not bipartite for {a} | {o}')
+        g.vp.from_anchor = g.new_vertex_property('bool')
+        g.vp.overlaps_tss = g.new_vertex_property('bool')
+        g.vp.overlaps_pas = g.new_vertex_property('bool')
+        for v in g.vertices():
+            junc = g.vp.label[v]
+            g.vp.from_anchor[v] = junc in anchor_junctions
+            g.vp.overlaps_tss[v] = junc == tss_overlap_junction
+            g.vp.overlaps_pas[v] = junc == pas_overlap_junction
+
+        g.vp.comp, hist = label_components(g)
+        components = {c: GraphView(g, vfilt=lambda v: g.vp.comp[v] == c) for c in range(len(hist))}
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            events: list['CompoundTranscriptEvent'] = sorted(
+                filter(None, (call_splice_event(comp) for comp in components.values())),
+                key = lambda e: min(j.donor for j in (e.anchor_junctions + e.other_junctions))
+            )
+        
+        # TODO: simplify this when Exons are refactored
+        def get_exon(exon_obj: 'Exon'):
+            return Junction(*sorted((Position(chr, strand, exon_obj.start), Position(chr, strand, exon_obj.stop))))
+        
+        anchor_exons = [get_exon(exon) for exon in anchor.exons]
+        other_exons = [get_exon(exon) for exon in other.exons]
+        upstream_exons = sorted((exon for exon in set(anchor_exons) | set(other_exons) if exon.donor < downstream_start), key=attrgetter('donor'))
+        downstream_exons = sorted((exon for exon in set(anchor_exons) | set(other_exons) if upstream_stop < exon.acceptor), key=attrgetter('donor'))
+        # call TSS event
+        if upstream_exons:
+            is_deletion = downstream_start == other_start
+            bypass_events = [ExonBypassEvent(is_deletion, exon) for exon in upstream_exons]
+            if tss_overlap_junction:
+                alt_downstream_exon = first(other_exons if is_deletion else anchor_exons)
+                last_bypass_event = ExonBypassEvent(
+                    not is_deletion,
+                    Junction(
+                        downstream_start,
+                        min(alt_downstream_exon.acceptor, tss_overlap_junction.acceptor)
+                    ),
+                    is_partial = tss_overlap_junction.acceptor < alt_downstream_exon.acceptor
+                )
+                bypass_events.append(last_bypass_event)
+            elif any(exon.donor < downstream_start <= exon.acceptor for exon in (anchor_exons if is_deletion else other_exons)):
+                upstream_exons[-1] = evolve(upstream_exons[-1], acceptor=downstream_start-1)
+                bypass_events[-1] = evolve(bypass_events[-1], exon=upstream_exons[-1], is_partial=True)
+            events.insert(0, TSSEvent.from_basic_events(bypass_events))
+        # call APA event
+        if downstream_exons:
+            is_deletion = upstream_stop == other_stop
+            bypass_events = [ExonBypassEvent(is_deletion, exon) for exon in downstream_exons]
+            if pas_overlap_junction:
+                alt_upstream_exon = first(other_exons if is_deletion else anchor_exons)
+                first_bypass_event = ExonBypassEvent(
+                    not is_deletion,
+                    Junction(
+                        max(alt_upstream_exon.donor, pas_overlap_junction.donor),
+                        upstream_stop
+                    ),
+                    is_partial = alt_upstream_exon.donor < pas_overlap_junction.donor
+                )
+                bypass_events.insert(0, first_bypass_event)
+            elif any(exon.donor <= upstream_stop < exon.acceptor for exon in (anchor_exons if is_deletion else other_exons)):
+                downstream_exons[0] = evolve(downstream_exons[0], donor=upstream_stop+1)
+                bypass_events[0] = evolve(bypass_events[0], exon=downstream_exons[0], is_partial=True)
+            events.append(APAEvent.from_basic_events(bypass_events))
+
+        return cls(anchor, other, events)
+
+# %%
+all_alns: dict[tuple[str, str], 'TranscriptAlignment'] = dict()
 for a, o, _ in df.sort_values('anchor').itertuples(index=False):
     anchor: 'Transcript' = txs[a]
     other: 'Transcript' = txs[o]
-    
-    chr = anchor.chromosome.name
-    strand = anchor.strand
-    anchor_start = Position(chr, strand, anchor.start)
-    anchor_stop = Position(chr, strand, anchor.stop)
-    if anchor_start > anchor_stop:
-        anchor_start, anchor_stop = anchor_stop, anchor_start
-    other_start = Position(chr, strand, other.start)
-    other_stop = Position(chr, strand, other.stop)
-    if other_start > other_stop:
-        other_start, other_stop = other_stop, other_start
-    downstream_start = max(anchor_start, other_start)
-    upstream_stop = min(anchor_stop, other_stop)
-
-    anchor_junctions = set(anchor.junctions)
-    common_junctions = set(anchor.junctions) & set(other.junctions)
-    diff_junctions = set(anchor.junctions) ^ set(other.junctions)
-    diff_junctions = {junc for junc in diff_junctions if downstream_start <= junc.acceptor and junc.donor <= upstream_stop}
-    tss_overlap_junction = first((junc for junc in diff_junctions if junc.donor <= downstream_start <= junc.acceptor + 1), None)
-    pas_overlap_junction = first((junc for junc in diff_junctions if junc.donor - 1 <= upstream_stop <= junc.acceptor), None)
-
-    g, label_to_vertex = get_interval_overlap_graph(((j.donor, j.acceptor+1) for j in diff_junctions), diff_junctions, label_type='object')
-    if not is_bipartite(g):
-        warn(f'Overlap graph not bipartite for {a} | {o}')
-    g.vp.from_anchor = g.new_vertex_property('bool')
-    g.vp.overlaps_tss = g.new_vertex_property('bool')
-    g.vp.overlaps_pas = g.new_vertex_property('bool')
-    for v in g.vertices():
-        junc = g.vp.label[v]
-        g.vp.from_anchor[v] = junc in anchor_junctions
-        g.vp.overlaps_tss[v] = junc == tss_overlap_junction
-        g.vp.overlaps_pas[v] = junc == pas_overlap_junction
-
-    g.vp.comp, hist = label_components(g)
-    components = {c: GraphView(g, vfilt=lambda v: g.vp.comp[v] == c) for c in range(len(hist))}
-    
-    print(f'{anchor.name} | {other.name}')
-    # g.vp.text = g.new_vertex_property('string')
-    # for v in g.vertices():
-    #     junc = g.vp.label[v]
-    #     g.vp.text[v] = f'({junc.donor.coordinate % 10**5}, {junc.acceptor.coordinate % 10**5})'
-    # graph_draw(g, vertex_text=g.vp.text, vertex_fill_color=g.vp.from_anchor.coerce_type('int'), vertex_size=8, edge_color='#dddddd')
-    
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        events: list['CompoundTranscriptEvent'] = sorted(
-            filter(None, (call_splice_event(comp) for comp in components.values())),
-            key = lambda e: min(j.donor for j in (e.anchor_junctions + e.other_junctions))
-        )
-    
-    def get_exon(exon_obj: 'Exon'):
-        return Junction(*sorted((Position(chr, strand, exon_obj.start), Position(chr, strand, exon_obj.stop))))
-    
-    # TODO: simplify this when Exons are refactored
-    anchor_exons = [get_exon(exon) for exon in anchor.exons]
-    other_exons = [get_exon(exon) for exon in other.exons]
-    upstream_exons = sorted((exon for exon in set(anchor_exons) | set(other_exons) if exon.donor < downstream_start), key=attrgetter('donor'))
-    downstream_exons = sorted((exon for exon in set(anchor_exons) | set(other_exons) if upstream_stop < exon.acceptor), key=attrgetter('donor'))
-    # call TSS event
-    if upstream_exons:
-        is_deletion = downstream_start == other_start
-        bypass_events = [ExonBypassEvent(is_deletion, exon) for exon in upstream_exons]
-        if tss_overlap_junction:
-            alt_downstream_exon = first(other_exons if is_deletion else anchor_exons)
-            last_bypass_event = ExonBypassEvent(
-                not is_deletion,
-                Junction(
-                    downstream_start,
-                    min(alt_downstream_exon.acceptor, tss_overlap_junction.acceptor)
-                ),
-                is_partial = tss_overlap_junction.acceptor < alt_downstream_exon.acceptor
-            )
-            bypass_events.append(last_bypass_event)
-        elif any(exon.donor < downstream_start <= exon.acceptor for exon in (anchor_exons if is_deletion else other_exons)):
-            upstream_exons[-1] = evolve(upstream_exons[-1], acceptor=downstream_start-1)
-            bypass_events[-1] = evolve(bypass_events[-1], exon=upstream_exons[-1], is_partial=True)
-        events.insert(0, TSSEvent.from_basic_events(bypass_events))
-    # call APA event
-    if downstream_exons:
-        is_deletion = upstream_stop == other_stop
-        bypass_events = [ExonBypassEvent(is_deletion, exon) for exon in downstream_exons]
-        if pas_overlap_junction:
-            alt_upstream_exon = first(other_exons if is_deletion else anchor_exons)
-            first_bypass_event = ExonBypassEvent(
-                not is_deletion,
-                Junction(
-                    max(alt_upstream_exon.donor, pas_overlap_junction.donor),
-                    upstream_stop
-                ),
-                is_partial = alt_upstream_exon.donor < pas_overlap_junction.donor
-            )
-            bypass_events.insert(0, first_bypass_event)
-        elif any(exon.donor <= upstream_stop < exon.acceptor for exon in (anchor_exons if is_deletion else other_exons)):
-            downstream_exons[0] = evolve(downstream_exons[0], donor=upstream_stop+1)
-            bypass_events[0] = evolve(bypass_events[0], exon=downstream_exons[0], is_partial=True)
-        events.append(APAEvent.from_basic_events(bypass_events))
-
-    for event in events:
+    aln = TranscriptAlignment.from_transcripts(anchor, other)
+    print(aln)
+    for event in aln.events:
         if isinstance(event, SpliceEvent):
             print(f'\t{event.code}')
             for j in event.anchor_junctions:
@@ -455,15 +463,15 @@ for a, o, _ in df.sort_values('anchor').itertuples(index=False):
         else:
             print(f'\t{event}')
 
-    all_events[a, o] = events
+    all_alns[a, o] = aln
 
 # %%
-for (a, o), events in all_events.items():
-    event_sum = sum(event.delta_nt for event in events)
+for (a, o), aln in all_alns.items():
+    event_sum = sum(event.delta_nt for event in aln.events)
     tx_diff = txs[o].length - txs[a].length
     if event_sum != tx_diff:
         print(f'{a}, {o}: {event_sum} != {tx_diff}')
-        for event in events:
+        for event in aln.events:
             print(f'\t{type(event).__name__}: {event.delta_nt}')
 
 # %%
@@ -482,7 +490,7 @@ for a, others in df.groupby('anchor')['other']:
     isoplot.draw_frameshifts()
     
     for i, other in enumerate(others, start=1):
-        for event in all_events[a, other]:
+        for event in all_alns[a, other].events:
             for base_event in event.members:
                 isoplot.draw_region(
                     i,
