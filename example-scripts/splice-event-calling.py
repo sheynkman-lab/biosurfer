@@ -1,14 +1,17 @@
 # %%
+from collections import deque
+from functools import cached_property
 import heapq
 from itertools import groupby
 import os
+from time import time
 import warnings
 from abc import ABC, abstractmethod
 from operator import attrgetter, methodcaller
 from typing import Any, Iterable, Optional, Sequence, Union
 from warnings import warn
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from attrs import define, evolve, field, frozen, validators
@@ -20,7 +23,6 @@ from biosurfer.core.models.biomolecules import Exon, Transcript
 from biosurfer.core.models.nonpersistent import Junction, Position
 from biosurfer.plots.plotting import IsoformPlot
 from graph_tool import GraphView
-from graph_tool.draw.cairo_draw import graph_draw
 from graph_tool.topology import is_bipartite, label_components, shortest_path
 from more_itertools import first, partition, windowed
 from tqdm import tqdm
@@ -55,6 +57,10 @@ class TranscriptEvent(ABC):
         raise NotImplementedError
 
 
+def sort_events(x: Iterable['TranscriptEvent']):
+    return tuple(sorted(x, key=attrgetter('start', 'stop')))
+
+
 @frozen(eq=True)
 class BasicTranscriptEvent(TranscriptEvent):
     is_deletion: bool
@@ -73,10 +79,6 @@ class BasicTranscriptEvent(TranscriptEvent):
     @property
     def length(self) -> int:
         return (self.stop - self.start) + 1
-
-
-def sort_events(x: Iterable['TranscriptEvent']):
-    return tuple(sorted(x, key=attrgetter('start')))
 
 
 @frozen(eq=True)
@@ -359,7 +361,7 @@ def call_transcript_events(anchor: 'Transcript', other: 'Transcript'):
     upstream_stop = min(anchor_stop, other_stop)
 
     anchor_junctions = set(anchor.junctions)
-    diff_junctions = set(anchor.junctions) ^ set(other.junctions)
+    diff_junctions = anchor_junctions ^ set(other.junctions)
     diff_junctions = {junc for junc in diff_junctions if downstream_start <= junc.acceptor and junc.donor <= upstream_stop}
     tss_overlap_junction = first((junc for junc in diff_junctions if junc.donor <= downstream_start <= junc.acceptor + 1), None)
     pas_overlap_junction = first((junc for junc in diff_junctions if junc.donor - 1 <= upstream_stop <= junc.acceptor), None)
@@ -439,44 +441,25 @@ def call_transcript_events(anchor: 'Transcript', other: 'Transcript'):
     return splice_events, tss_event, apa_event
 
 # %%
-# @frozen(eq=True)
-# class AlignmentBlock:
-#     category: 'TranscriptLevelAlignmentCategory' = field(default=TranscriptLevelAlignmentCategory.UNKNOWN, init=False)
-#     anchor_range: range = field(factory=range, order=attrgetter('start', 'stop'))
-#     other_range: range = field(factory=range, order=attrgetter('start, stop'))
+@frozen
+class AlignmentBlock:
+    category: 'TranscriptLevelAlignmentCategory' = field(init=False)
+    anchor_range: range = field(factory=range, order=attrgetter('start', 'stop'))
+    other_range: range = field(factory=range, order=attrgetter('start, stop'))
     
-#     def __attrs_post_init__(self):
-#         A, O = len(self.anchor_range), len(self.other_range)
-#         if A > 0 and O > 0:
-#             if A == O:
-#                 object.__setattr__(self, 'category', TranscriptLevelAlignmentCategory.MATCH)
-#             else:
-#                 raise ValueError
-#         elif A == 0:
-#             object.__setattr__(self, 'category', TranscriptLevelAlignmentCategory.INSERTION)
-#         elif O == 0:
-#             object.__setattr__(self, 'category', TranscriptLevelAlignmentCategory.DELETION)
-#         else:
-#             raise ValueError
+    def __attrs_post_init__(self):
+        A, O = len(self.anchor_range), len(self.other_range)
+        if A == O > 0:
+            object.__setattr__(self, 'category', TranscriptLevelAlignmentCategory.MATCH)
+        elif O > A == 0:
+            object.__setattr__(self, 'category', TranscriptLevelAlignmentCategory.INSERTION)
+        elif A > O == 0:
+            object.__setattr__(self, 'category', TranscriptLevelAlignmentCategory.DELETION)
+        else:
+            raise ValueError(f'Invalid ranges {self.anchor_range} and {self.other_range}')
     
-#     def __repr__(self):
-#         return f'{self.category}({self.anchor_range.start}:{self.anchor_range.stop}|{self.other_range.start}:{self.other_range.stop})'
-
-
-@frozen(eq=True)
-class SequenceBlock:
-    parent: Sequence
-    interval: 'Interval'
-
-    def __len__(self):
-        return len(self.interval)
-    
-    def __getitem__(self):
-        raise NotImplementedError
-    
-    @classmethod
-    def from_coords(cls, parent: Sequence, begin: int, end: int, data: Optional[Any] = None):
-        return cls(parent, Interval(begin, end, data))
+    def __repr__(self):
+        return f'{self.category}({self.anchor_range.start}:{self.anchor_range.stop}|{self.other_range.start}:{self.other_range.stop})'
 
 
 @define
@@ -493,69 +476,119 @@ class TranscriptAlignment:
             raise ValueError(f'{self.anchor} and {value} are from different genes')
     @events.validator
     def _check_events(self, attribute, value):
-        if sum(event.delta_nt for event in events) != other.length - anchor.length:
+        if sum(event.delta_nt for event in value) != self.other.length - self.anchor.length:
             raise ValueError(f'TranscriptEvent lengths do not add up correctly')
-    @anchor_map.validator
-    def _check_anchor_map(self, attribute, value):
-        if any(i.data.is_insertion for i in value.all_intervals if isinstance(i.data, BasicTranscriptEvent)):
+    
+    def __attrs_post_init__(self):
+        if any(i.data.is_insertion for i in self.anchor_map.all_intervals if isinstance(i.data, BasicTranscriptEvent)):
             raise ValueError
-    @other_map.validator
-    def _check_other_map(self, attribute, value):
-        if any(i.data.is_deletion for i in value.all_intervals if isinstance(i.data, BasicTranscriptEvent)):
+        if any(i.data.is_deletion for i in self.other_map.all_intervals if isinstance(i.data, BasicTranscriptEvent)):
             raise ValueError
+        anchor_matches = {i.data for i in self.anchor_map.all_intervals if isinstance(i.data, AlignmentBlock) and i.data.category is TranscriptLevelAlignmentCategory.MATCH}
+        other_matches = {i.data for i in self.other_map.all_intervals if isinstance(i.data, AlignmentBlock) and i.data.category is TranscriptLevelAlignmentCategory.MATCH}
+        if anchor_matches != other_matches:
+            raise ValueError(f'{anchor_matches} != {other_matches}')
 
     @classmethod
     def from_transcripts(cls, anchor: 'Transcript', other: 'Transcript'):
-        #TODO:
-        return cls(anchor, other)
+        splice_events, tss_event, apa_event = call_transcript_events(anchor, other)
+        events = splice_events.copy()
+        if tss_event:
+            events.append(tss_event)
+        if apa_event:
+            events.append(apa_event)
+
+        # map all events to transcript coordinates
+        def get_transcript_interval(event: 'BasicTranscriptEvent'):
+            transcript = anchor if event.is_deletion else other
+            start = transcript.get_nucleotide_from_coordinate(event.start.coordinate).position
+            stop = transcript.get_nucleotide_from_coordinate(event.stop.coordinate).position
+            return Interval(start-1, stop, event)
+        
+        event_to_interval: dict['BasicTranscriptEvent', 'Interval'] = dict()
+        basic_to_compound: dict['BasicTranscriptEvent', 'CompoundTranscriptEvent'] = dict()
+        for compound_event in events:
+            for event in compound_event.members:
+                event_to_interval[event] = get_transcript_interval(event)
+                basic_to_compound[event] = compound_event
+        
+        def get_compound_map(basic_map: 'IntervalTree'):
+            compound_map = IntervalTree()
+            for compound_event, intervals in groupby(sorted(basic_map.all_intervals), key=lambda i: basic_to_compound[i.data]):
+                if len(compound_event.members) == 1:
+                    continue
+                compound_interval = IntervalTree(intervals)
+                compound_interval.merge_neighbors()
+                compound_map.update(i._replace(data=compound_event) for i in compound_interval.all_intervals)
+            return compound_map
+
+        insertions, deletions = partition(attrgetter('is_deletion'), event_to_interval.keys())
+        anchor_basic = IntervalTree(event_to_interval[event] for event in deletions)
+        other_basic = IntervalTree(event_to_interval[event] for event in insertions)
+        anchor_compound = get_compound_map(anchor_basic)
+        other_compound = get_compound_map(other_basic)
+
+        # determine deletion and insertion block ranges
+        del_ranges = anchor_basic.copy()
+        del_ranges.merge_neighbors()
+        ins_ranges = other_basic.copy()
+        ins_ranges.merge_neighbors()
+
+        # determine match block ranges
+        del_blocks, ins_blocks, match_blocks = [], [], []
+
+        def add_match_block(length, anchor_start, other_start):
+            if length > 0:
+                match_block = AlignmentBlock(
+                    range(anchor_start, anchor_start + length),
+                    range(other_start, other_start + length)
+                )
+                match_blocks.append(match_block)
+                return anchor_start + length, other_start + length
+            else:
+                return anchor_start, other_start
+
+        anchor_pos, other_pos = 0, 0
+        sorted_del_ranges = deque(sorted(i[:2] for i in del_ranges))
+        sorted_ins_ranges = deque(sorted(i[:2] for i in ins_ranges))
+        while sorted_del_ranges or sorted_ins_ranges:
+            to_next_del_block = (sorted_del_ranges[0][0] - anchor_pos) if sorted_del_ranges else float('inf')
+            to_next_ins_block = (sorted_ins_ranges[0][0] - other_pos) if sorted_ins_ranges else float('inf')
+            anchor_pos, other_pos = add_match_block(min(to_next_del_block, to_next_ins_block), anchor_pos, other_pos)
+            if to_next_del_block <= to_next_ins_block:
+                del_start, del_stop = sorted_del_ranges.popleft()
+                del_blocks.append(AlignmentBlock(
+                    range(del_start, del_stop),
+                    range(other_pos, other_pos)
+                ))
+                anchor_pos = del_stop
+            if to_next_ins_block <= to_next_del_block:
+                ins_start, ins_stop = sorted_ins_ranges.popleft()
+                ins_blocks.append(AlignmentBlock(
+                    range(anchor_pos, anchor_pos),
+                    range(ins_start, ins_stop)
+                ))
+                other_pos = ins_stop
+        assert anchor.length - anchor_pos == other.length - other_pos, f'{anchor.length:=}, {anchor_pos:=}, {other.length:=}, {other_pos:=}'
+        add_match_block(anchor.length - anchor_pos, anchor_pos, other_pos)
+            
+        anchor_blocks = IntervalTree.from_tuples((block.anchor_range.start, block.anchor_range.stop, block) for block in match_blocks + del_blocks)
+        other_blocks = IntervalTree.from_tuples((block.other_range.start, block.other_range.stop, block) for block in match_blocks + ins_blocks)
+
+        anchor_map = anchor_blocks.union(anchor_compound).union(anchor_basic)
+        other_map = other_blocks.union(other_compound).union(other_basic)
+        return cls(anchor, other, events, anchor_map, other_map)
 
 # %%
+t0 = time()
 all_alns: dict[tuple[str, str], 'TranscriptAlignment'] = dict()
 for a, o, _ in df.sort_values('anchor').itertuples(index=False):
     anchor: 'Transcript' = txs[a]
     other: 'Transcript' = txs[o]
 
-    splice_events, tss_event, apa_event = call_transcript_events(anchor, other)
-    events = splice_events.copy()
-    if tss_event:
-        events.append(tss_event)
-    if apa_event:
-        events.append(apa_event)
-
-    # map all events to transcript coordinates
-    def get_transcript_interval(event: 'BasicTranscriptEvent'):
-        transcript = anchor if event.is_deletion else other
-        start = transcript.get_nucleotide_from_coordinate(event.start.coordinate).position
-        stop = transcript.get_nucleotide_from_coordinate(event.stop.coordinate).position
-        return Interval(start-1, stop, event)
-    
-    event_to_interval: dict['BasicTranscriptEvent', 'Interval'] = dict()
-    basic_to_compound: dict['BasicTranscriptEvent', 'CompoundTranscriptEvent'] = dict()
-    for compound_event in events:
-        for event in compound_event.members:
-            event_to_interval[event] = get_transcript_interval(event)
-            basic_to_compound[event] = compound_event
-    
-    def get_compound_map(basic_map: 'IntervalTree'):
-        compound_map = IntervalTree()
-        for compound_event, intervals in groupby(sorted(basic_map.all_intervals), key=lambda i: basic_to_compound[i.data]):
-            if len(compound_event.members) == 1:
-                continue
-            compound_interval = IntervalTree(intervals)
-            compound_interval.merge_neighbors()
-            compound_map.update(i._replace(data=compound_event) for i in compound_interval.all_intervals)
-        return compound_map
-
-    insertions, deletions = partition(attrgetter('is_deletion'), event_to_interval.keys())
-    anchor_basic = IntervalTree(event_to_interval[event] for event in deletions)
-    other_basic = IntervalTree(event_to_interval[event] for event in insertions)
-    anchor_compound = get_compound_map(anchor_basic)
-    other_compound = get_compound_map(other_basic)
-
-    # anchor_block = 
-
-    aln = TranscriptAlignment(anchor, other, events, anchor_compound.union(anchor_basic), other_compound.union(other_basic))
+    aln = TranscriptAlignment.from_transcripts(anchor, other)
     all_alns[a, o] = aln
+t1 = time()
 
 # %%
 for (a, o), aln in all_alns.items():
@@ -568,13 +601,13 @@ for (a, o), aln in all_alns.items():
     for i in sorted(filter(lambda i: isinstance(i.data, TranscriptEvent), aln.anchor_map)):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t' + getattr(i.data, 'code', type(i.data).__name__))
     print(f'{a} blocks')
-    for i in sorted(filter(lambda i: isinstance(i.data, TranscriptLevelAlignmentCategory), aln.anchor_map)):
+    for i in sorted(filter(lambda i: isinstance(i.data, AlignmentBlock), aln.anchor_map)):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
     print(f'{o} events')
     for i in sorted(filter(lambda i: isinstance(i.data, TranscriptEvent), aln.other_map)):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t' + getattr(i.data, 'code', type(i.data).__name__))
     print(f'{o} blocks')
-    for i in sorted(filter(lambda i: isinstance(i.data, TranscriptLevelAlignmentCategory), aln.other_map)):
+    for i in sorted(filter(lambda i: isinstance(i.data, AlignmentBlock), aln.other_map)):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
 
 # %%
@@ -596,7 +629,7 @@ EVENT_COLORS = {
 }
 
 for a, others in df.groupby('anchor')['other']:
-    fig_path = f'../output/splice-test/{transcripts[0].gene.name}.png'
+    fig_path = f'../output/splice-test/{txs[a].gene.name}.png'
     if not os.path.isfile(fig_path):
         transcripts = [txs[a]] + [txs[other] for other in others]
         isoplot = IsoformPlot(transcripts)
@@ -618,5 +651,9 @@ for a, others in df.groupby('anchor')['other']:
         plt.savefig(fig_path, dpi=200, bbox_inches='tight', facecolor='w')
         print('saved '+fig_path)
         plt.close(isoplot.fig)
+
+# %%
+print(f'{t1 - t0:.3g} s total')
+print(f'{(t1 - t0)/len(all_alns):.3g}s per alignment')
 
 # %%
