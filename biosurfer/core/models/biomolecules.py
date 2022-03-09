@@ -179,6 +179,10 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
         except KeyError as e:
             raise KeyError(f'{self} does not use junction {junction}') from e
 
+    def get_genome_coord_from_transcript_coord(self, tx_coord: int) -> Position:
+        nt = self.nucleotides[tx_coord]
+        return Position(self.gene.chromosome_id, self.strand, nt.coordinate)
+
 
 class GencodeTranscript(Transcript):
     __tablename__ = None
@@ -444,3 +448,6 @@ class Protein(Base, TablenameMixin, AccessionMixin):
     @hybrid_property
     def length(self):
         return len(self.sequence)
+    
+    def protein_coord_from_transcript_coord(self, transcript_coord: int):
+        return (transcript_coord - self.orf.transcript_start + 1) // 3

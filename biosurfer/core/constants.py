@@ -1,4 +1,5 @@
 from enum import Flag, auto, Enum
+from typing import Union
 
 from biosurfer.core.helpers import OrderedEnum, StringEnum
 
@@ -95,12 +96,17 @@ class TranscriptLevelAlignmentCategory(StringEnum):
     MATCH = 'm'
     INSERTION = 'i'
     DELETION = 'd'
-    FRAME_AHEAD = '1'
-    FRAME_BEHIND = '2'
+    TRANSLATED = 't'
+    UNTRANSLATED = 'u'
+    FRAME_AHEAD = 'a'
+    FRAME_BEHIND = 'b'
     EDGE_MATCH = 'e'
     EDGE_MISMATCH = 'g'
     COMPLEX = 'x'
     UNKNOWN = '?'
+
+
+AlignmentCategory = Union[ProteinLevelAlignmentCategory, TranscriptLevelAlignmentCategory]
 
 
 class AnnotationFlag(Flag):

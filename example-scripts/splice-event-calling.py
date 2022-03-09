@@ -1,26 +1,30 @@
 # %%
-from collections import deque
-from functools import cached_property
 import heapq
-from itertools import groupby
 import os
-from time import time
 import warnings
 from abc import ABC, abstractmethod
+from collections import deque
+from collections.abc import Iterable
+from functools import lru_cache
+from itertools import chain, groupby
 from operator import attrgetter, methodcaller
-from typing import Any, Iterable, Optional, Sequence, Union
+from time import time
+from typing import Union
 from warnings import warn
 
-# import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from attrs import define, evolve, field, frozen, validators
-from biosurfer.core.constants import TranscriptLevelAlignmentCategory
+from biosurfer.core.constants import AlignmentCategory
+from biosurfer.core.constants import \
+    ProteinLevelAlignmentCategory as SeqAlignCat
+from biosurfer.core.constants import \
+    TranscriptLevelAlignmentCategory as CodonAlignCat
 from biosurfer.core.database import Database
 from biosurfer.core.helpers import (BisectDict, ExceptionLogger, Interval,
                                     IntervalTree, get_interval_overlap_graph)
-from biosurfer.core.models.biomolecules import Exon, Transcript
-from biosurfer.core.models.nonpersistent import Junction, Position
+from biosurfer.core.models.biomolecules import Exon, Transcript, Protein
+from biosurfer.core.models.nonpersistent import Codon, Junction, Position
 from biosurfer.plots.plotting import IsoformPlot
 from graph_tool import GraphView
 from graph_tool.topology import is_bipartite, label_components, shortest_path
@@ -263,9 +267,9 @@ class TSSEvent(CompoundTranscriptEvent):
     @members.validator
     def _check_members(self, attribute, value: tuple['ExonBypassEvent', ...]):
         if any(event.is_partial for event in value[:-1]):
-            raise ValueError
+            raise ValueError(f'{value}')
         if len({event.is_deletion for event in value[:-1]}) > 1:
-            raise ValueError
+            raise ValueError(f'{value}')
 
 
 @frozen(eq=True)
@@ -275,9 +279,9 @@ class APAEvent(CompoundTranscriptEvent):
     @members.validator
     def _check_members(self, attribute, value: tuple['ExonBypassEvent', ...]):
         if any(event.is_partial for event in value[1:]):
-            raise ValueError
+            raise ValueError(f'{value}')
         if len({event.is_deletion for event in value[1:]}) > 1:
-            raise ValueError
+            raise ValueError(f'{value}')
 
 
 def call_splice_event(comp: 'GraphView') -> 'SpliceEvent':
@@ -441,25 +445,47 @@ def call_transcript_events(anchor: 'Transcript', other: 'Transcript'):
     return splice_events, tss_event, apa_event
 
 # %%
-@frozen
-class AlignmentBlock:
-    category: 'TranscriptLevelAlignmentCategory' = field(init=False)
+CACHE_SIZE = 2**8
+
+
+@frozen(order=True)
+class AlignmentBlock(ABC):
     anchor_range: range = field(factory=range, order=attrgetter('start', 'stop'))
-    other_range: range = field(factory=range, order=attrgetter('start, stop'))
+    other_range: range = field(factory=range, order=attrgetter('start', 'stop'))
+    category: 'AlignmentCategory' = field(default=None, order=False)
     
+    @abstractmethod
     def __attrs_post_init__(self):
-        A, O = len(self.anchor_range), len(self.other_range)
-        if A == O > 0:
-            object.__setattr__(self, 'category', TranscriptLevelAlignmentCategory.MATCH)
-        elif O > A == 0:
-            object.__setattr__(self, 'category', TranscriptLevelAlignmentCategory.INSERTION)
-        elif A > O == 0:
-            object.__setattr__(self, 'category', TranscriptLevelAlignmentCategory.DELETION)
-        else:
-            raise ValueError(f'Invalid ranges {self.anchor_range} and {self.other_range}')
+        pass
     
     def __repr__(self):
         return f'{self.category}({self.anchor_range.start}:{self.anchor_range.stop}|{self.other_range.start}:{self.other_range.stop})'
+
+
+@frozen(order=True, repr=False)
+class TranscriptAlignmentBlock(AlignmentBlock):
+    category: 'SeqAlignCat' = field(init=False)
+
+    def __attrs_post_init__(self):
+        A, O = len(self.anchor_range), len(self.other_range)
+        if A == O > 0:
+            object.__setattr__(self, 'category', SeqAlignCat.MATCH)
+        elif O > A == 0:
+            object.__setattr__(self, 'category', SeqAlignCat.INSERTION)
+        elif A > O == 0:
+            object.__setattr__(self, 'category', SeqAlignCat.DELETION)
+        else:
+            raise ValueError(f'Invalid ranges {self.anchor_range} and {self.other_range}')
+
+
+@frozen(repr=False)
+class CodonAlignmentBlock(AlignmentBlock):
+    category: 'CodonAlignCat' = field(kw_only=True)
+
+    def __attrs_post_init__(self):
+        A, O = len(self.anchor_range), len(self.other_range)
+        if A == O == 0:
+            raise ValueError(f'Invalid ranges {self.anchor_range} and {self.other_range}')
 
 
 @define
@@ -467,29 +493,40 @@ class TranscriptAlignment:
     anchor: 'Transcript'
     other: 'Transcript' = field()
     events: tuple['CompoundTranscriptEvent'] = field(converter=sort_events)
-    anchor_map: 'IntervalTree' = field(factory=IntervalTree, repr=False)
-    other_map: 'IntervalTree' = field(factory=IntervalTree, repr=False)
-    
+    anchor_events: 'IntervalTree' = field(factory=IntervalTree, repr=False)
+    anchor_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False)
+    other_events: 'IntervalTree' = field(factory=IntervalTree, repr=False)
+    other_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False)
+
     @other.validator
     def _check_transcripts(self, attribute, value):
         if value.gene_id != self.anchor.gene_id:
             raise ValueError(f'{self.anchor} and {value} are from different genes')
-    @events.validator
-    def _check_events(self, attribute, value):
-        if sum(event.delta_nt for event in value) != self.other.length - self.anchor.length:
-            raise ValueError(f'TranscriptEvent lengths do not add up correctly')
     
     def __attrs_post_init__(self):
-        if any(i.data.is_insertion for i in self.anchor_map.all_intervals if isinstance(i.data, BasicTranscriptEvent)):
+        if any(i.data.is_insertion for i in self.anchor_events if isinstance(i.data, BasicTranscriptEvent)):
             raise ValueError
-        if any(i.data.is_deletion for i in self.other_map.all_intervals if isinstance(i.data, BasicTranscriptEvent)):
+        if any(i.data.is_deletion for i in self.other_events if isinstance(i.data, BasicTranscriptEvent)):
             raise ValueError
-        anchor_matches = {i.data for i in self.anchor_map.all_intervals if isinstance(i.data, AlignmentBlock) and i.data.category is TranscriptLevelAlignmentCategory.MATCH}
-        other_matches = {i.data for i in self.other_map.all_intervals if isinstance(i.data, AlignmentBlock) and i.data.category is TranscriptLevelAlignmentCategory.MATCH}
+        anchor_matches = {i.data for i in self.anchor_blocks if i.data.category is SeqAlignCat.MATCH}
+        other_matches = {i.data for i in self.other_blocks if i.data.category is SeqAlignCat.MATCH}
         if anchor_matches != other_matches:
             raise ValueError(f'{anchor_matches} != {other_matches}')
+        total_delta_nt = sum(event.delta_nt for event in self.events)
+        tx_length_diff = self.other.length - self.anchor.length
+        if total_delta_nt != tx_length_diff:
+            raise ValueError(f'TranscriptEvent lengths add up to {total_delta_nt}; expected {tx_length_diff}')
+
+    @property
+    def basic_events(self) -> tuple['BasicTranscriptEvent', ...]:
+        return tuple(chain.from_iterable(event.members for event in self.events))
+    
+    @property
+    def blocks(self) -> tuple['TranscriptAlignmentBlock', ...]:
+        return tuple(sorted({i.data for i in chain(self.anchor_blocks, self.other_blocks)}))
 
     @classmethod
+    @lru_cache(maxsize=CACHE_SIZE)
     def from_transcripts(cls, anchor: 'Transcript', other: 'Transcript'):
         splice_events, tss_event, apa_event = call_transcript_events(anchor, other)
         events = splice_events.copy()
@@ -527,6 +564,8 @@ class TranscriptAlignment:
         other_basic = IntervalTree(event_to_interval[event] for event in insertions)
         anchor_compound = get_compound_map(anchor_basic)
         other_compound = get_compound_map(other_basic)
+        anchor_events = anchor_compound.union(anchor_basic)
+        other_events = other_compound.union(other_basic)
 
         # determine deletion and insertion block ranges
         del_ranges = anchor_basic.copy()
@@ -537,9 +576,9 @@ class TranscriptAlignment:
         # determine match block ranges
         del_blocks, ins_blocks, match_blocks = [], [], []
 
-        def add_match_block(length, anchor_start, other_start):
+        def add_match_block(length: int, anchor_start: int, other_start: int):
             if length > 0:
-                match_block = AlignmentBlock(
+                match_block = TranscriptAlignmentBlock(
                     range(anchor_start, anchor_start + length),
                     range(other_start, other_start + length)
                 )
@@ -557,100 +596,227 @@ class TranscriptAlignment:
             anchor_pos, other_pos = add_match_block(min(to_next_del_block, to_next_ins_block), anchor_pos, other_pos)
             if to_next_del_block <= to_next_ins_block:
                 del_start, del_stop = sorted_del_ranges.popleft()
-                del_blocks.append(AlignmentBlock(
+                del_blocks.append(TranscriptAlignmentBlock(
                     range(del_start, del_stop),
                     range(other_pos, other_pos)
                 ))
                 anchor_pos = del_stop
             if to_next_ins_block <= to_next_del_block:
                 ins_start, ins_stop = sorted_ins_ranges.popleft()
-                ins_blocks.append(AlignmentBlock(
+                ins_blocks.append(TranscriptAlignmentBlock(
                     range(anchor_pos, anchor_pos),
                     range(ins_start, ins_stop)
                 ))
                 other_pos = ins_stop
-        assert anchor.length - anchor_pos == other.length - other_pos, f'{anchor.length:=}, {anchor_pos:=}, {other.length:=}, {other_pos:=}'
+        assert anchor.length - anchor_pos == other.length - other_pos, f'{anchor.length=}, {anchor_pos=}, {other.length=}, {other_pos=}'
         add_match_block(anchor.length - anchor_pos, anchor_pos, other_pos)
             
         anchor_blocks = IntervalTree.from_tuples((block.anchor_range.start, block.anchor_range.stop, block) for block in match_blocks + del_blocks)
         other_blocks = IntervalTree.from_tuples((block.other_range.start, block.other_range.stop, block) for block in match_blocks + ins_blocks)
 
-        anchor_map = anchor_blocks.union(anchor_compound).union(anchor_basic)
-        other_map = other_blocks.union(other_compound).union(other_basic)
-        return cls(anchor, other, events, anchor_map, other_map)
+        return cls(anchor, other, events, anchor_events, anchor_blocks, other_events, other_blocks)
+
+
+@define
+class ProteinAlignment:
+    anchor: 'Protein'
+    other: 'Protein'
+    anchor_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False)
+    other_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False)
+
+    @classmethod
+    @lru_cache(maxsize=CACHE_SIZE)
+    def from_proteins(cls, anchor: 'Protein', other: 'Protein'):
+        tx_aln = TranscriptAlignment.from_transcripts(anchor.transcript, other.transcript)
+        anchor_orf_range = range(anchor.orf.transcript_start - 1, anchor.orf.transcript_stop)
+        other_orf_range = range(other.orf.transcript_start - 1, other.orf.transcript_stop)
+        anchor_orf_len = len(anchor_orf_range)
+        other_orf_len = len(other_orf_range)
+        anchor_pr_len = anchor.length
+        other_pr_len = other.length
+
+        def compare_ranges(a: range, b: range):
+            if a.start < b.stop and b.start < a.stop:
+                return 0
+            elif a.stop <= b.start:
+                return -1
+            else:
+                return 1
+
+        # convert transcript-relative coords to ORF-relative coords
+        tx_blocks = deque(
+            (
+                block.category,
+                range(block.anchor_range.start - anchor_orf_range.start, block.anchor_range.stop - anchor_orf_range.start),
+                range(block.other_range.start - other_orf_range.start, block.other_range.stop - other_orf_range.start)
+            ) for block in tx_aln.blocks
+        )
+
+        # determine whether N-termini are different
+        # anchor_ic_coord = anchor.transcript.get_genome_coord_from_transcript_coord(anchor_orf_range[0])
+        # other_ic_coord = other.transcript.get_genome_coord_from_transcript_coord(other_orf_range[0])
+        # if anchor_ic_coord != other_ic_coord:
+        #     pass
+
+        anchor_cd_blocks, other_cd_blocks = [], []
+        frame = 0
+        frame_to_category = {
+            0: CodonAlignCat.MATCH,
+            1: CodonAlignCat.FRAME_AHEAD,
+            2: CodonAlignCat.FRAME_BEHIND
+        }
+        while tx_blocks:
+            tx_category, anchor_tx_range, other_tx_range = tx_blocks.popleft()
+
+            # if block overlaps an ORF boundary, split it up
+            def split_paired_ranges(a: range, b: range, a_split: int):
+                a_left, a_right = range(a.start, a_split), range(a_split, a.stop)
+                b_split = b.start + len(a_left)
+                b_left, b_right = range(b.start, b_split), range(b_split, b.stop)
+                return a_left, a_right, b_left, b_right
+            if anchor_tx_range.start < 0 < anchor_tx_range.stop:
+                anchor_tx_range, next_anchor_range, other_tx_range, next_other_range = split_paired_ranges(anchor_tx_range, other_tx_range, 0)
+                tx_blocks.appendleft((tx_category, next_anchor_range, next_other_range))
+            if other_tx_range.start < 0 < other_tx_range.stop:
+                other_tx_range, next_other_range, anchor_tx_range, next_anchor_range = split_paired_ranges(other_tx_range, anchor_tx_range, 0)
+                tx_blocks.appendleft((tx_category, next_anchor_range, next_other_range))
+            if anchor_tx_range.start < anchor_orf_len < anchor_tx_range.stop:
+                anchor_tx_range, next_anchor_range, other_tx_range, next_other_range = split_paired_ranges(anchor_tx_range, other_tx_range, anchor_orf_len)
+                tx_blocks.appendleft((tx_category, next_anchor_range, next_other_range))
+            if other_tx_range.start < other_orf_len < other_tx_range.stop:
+                other_tx_range, next_other_range, anchor_tx_range, next_anchor_range = split_paired_ranges(other_tx_range, anchor_tx_range, other_orf_len)
+                tx_blocks.appendleft((tx_category, next_anchor_range, next_other_range))
+            
+            
+            # skip blocks that are outside both ORF ranges
+            outside_anchor_orf = compare_ranges(anchor_tx_range, range(0, len(anchor_orf_range)))
+            outside_other_orf = compare_ranges(other_tx_range, range(0, len(other_orf_range)))
+            if outside_anchor_orf and outside_other_orf:
+                continue
+            
+            # convert block range to protein coords
+            if outside_anchor_orf < 0:
+                anchor_pr_range = range(0, 0)
+            elif outside_anchor_orf > 0:
+                anchor_pr_range = range(anchor_pr_len, anchor_pr_len)
+            else:
+                anchor_pr_range = range(anchor_tx_range.start//3, anchor_tx_range.stop//3)
+            if outside_other_orf < 0:
+                other_pr_range = range(0, 0)
+            elif outside_other_orf > 0:
+                other_pr_range = range(other_pr_len, other_pr_len)
+            else:
+                other_pr_range = range(other_tx_range.start//3, other_tx_range.stop//3)
+
+            # infer codon block categories
+            if tx_category is SeqAlignCat.MATCH:
+                if not anchor_pr_range:
+                    cd_category = CodonAlignCat.TRANSLATED
+                elif not other_pr_range:
+                    cd_category = CodonAlignCat.UNTRANSLATED
+                else:
+                    cd_category = frame_to_category[frame]
+            else:
+                if tx_category is SeqAlignCat.DELETION:
+                    frame = (frame + len(anchor_tx_range)) % 3
+                    cd_category = CodonAlignCat.DELETION
+                elif tx_category is SeqAlignCat.INSERTION:
+                    frame = (frame + len(other_tx_range)) % 3
+                    cd_category = CodonAlignCat.INSERTION
+                else:
+                    raise RuntimeError
+            if anchor_pr_range or other_pr_range:
+                cd_block = CodonAlignmentBlock(
+                    anchor_pr_range,
+                    other_pr_range,
+                    category = cd_category
+                )
+                if anchor_pr_range:
+                    anchor_cd_blocks.append(cd_block)
+                if other_pr_range:
+                    other_cd_blocks.append(cd_block)
+        
+        anchor_blocks = IntervalTree.from_tuples(
+            (block.anchor_range.start, block.anchor_range.stop, block)
+            for block in anchor_cd_blocks
+        )
+        other_blocks = IntervalTree.from_tuples(
+            (block.other_range.start, block.other_range.stop, block)
+            for block in other_cd_blocks
+        )
+        return cls(anchor, other, anchor_blocks, other_blocks)
+
 
 # %%
+all_alns: dict[tuple[str, str], tuple['TranscriptAlignment', 'ProteinAlignment']] = dict()
 t0 = time()
-all_alns: dict[tuple[str, str], 'TranscriptAlignment'] = dict()
 for a, o, _ in df.sort_values('anchor').itertuples(index=False):
     anchor: 'Transcript' = txs[a]
     other: 'Transcript' = txs[o]
 
-    aln = TranscriptAlignment.from_transcripts(anchor, other)
-    all_alns[a, o] = aln
+    pr_aln = ProteinAlignment.from_proteins(anchor.protein, other.protein)
+    tx_aln = TranscriptAlignment.from_transcripts(anchor, other)
+    all_alns[a, o] = tx_aln, pr_aln
 t1 = time()
 
 # %%
-for (a, o), aln in all_alns.items():
-    print(aln)
-    for event in aln.events:
+for (a, o), (tx_aln, pr_aln) in all_alns.items():
+    print(tx_aln)
+    for event in tx_aln.events:
         print(f'\t{type(event).__name__}')
         for e in event.members:
             print(f'\t\t{e}')
     print(f'{a} events')
-    for i in sorted(filter(lambda i: isinstance(i.data, TranscriptEvent), aln.anchor_map)):
+    for i in sorted(tx_aln.anchor_events):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t' + getattr(i.data, 'code', type(i.data).__name__))
-    print(f'{a} blocks')
-    for i in sorted(filter(lambda i: isinstance(i.data, AlignmentBlock), aln.anchor_map)):
+    print(f'{a} tx blocks')
+    for i in sorted(tx_aln.anchor_blocks):
+        print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
+    print(f'{a} pr blocks')
+    for i in sorted(pr_aln.anchor_blocks):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
     print(f'{o} events')
-    for i in sorted(filter(lambda i: isinstance(i.data, TranscriptEvent), aln.other_map)):
+    for i in sorted(tx_aln.other_events):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t' + getattr(i.data, 'code', type(i.data).__name__))
-    print(f'{o} blocks')
-    for i in sorted(filter(lambda i: isinstance(i.data, AlignmentBlock), aln.other_map)):
+    print(f'{o} tx blocks')
+    for i in sorted(tx_aln.other_blocks):
+        print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
+    print(f'{o} pr blocks')
+    for i in sorted(pr_aln.other_blocks):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
 
 # %%
-for (a, o), aln in all_alns.items():
-    event_sum = sum(event.delta_nt for event in aln.events)
-    tx_diff = txs[o].length - txs[a].length
-    if event_sum != tx_diff:
-        print(f'{a}, {o}: {event_sum} != {tx_diff}')
-        for event in aln.events:
-            print(f'\t{type(event).__name__}: {event.delta_nt}')
+# EVENT_COLORS = {
+#     IntronSpliceEvent: '#e69138',
+#     DonorSpliceEvent: '#6aa84f',
+#     AcceptorSpliceEvent: '#674ea7',
+#     ExonSpliceEvent: '#3d85c6',
+#     ExonBypassEvent: '#bebebe',
+# }
 
-# %%
-EVENT_COLORS = {
-    IntronSpliceEvent: '#e69138',
-    DonorSpliceEvent: '#6aa84f',
-    AcceptorSpliceEvent: '#674ea7',
-    ExonSpliceEvent: '#3d85c6',
-    ExonBypassEvent: '#bebebe',
-}
-
-for a, others in df.groupby('anchor')['other']:
-    fig_path = f'../output/splice-test/{txs[a].gene.name}.png'
-    if not os.path.isfile(fig_path):
-        transcripts = [txs[a]] + [txs[other] for other in others]
-        isoplot = IsoformPlot(transcripts)
-        isoplot.draw_all_isoforms()
-        isoplot.draw_frameshifts()
+# for a, others in df.groupby('anchor')['other']:
+#     fig_path = f'../output/splice-test/{txs[a].gene.name}.png'
+#     if not os.path.isfile(fig_path):
+#         transcripts = [txs[a]] + [txs[other] for other in others]
+#         isoplot = IsoformPlot(transcripts)
+#         isoplot.draw_all_isoforms()
+#         isoplot.draw_frameshifts()
         
-        for i, other in enumerate(others, start=1):
-            for event in all_alns[a, other].events:
-                for base_event in event.members:
-                    isoplot.draw_region(
-                        i,
-                        base_event.start.coordinate,
-                        base_event.stop.coordinate,
-                        y_offset = -0.5,
-                        height = 0.1,
-                        facecolor = EVENT_COLORS[type(base_event)]
-                    )
-        isoplot.fig.set_size_inches(10, 0.2 + 0.4 * len(transcripts))
-        plt.savefig(fig_path, dpi=200, bbox_inches='tight', facecolor='w')
-        print('saved '+fig_path)
-        plt.close(isoplot.fig)
+#         for i, other in enumerate(others, start=1):
+#             for event in all_alns[a, other].events:
+#                 for base_event in event.members:
+#                     isoplot.draw_region(
+#                         i,
+#                         base_event.start.coordinate,
+#                         base_event.stop.coordinate,
+#                         y_offset = -0.5,
+#                         height = 0.1,
+#                         facecolor = EVENT_COLORS[type(base_event)]
+#                     )
+#         isoplot.fig.set_size_inches(10, 0.2 + 0.4 * len(transcripts))
+#         plt.savefig(fig_path, dpi=200, bbox_inches='tight', facecolor='w')
+#         print('saved '+fig_path)
+#         plt.close(isoplot.fig)
 
 # %%
 print(f'{t1 - t0:.3g} s total')
