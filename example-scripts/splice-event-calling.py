@@ -5,13 +5,14 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Iterable
-from functools import lru_cache
-from itertools import chain, groupby
+from functools import cached_property, lru_cache
+from itertools import chain, cycle, groupby, tee
 from operator import attrgetter, methodcaller
 from time import time
-from typing import Union
+from typing import Callable, Union
 from warnings import warn
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from attrs import define, evolve, field, frozen, validators
@@ -29,6 +30,7 @@ from biosurfer.plots.plotting import IsoformPlot
 from graph_tool import GraphView
 from graph_tool.topology import is_bipartite, label_components, shortest_path
 from more_itertools import first, partition, windowed
+from seaborn import color_palette
 from tqdm import tqdm
 
 df = pd.read_csv('complex-splice-events.csv', names=['anchor', 'other', 'score'])
@@ -476,7 +478,7 @@ class TranscriptAlignmentBlock(AlignmentBlock):
             object.__setattr__(self, 'category', SeqAlignCat.DELETION)
         else:
             raise ValueError(f'Invalid ranges {self.anchor_range} and {self.other_range}')
-
+    
 
 @frozen(repr=False)
 class CodonAlignmentBlock(AlignmentBlock):
@@ -638,6 +640,10 @@ class ProteinAlignment:
     anchor_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False)
     other_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False)
 
+    @property
+    def blocks(self) -> tuple['CodonAlignmentBlock', ...]:
+        return tuple(sorted({i.data for i in chain(self.anchor_blocks, self.other_blocks)}))
+
     @classmethod
     @lru_cache(maxsize=CACHE_SIZE)
     def from_proteins(cls, anchor: 'Protein', other: 'Protein'):
@@ -666,14 +672,16 @@ class ProteinAlignment:
             ) for block in tx_aln.blocks
         )
 
-        # determine whether N-termini are different
-        # anchor_ic_coord = anchor.transcript.get_genome_coord_from_transcript_coord(anchor_orf_range[0])
-        # other_ic_coord = other.transcript.get_genome_coord_from_transcript_coord(other_orf_range[0])
-        # if anchor_ic_coord != other_ic_coord:
-        #     pass
-
-        anchor_cd_blocks, other_cd_blocks = [], []
-        frame = 0
+        def split_paired_ranges(a: range, b: range, a_split: int):
+            a_left, a_right = range(a.start, a_split), range(a_split, a.stop)
+            if b:
+                b_split = b.start + len(a_left)
+                b_left, b_right = range(b.start, b_split), range(b_split, b.stop)
+            else:
+                b_left, b_right = b, b
+            return a_left, a_right, b_left, b_right
+        
+        cd_blocks = []
         frame_to_category = {
             0: CodonAlignCat.MATCH,
             1: CodonAlignCat.FRAME_AHEAD,
@@ -683,11 +691,6 @@ class ProteinAlignment:
             tx_category, anchor_tx_range, other_tx_range = tx_blocks.popleft()
 
             # if block overlaps an ORF boundary, split it up
-            def split_paired_ranges(a: range, b: range, a_split: int):
-                a_left, a_right = range(a.start, a_split), range(a_split, a.stop)
-                b_split = b.start + len(a_left)
-                b_left, b_right = range(b.start, b_split), range(b_split, b.stop)
-                return a_left, a_right, b_left, b_right
             if anchor_tx_range.start < 0 < anchor_tx_range.stop:
                 anchor_tx_range, next_anchor_range, other_tx_range, next_other_range = split_paired_ranges(anchor_tx_range, other_tx_range, 0)
                 tx_blocks.appendleft((tx_category, next_anchor_range, next_other_range))
@@ -700,7 +703,6 @@ class ProteinAlignment:
             if other_tx_range.start < other_orf_len < other_tx_range.stop:
                 other_tx_range, next_other_range, anchor_tx_range, next_anchor_range = split_paired_ranges(other_tx_range, anchor_tx_range, other_orf_len)
                 tx_blocks.appendleft((tx_category, next_anchor_range, next_other_range))
-            
             
             # skip blocks that are outside both ORF ranges
             outside_anchor_orf = compare_ranges(anchor_tx_range, range(0, len(anchor_orf_range)))
@@ -722,6 +724,9 @@ class ProteinAlignment:
             else:
                 other_pr_range = range(other_tx_range.start//3, other_tx_range.stop//3)
 
+            if not (anchor_pr_range or other_pr_range):
+                continue
+
             # infer codon block categories
             if tx_category is SeqAlignCat.MATCH:
                 if not anchor_pr_range:
@@ -729,34 +734,28 @@ class ProteinAlignment:
                 elif not other_pr_range:
                     cd_category = CodonAlignCat.UNTRANSLATED
                 else:
+                    frame = (other_tx_range.start - anchor_tx_range.start) % 3
                     cd_category = frame_to_category[frame]
+            elif tx_category is SeqAlignCat.DELETION:
+                cd_category = CodonAlignCat.DELETION
+            elif tx_category is SeqAlignCat.INSERTION:
+                cd_category = CodonAlignCat.INSERTION
             else:
-                if tx_category is SeqAlignCat.DELETION:
-                    frame = (frame + len(anchor_tx_range)) % 3
-                    cd_category = CodonAlignCat.DELETION
-                elif tx_category is SeqAlignCat.INSERTION:
-                    frame = (frame + len(other_tx_range)) % 3
-                    cd_category = CodonAlignCat.INSERTION
-                else:
-                    raise RuntimeError
-            if anchor_pr_range or other_pr_range:
-                cd_block = CodonAlignmentBlock(
-                    anchor_pr_range,
-                    other_pr_range,
-                    category = cd_category
-                )
-                if anchor_pr_range:
-                    anchor_cd_blocks.append(cd_block)
-                if other_pr_range:
-                    other_cd_blocks.append(cd_block)
+                raise RuntimeError
+            cd_block = CodonAlignmentBlock(
+                anchor_pr_range,
+                other_pr_range,
+                category = cd_category
+            )
+            cd_blocks.append(cd_block)
         
         anchor_blocks = IntervalTree.from_tuples(
             (block.anchor_range.start, block.anchor_range.stop, block)
-            for block in anchor_cd_blocks
+            for block in cd_blocks if block.anchor_range
         )
         other_blocks = IntervalTree.from_tuples(
             (block.other_range.start, block.other_range.stop, block)
-            for block in other_cd_blocks
+            for block in cd_blocks if block.other_range
         )
         return cls(anchor, other, anchor_blocks, other_blocks)
 
@@ -800,37 +799,79 @@ for (a, o), (tx_aln, pr_aln) in all_alns.items():
         print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
 
 # %%
-# EVENT_COLORS = {
-#     IntronSpliceEvent: '#e69138',
-#     DonorSpliceEvent: '#6aa84f',
-#     AcceptorSpliceEvent: '#674ea7',
-#     ExonSpliceEvent: '#3d85c6',
-#     ExonBypassEvent: '#bebebe',
-# }
+EVENT_COLORS = {
+    IntronSpliceEvent: '#e69138',
+    DonorSpliceEvent: '#6aa84f',
+    AcceptorSpliceEvent: '#674ea7',
+    ExonSpliceEvent: '#3d85c6',
+    ExonBypassEvent: '#bebebe',
+}
 
-# for a, others in df.groupby('anchor')['other']:
-#     fig_path = f'../output/splice-test/{txs[a].gene.name}.png'
-#     if not os.path.isfile(fig_path):
-#         transcripts = [txs[a]] + [txs[other] for other in others]
-#         isoplot = IsoformPlot(transcripts)
-#         isoplot.draw_all_isoforms()
-#         isoplot.draw_frameshifts()
-        
-#         for i, other in enumerate(others, start=1):
-#             for event in all_alns[a, other].events:
-#                 for base_event in event.members:
-#                     isoplot.draw_region(
-#                         i,
-#                         base_event.start.coordinate,
-#                         base_event.stop.coordinate,
-#                         y_offset = -0.5,
-#                         height = 0.1,
-#                         facecolor = EVENT_COLORS[type(base_event)]
-#                     )
-#         isoplot.fig.set_size_inches(10, 0.2 + 0.4 * len(transcripts))
-#         plt.savefig(fig_path, dpi=200, bbox_inches='tight', facecolor='w')
-#         print('saved '+fig_path)
-#         plt.close(isoplot.fig)
+BLOCK_COLORS = {
+    CodonAlignCat.TRANSLATED: '#99f3ff',
+    CodonAlignCat.INSERTION: '#05e0ff',
+    CodonAlignCat.FRAME_AHEAD: '#fff099',
+    CodonAlignCat.FRAME_BEHIND: '#ffd700',
+    CodonAlignCat.UNTRANSLATED: '#ff99ce',
+    CodonAlignCat.DELETION: '#ff0082'
+}
+
+force_plotting = True
+for a, others in df.groupby('anchor')['other']:
+    anchor = txs[a]
+    transcripts = [anchor] + [txs[o] for o in others]
+    fig_path1 = f'../output/alignment-redesign/splice-events/{txs[a].gene.name}.png'
+    fig_path2 = f'../output/alignment-redesign/cblocks/{txs[a].gene.name}.png'
+    fig_path1_missing = not os.path.isfile(fig_path1)
+    fig_path2_missing = not os.path.isfile(fig_path2)
+    if fig_path1_missing:
+        isoplot = IsoformPlot(transcripts)
+        isoplot.draw_all_isoforms()
+        isoplot.draw_frameshifts()
+
+        for i, other in enumerate(others, start=1):
+            for event in all_alns[a, other][0].events:
+                for base_event in event.members:
+                    isoplot.draw_region(
+                        i,
+                        base_event.start.coordinate,
+                        base_event.stop.coordinate,
+                        y_offset = -0.5,
+                        height = 0.1,
+                        facecolor = EVENT_COLORS[type(base_event)]
+                    )
+        isoplot.fig.set_size_inches(10, 0.2 + 0.4 * len(transcripts))
+        plt.savefig(fig_path1, dpi=200, bbox_inches='tight', facecolor='w')
+        print('saved '+fig_path1)
+        plt.close(isoplot.fig)
+    if force_plotting or fig_path2_missing:
+        isoplot = IsoformPlot(transcripts)
+        isoplot.draw_all_isoforms()
+        isoplot.draw_frameshifts()
+        for i, o in enumerate(others, start=1):
+            other = txs[o]
+            for b, block in enumerate(all_alns[a, o][1].blocks):
+                if block.category is CodonAlignCat.MATCH:
+                    continue
+                if block.other_range:
+                    start = other.protein.residues[block.other_range[0]].codon[1].coordinate
+                    stop = other.protein.residues[block.other_range[-1]].codon[1].coordinate
+                else:
+                    start = anchor.protein.residues[block.anchor_range[0]].codon[1].coordinate
+                    stop = anchor.protein.residues[block.anchor_range[-1]].codon[1].coordinate
+                isoplot.draw_region(
+                    i,
+                    start,
+                    stop,
+                    y_offset = -0.5,
+                    height = 0.1,
+                    facecolor = BLOCK_COLORS[block.category],
+                    alpha = 0.75
+                )
+        isoplot.fig.set_size_inches(10, 0.2 + 0.4 * len(transcripts))
+        plt.savefig(fig_path2, dpi=200, bbox_inches='tight', facecolor='w')
+        print('saved '+fig_path2)
+        plt.close(isoplot.fig)
 
 # %%
 print(f'{t1 - t0:.3g} s total')

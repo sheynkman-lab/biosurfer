@@ -453,7 +453,7 @@ class Protein(Base, TablenameMixin, AccessionMixin):
         return self.orf.transcript.gene
     
     @property
-    def transcript(self):
+    def transcript(self) -> 'Transcript':
         return self.orf.transcript
     
     @hybrid_property
