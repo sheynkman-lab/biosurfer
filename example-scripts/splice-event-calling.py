@@ -574,45 +574,59 @@ class TranscriptAlignment:
         ins_ranges.merge_neighbors()
 
         # determine match block ranges
-        del_blocks, ins_blocks, match_blocks = [], [], []
-
-        def add_match_block(length: int, anchor_start: int, other_start: int):
-            if length > 0:
-                match_block = TranscriptAlignmentBlock(
-                    range(anchor_start, anchor_start + length),
-                    range(other_start, other_start + length)
-                )
-                match_blocks.append(match_block)
-                return anchor_start + length, other_start + length
-            else:
-                return anchor_start, other_start
-
-        anchor_pos, other_pos = 0, 0
+        blocks = []
+        position = {'anchor': 0, 'other': 0}
         sorted_del_ranges = deque(sorted(i[:2] for i in del_ranges))
         sorted_ins_ranges = deque(sorted(i[:2] for i in ins_ranges))
+
+        def add_match_block(length: int):
+            if length > 0:
+                match_block = TranscriptAlignmentBlock(
+                    range(position['anchor'], position['anchor'] + length),
+                    range(position['other'], position['other'] + length)
+                )
+                blocks.append(match_block)
+            position['anchor'] += length
+            position['other'] += length
+
+        def add_del_block():
+            del_start, del_stop = sorted_del_ranges.popleft()
+            blocks.append(TranscriptAlignmentBlock(
+                range(del_start, del_stop),
+                range(position['other'], position['other'])
+            ))
+            position['anchor'] = del_stop
+        
+        def add_ins_block():
+            ins_start, ins_stop = sorted_ins_ranges.popleft()
+            blocks.append(TranscriptAlignmentBlock(
+                range(position['anchor'], position['anchor']),
+                range(ins_start, ins_stop)
+            ))
+            position['other'] = ins_stop
+
         while sorted_del_ranges or sorted_ins_ranges:
-            to_next_del_block = (sorted_del_ranges[0][0] - anchor_pos) if sorted_del_ranges else float('inf')
-            to_next_ins_block = (sorted_ins_ranges[0][0] - other_pos) if sorted_ins_ranges else float('inf')
-            anchor_pos, other_pos = add_match_block(min(to_next_del_block, to_next_ins_block), anchor_pos, other_pos)
-            if to_next_del_block <= to_next_ins_block:
-                del_start, del_stop = sorted_del_ranges.popleft()
-                del_blocks.append(TranscriptAlignmentBlock(
-                    range(del_start, del_stop),
-                    range(other_pos, other_pos)
-                ))
-                anchor_pos = del_stop
-            if to_next_ins_block <= to_next_del_block:
-                ins_start, ins_stop = sorted_ins_ranges.popleft()
-                ins_blocks.append(TranscriptAlignmentBlock(
-                    range(anchor_pos, anchor_pos),
-                    range(ins_start, ins_stop)
-                ))
-                other_pos = ins_stop
-        assert anchor.length - anchor_pos == other.length - other_pos, f'{anchor.length=}, {anchor_pos=}, {other.length=}, {other_pos=}'
-        add_match_block(anchor.length - anchor_pos, anchor_pos, other_pos)
+            to_next_del_block = (sorted_del_ranges[0][0] - position['anchor']) if sorted_del_ranges else float('inf')
+            to_next_ins_block = (sorted_ins_ranges[0][0] - position['other']) if sorted_ins_ranges else float('inf')
+            add_match_block(min(to_next_del_block, to_next_ins_block))
+            if to_next_del_block < to_next_ins_block:
+                add_del_block()
+            elif to_next_ins_block < to_next_del_block:
+                add_ins_block()
+            else:
+                anchor_pos_genomic = anchor.get_genome_coord_from_transcript_coord(position['anchor'])
+                other_pos_genomic = other.get_genome_coord_from_transcript_coord(position['other'])
+                if anchor_pos_genomic < other_pos_genomic:
+                    add_del_block()
+                    add_ins_block()
+                else:
+                    add_ins_block()
+                    add_del_block()
+        assert anchor.length - position['anchor'] == other.length - position['other'], f'{position=}, {anchor.length=}, {other.length=}'
+        add_match_block(anchor.length - position['anchor'])
             
-        anchor_blocks = IntervalTree.from_tuples((block.anchor_range.start, block.anchor_range.stop, block) for block in match_blocks + del_blocks)
-        other_blocks = IntervalTree.from_tuples((block.other_range.start, block.other_range.stop, block) for block in match_blocks + ins_blocks)
+        anchor_blocks = IntervalTree.from_tuples((block.anchor_range.start, block.anchor_range.stop, block) for block in blocks if block.anchor_range)
+        other_blocks = IntervalTree.from_tuples((block.other_range.start, block.other_range.stop, block) for block in blocks if block.other_range)
 
         return cls(anchor, other, events, anchor_events, anchor_blocks, other_events, other_blocks)
 

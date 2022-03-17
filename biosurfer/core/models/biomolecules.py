@@ -180,9 +180,20 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
             raise KeyError(f'{self} does not use junction {junction}') from e
 
     def get_genome_coord_from_transcript_coord(self, tx_coord: int) -> Position:
-        nt = self.nucleotides[tx_coord]
-        return Position(self.gene.chromosome_id, self.strand, nt.coordinate)
-
+        try:
+            nt = self.nucleotides[tx_coord]
+            return Position(self.gene.chromosome_id, self.strand, nt.coordinate)
+        except IndexError:
+            pos = Position(self.gene.chromosome_id, self.strand, self.nucleotides[-1].coordinate)
+            return pos + (tx_coord - self.length + 1)
+    
+    def get_transcript_coord_from_genome_coord(self, gn_coord: Position) -> int:
+        nt = self.get_nucleotide_from_coordinate(gn_coord.coordinate)
+        if nt:
+            return nt.position - 1
+        else:
+            raise KeyError
+        
 
 class GencodeTranscript(Transcript):
     __tablename__ = None
