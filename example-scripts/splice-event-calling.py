@@ -5,9 +5,9 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Iterable
-from functools import cached_property, lru_cache
-from itertools import chain, cycle, groupby, tee
-from operator import attrgetter, methodcaller
+from functools import lru_cache
+from itertools import chain, groupby, tee
+from operator import attrgetter, itemgetter, methodcaller
 from time import time
 from typing import Callable, Union
 from warnings import warn
@@ -21,6 +21,7 @@ from biosurfer.core.constants import \
     ProteinLevelAlignmentCategory as SeqAlignCat
 from biosurfer.core.constants import \
     TranscriptLevelAlignmentCategory as CodonAlignCat
+from biosurfer.core.alignments import Alignment as ProteinAlignmentOld
 from biosurfer.core.database import Database
 from biosurfer.core.helpers import (BisectDict, ExceptionLogger, Interval,
                                     IntervalTree, get_interval_overlap_graph)
@@ -29,7 +30,7 @@ from biosurfer.core.models.nonpersistent import Codon, Junction, Position
 from biosurfer.plots.plotting import IsoformPlot
 from graph_tool import GraphView
 from graph_tool.topology import is_bipartite, label_components, shortest_path
-from more_itertools import first, partition, windowed
+from more_itertools import first, last, partition, windowed
 from seaborn import color_palette
 from tqdm import tqdm
 
@@ -673,6 +674,7 @@ class ProteinAlignment:
         )
 
         def split_paired_ranges(a: range, b: range, a_split: int):
+            assert a_split in a
             a_left, a_right = range(a.start, a_split), range(a_split, a.stop)
             if b:
                 b_split = b.start + len(a_left)
@@ -681,7 +683,7 @@ class ProteinAlignment:
                 b_left, b_right = b, b
             return a_left, a_right, b_left, b_right
         
-        cd_blocks = []
+        cd_block_ranges = []
         frame_to_category = {
             0: CodonAlignCat.MATCH,
             1: CodonAlignCat.FRAME_AHEAD,
@@ -711,44 +713,83 @@ class ProteinAlignment:
                 continue
             
             # convert block range to protein coords
+            anchor_pr_start = anchor_tx_range.start//3
+            anchor_pr_stop = anchor_tx_range.stop//3
+            other_pr_start = other_tx_range.start//3
+            other_pr_stop = other_tx_range.stop//3
             if outside_anchor_orf < 0:
                 anchor_pr_range = range(0, 0)
             elif outside_anchor_orf > 0:
                 anchor_pr_range = range(anchor_pr_len, anchor_pr_len)
             else:
-                anchor_pr_range = range(anchor_tx_range.start//3, anchor_tx_range.stop//3)
+                anchor_pr_start = anchor_tx_range.start//3
+                anchor_pr_range = range(anchor_pr_start, anchor_pr_stop)
             if outside_other_orf < 0:
                 other_pr_range = range(0, 0)
             elif outside_other_orf > 0:
                 other_pr_range = range(other_pr_len, other_pr_len)
             else:
-                other_pr_range = range(other_tx_range.start//3, other_tx_range.stop//3)
+                other_pr_start = other_tx_range.start//3
+                other_pr_range = range(other_pr_start, other_pr_stop)
 
             if not (anchor_pr_range or other_pr_range):
                 continue
 
-            # infer codon block categories
+            # infer categories of codon blocks
+            frameshift = (other_tx_range.start - anchor_tx_range.start) % 3
+            edge_first, edge_last = False, False
             if tx_category is SeqAlignCat.MATCH:
                 if not anchor_pr_range:
                     cd_category = CodonAlignCat.TRANSLATED
                 elif not other_pr_range:
                     cd_category = CodonAlignCat.UNTRANSLATED
                 else:
-                    frame = (other_tx_range.start - anchor_tx_range.start) % 3
-                    cd_category = frame_to_category[frame]
+                    edge_first = frameshift == 0 and anchor_tx_range.start % 3 == 1
+                    edge_last = frameshift == 0 and anchor_tx_range.stop % 3 == 2
+                    cd_category = frame_to_category[frameshift]
+                    # TODO: detect triple overlap when len(anchor_pr_range) != len(other_pr_range)
             elif tx_category is SeqAlignCat.DELETION:
                 cd_category = CodonAlignCat.DELETION
             elif tx_category is SeqAlignCat.INSERTION:
                 cd_category = CodonAlignCat.INSERTION
             else:
                 raise RuntimeError
-            cd_block = CodonAlignmentBlock(
-                anchor_pr_range,
-                other_pr_range,
-                category = cd_category
-            )
-            cd_blocks.append(cd_block)
+            if edge_first:
+                anchor_edge_first, anchor_pr_range = anchor_pr_range[:1], anchor_pr_range[1:]
+                other_edge_first, other_pr_range = other_pr_range[:1], other_pr_range[1:]
+                edge_first_category = CodonAlignCat.EDGE_MATCH if anchor.residues[anchor_edge_first[0]].amino_acid == other.residues[other_edge_first[0]].amino_acid else CodonAlignCat.EDGE_MISMATCH
+            if edge_last:
+                anchor_pr_range, anchor_edge_last = anchor_pr_range[:-1], anchor_pr_range[-1:]
+                other_pr_range, other_edge_last = other_pr_range[:-1], other_pr_range[-1:]
+                edge_last_category = CodonAlignCat.EDGE_MATCH if anchor.residues[anchor_edge_last[0]].amino_acid == other.residues[other_edge_last[0]].amino_acid else CodonAlignCat.EDGE_MISMATCH
+            if edge_first:
+                cd_block_ranges.append((edge_first_category, anchor_edge_first, other_edge_first))
+            cd_block_ranges.append((cd_category, anchor_pr_range, other_pr_range))
+            if edge_last:
+                cd_block_ranges.append((edge_last_category, anchor_edge_last, other_edge_last))
         
+        # merge consecutive codon blocks w/ same category
+        cd_blocks = []
+        for category, block_group in groupby(cd_block_ranges, key=itemgetter(0)):
+            if category is CodonAlignCat.MATCH:
+                cd_blocks.extend(CodonAlignmentBlock(block[1], block[2], category=category) for block in block_group)
+            else:
+                g1, g2 = tee(block_group)
+                first_block = first(g1)
+                last_block = last(g2)
+                anchor_start = first_block[1].start
+                anchor_stop = last_block[1].stop
+                other_start = first_block[2].start
+                other_stop = last_block[2].stop
+                cd_blocks.append(CodonAlignmentBlock(range(anchor_start, anchor_stop), range(other_start, other_stop), category=category))
+        
+        for block in cd_blocks:
+            if block.category not in {CodonAlignCat.EDGE_MATCH, CodonAlignCat.EDGE_MISMATCH}:
+                continue
+            anchor_edge_res = anchor.residues[block.anchor_range[0]]
+            other_edge_res = other.residues[block.other_range[0]]
+            assert anchor_edge_res.codon[2:] == other_edge_res.codon[2:] or anchor_edge_res.codon[:2] == other_edge_res.codon[:2], f'{anchor_edge_res}, {anchor_edge_res.codon} | {other_edge_res}, {other_edge_res.codon}'
+
         anchor_blocks = IntervalTree.from_tuples(
             (block.anchor_range.start, block.anchor_range.stop, block)
             for block in cd_blocks if block.anchor_range
@@ -769,11 +810,12 @@ for a, o, _ in df.sort_values('anchor').itertuples(index=False):
 
     pr_aln = ProteinAlignment.from_proteins(anchor.protein, other.protein)
     tx_aln = TranscriptAlignment.from_transcripts(anchor, other)
-    all_alns[a, o] = tx_aln, pr_aln
+    pr_aln_old = ProteinAlignmentOld(anchor.protein, other.protein)
+    all_alns[a, o] = tx_aln, pr_aln, pr_aln_old
 t1 = time()
 
 # %%
-for (a, o), (tx_aln, pr_aln) in all_alns.items():
+for (a, o), (tx_aln, pr_aln, pr_aln_old) in all_alns.items():
     print(tx_aln)
     for event in tx_aln.events:
         print(f'\t{type(event).__name__}')
@@ -797,6 +839,14 @@ for (a, o), (tx_aln, pr_aln) in all_alns.items():
     print(f'{o} pr blocks')
     for i in sorted(pr_aln.other_blocks):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
+    print(f'{pr_aln} blocks')
+    for block in pr_aln.blocks:
+        print(f'\t{block.category}\t{block.anchor_range.start:5d} {block.anchor_range.stop:5d}\t| {block.other_range.start:5d} {block.other_range.stop:5d}')
+    print(f'{pr_aln_old} blocks (old)')
+    for block in pr_aln_old.transcript_blocks:
+        anchor_range = (block.anchor_residues[0].position - 1, block.anchor_residues[-1].position) if block.anchor_residues else (-1, -1)
+        other_range = (block.other_residues[0].position - 1, block.other_residues[-1].position) if block.other_residues else (-1, -1)
+        print(f'\t{block.category}\t{anchor_range[0]:5d} {anchor_range[1]:5d}\t| {other_range[0]:5d} {other_range[1]:5d}')
 
 # %%
 EVENT_COLORS = {
@@ -808,12 +858,14 @@ EVENT_COLORS = {
 }
 
 BLOCK_COLORS = {
-    CodonAlignCat.TRANSLATED: '#99f3ff',
+    CodonAlignCat.TRANSLATED: '#9bf3ff',
     CodonAlignCat.INSERTION: '#05e0ff',
     CodonAlignCat.FRAME_AHEAD: '#fff099',
     CodonAlignCat.FRAME_BEHIND: '#ffd700',
     CodonAlignCat.UNTRANSLATED: '#ff99ce',
-    CodonAlignCat.DELETION: '#ff0082'
+    CodonAlignCat.DELETION: '#ff0082',
+    CodonAlignCat.EDGE_MATCH: '#cdc6e7',
+    CodonAlignCat.EDGE_MISMATCH: '#8270c1'
 }
 
 force_plotting = True
@@ -859,15 +911,25 @@ for a, others in df.groupby('anchor')['other']:
                 else:
                     start = anchor.protein.residues[block.anchor_range[0]].codon[1].coordinate
                     stop = anchor.protein.residues[block.anchor_range[-1]].codon[1].coordinate
-                isoplot.draw_region(
-                    i,
-                    start,
-                    stop,
-                    y_offset = -0.5,
-                    height = 0.1,
-                    facecolor = BLOCK_COLORS[block.category],
-                    alpha = 0.75
-                )
+                if block.category in {CodonAlignCat.EDGE_MATCH, CodonAlignCat.EDGE_MISMATCH}:
+                    isoplot.draw_point(
+                        i,
+                        start,
+                        y_offset = -0.5,
+                        height = 0.1,
+                        type = 'lollipop',
+                        color = BLOCK_COLORS[block.category]
+                    )
+                else:
+                    isoplot.draw_region(
+                        i,
+                        start,
+                        stop,
+                        y_offset = -0.5,
+                        height = 0.1,
+                        facecolor = BLOCK_COLORS[block.category],
+                        alpha = 0.75
+                    )
         isoplot.fig.set_size_inches(10, 0.2 + 0.4 * len(transcripts))
         plt.savefig(fig_path2, dpi=200, bbox_inches='tight', facecolor='w')
         print('saved '+fig_path2)
