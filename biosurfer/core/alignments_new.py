@@ -355,13 +355,6 @@ class ProteinAlignment:
                 other_start = first_block[2].start
                 other_stop = last_block[2].stop
                 cd_blocks.append(CodonAlignmentBlock(range(anchor_start, anchor_stop), range(other_start, other_stop), category=category))
-        
-        for block in cd_blocks:
-            if block.category not in {CodonAlignCat.EDGE_MATCH, CodonAlignCat.EDGE_MISMATCH}:
-                continue
-            anchor_edge_res = anchor.residues[block.anchor_range[0]]
-            other_edge_res = other.residues[block.other_range[0]]
-            assert anchor_edge_res.codon[2:] == other_edge_res.codon[2:] or anchor_edge_res.codon[:2] == other_edge_res.codon[:2], f'{anchor_edge_res}, {anchor_edge_res.codon} | {other_edge_res}, {other_edge_res.codon}'
 
         anchor_blocks = IntervalTree.from_tuples(
             (block.anchor_range.start, block.anchor_range.stop, block)
