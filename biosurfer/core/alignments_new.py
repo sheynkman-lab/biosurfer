@@ -114,8 +114,8 @@ class TranscriptAlignment:
         # map all events to transcript coordinates
         def get_transcript_interval(event: 'BasicTranscriptEvent'):
             transcript = anchor if event.is_deletion else other
-            start = transcript.get_nucleotide_from_coordinate(event.start.coordinate).position
-            stop = transcript.get_nucleotide_from_coordinate(event.stop.coordinate).position
+            start = transcript.get_transcript_coord_from_genome_coord(event.start)
+            stop = transcript.get_transcript_coord_from_genome_coord(event.stop)
             return Interval(start-1, stop, event)
         
         event_to_interval: dict['BasicTranscriptEvent', 'Interval'] = dict()

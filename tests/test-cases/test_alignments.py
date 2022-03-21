@@ -10,16 +10,16 @@ def test_codon_alignment_blocks(session, alignment_case):
     aln = ProteinAlignment.from_proteins(anchor.protein, other.protein)
     for block in aln.blocks:
         if block.category is CodonAlignCat.MATCH:
-            assert block.anchor_range
             assert [anchor.protein.residues[i].codon for i in block.anchor_range] == [other.protein.residues[i].codon for i in block.other_range]
+            assert block.anchor_range
         elif block.category is CodonAlignCat.FRAME_AHEAD:
             assert len(block.anchor_range) == len(block.other_range)
             for a, o in zip(block.anchor_range, block.other_range):
-                assert anchor.protein.residues[a].codon[:2] == other.protein.residues[o].codon[2:]
+                assert anchor.protein.residues[a].codon[:2] == other.protein.residues[o].codon[-2:]
         elif block.category is CodonAlignCat.FRAME_BEHIND:
             assert len(block.anchor_range) == len(block.other_range)
             for a, o in zip(block.anchor_range, block.other_range):
-                assert anchor.protein.residues[a].codon[2:] == other.protein.residues[o].codon[:2]
+                assert anchor.protein.residues[a].codon[-2:] == other.protein.residues[o].codon[:2]
         elif block.category in {CodonAlignCat.EDGE_MATCH, CodonAlignCat.EDGE_MISMATCH}:
             assert len(block.anchor_range) == len(block.other_range) == 1
             anchor_edge_res = anchor.protein.residues[block.anchor_range[0]]
