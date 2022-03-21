@@ -177,7 +177,7 @@ def get_augmented_sqtl_record(row):
         lacking = sorted(lacking, key=sortkey)
         junc_info['containing'] = len(containing)
         junc_info['lacking'] = len(lacking)
-        if not containing or not lacking:
+        if not containing:
             return None
         
         gc_transcripts = sorted((tx for tx in gene.transcripts if isinstance(tx, GencodeTranscript)), key=attrgetter('appris'), reverse=True)
@@ -224,12 +224,14 @@ def get_augmented_sqtl_record(row):
             for event in AnnotationFlag.__members__.values() if event is not AnnotationFlag.NONE}
         junc_info.update(freqs)
 
-        if not os.path.isdir(f'{output_dir}/{gene.name}'):
+        try:
             os.mkdir(f'{output_dir}/{gene.name}')
+        except FileExistsError:
+            pass
 
         export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
 
-        force_plotting = True
+        force_plotting = False
         fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
         if force_plotting or not os.path.isfile(fig_path):
             isoplot = IsoformPlot(
@@ -296,15 +298,18 @@ def get_augmented_sqtl_record(row):
 rows = [(row.chr, row.gene_id_stem, row.start, row.end, row.pval_nominal, row.slope, row.maf) for row in sqtls.itertuples()]
 records = []
 with mp.Pool() as p:
-    with tqdm(desc='Analyzing sQTL junctions', total=sqtls.shape[0], file=sys.stdout, unit='junctions') as t:
+    with (
+    tqdm(desc='Analyzing sQTL junctions', total=sqtls.shape[0], file=sys.stdout, unit='junctions') as t,
+    tqdm(desc='Annotated junctions', file=sys.stdout, unit='junctions', miniters=1) as t2):
         for result in p.imap_unordered(get_augmented_sqtl_record, rows):
             t.update()
             if result:
                 records.append(result)
+                t2.update()
 
 sqtls_augmented = pd.DataFrame.from_records(records)
 # display(sqtls_augmented)
-print(f'Annotated {sqtls_augmented.shape[0]} sQTL junctions')
+# print(f'Annotated {sqtls_augmented.shape[0]} sQTL junctions')
 sqtls_augmented.to_csv(f'{output_dir}/coloc_sqtls_annotated.tsv', sep='\t', index=False)
 
 # %%
