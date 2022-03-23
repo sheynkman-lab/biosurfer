@@ -160,29 +160,37 @@ def feature_getter(session):
 ########################
 
 @given(data=st.data())
+def test_transcript_to_genome_coord_conversion(data, transcript_getter):
+    transcript: 'Transcript' = transcript_getter(data)
+    for i, nt in enumerate(transcript.nucleotides):
+        gn_coord = transcript.get_genome_coord_from_transcript_coord(i)
+        assert nt.coordinate == gn_coord.coordinate
+        assert i == transcript.get_transcript_coord_from_genome_coord(gn_coord)
+
+@given(data=st.data())
 def test_transcript_nucleotides_match_sequence(data, transcript_getter):
-    transcript = transcript_getter(data)
+    transcript: 'Transcript' = transcript_getter(data)
     assert ''.join(str(nt.base) for nt in transcript.nucleotides) == transcript.sequence
 
 @given(data=st.data())
 def test_exon_lengths_correct(data, transcript_getter):
-    transcript = transcript_getter(data)
+    transcript: 'Transcript' = transcript_getter(data)
     assert sum(exon.length for exon in transcript.exons) == transcript.length
 
 @given(data=st.data())
 def test_exon_sequences_correct(data, transcript_getter):
-    transcript = transcript_getter(data)
+    transcript: 'Transcript' = transcript_getter(data)
     assert ''.join(exon.sequence for exon in transcript.exons) == transcript.sequence
 
 @given(data=st.data())
 def test_exon_coords_correct(data, transcript_getter):
-    transcript = transcript_getter(data)
+    transcript: 'Transcript' = transcript_getter(data)
     for exon in transcript.exons:
         assert exon.stop - exon.start == exon.transcript_stop - exon.transcript_start
 
 @given(data=st.data())
 def test_junction_coords_correct(data, transcript_getter):
-    transcript = transcript_getter(data)
+    transcript: 'Transcript' = transcript_getter(data)
     for junction in transcript.junctions:
         upstream_exon, downstream_exon = transcript.get_exons_from_junction(junction)
         donor_nt = transcript.get_nucleotide_from_coordinate((junction.donor - 1).coordinate)
@@ -194,7 +202,7 @@ def test_junction_coords_correct(data, transcript_getter):
 
 @given(data=st.data())
 def test_orf_utr_lengths_correct(data, coding_transcript_getter):
-    transcript = coding_transcript_getter(data)
+    transcript: 'Transcript' = coding_transcript_getter(data)
     for orf in transcript.orfs:
         utr5_length = orf.utr5.length if orf.utr5 else 0
         utr3_length = orf.utr3.length if orf.utr3 else 0
@@ -202,7 +210,7 @@ def test_orf_utr_lengths_correct(data, coding_transcript_getter):
 
 @given(data=st.data())
 def test_orf_utr_sequences_correct(data, coding_transcript_getter):
-    transcript = coding_transcript_getter(data)
+    transcript: 'Transcript' = coding_transcript_getter(data)
     for orf in transcript.orfs:
         utr5_sequence = orf.utr5.sequence if orf.utr5 else ''
         utr3_sequence = orf.utr3.sequence if orf.utr3 else ''
@@ -210,20 +218,20 @@ def test_orf_utr_sequences_correct(data, coding_transcript_getter):
 
 @given(data=st.data())
 def test_nucleotide_has_exon(data, transcript_getter):
-    transcript = transcript_getter(data)
+    transcript: 'Transcript' = transcript_getter(data)
     for exon in transcript.exons:
         for nt in exon.nucleotides:
             assert nt.exon is exon
 
 @given(data=st.data())
 def test_protein_residues_match_sequence(data, coding_transcript_getter):
-    transcript = coding_transcript_getter(data)
+    transcript: 'Transcript' = coding_transcript_getter(data)
     protein = transcript.protein
     assert ''.join(str(res.amino_acid) for res in protein.residues) == protein.sequence
 
 @given(data=st.data())
 def test_nucleotide_has_residue(data, coding_transcript_getter):
-    transcript = coding_transcript_getter(data)
+    transcript: 'Transcript' = coding_transcript_getter(data)
     orf = transcript.primary_orf
     note(f'tx seq: {transcript.sequence}')
     note(f'orf seq: {orf.sequence}')
@@ -232,7 +240,7 @@ def test_nucleotide_has_residue(data, coding_transcript_getter):
 
 @given(data=st.data())
 def test_noncoding_nucleotide_has_no_residue(data, transcript_getter):
-    transcript = transcript_getter(data)
+    transcript: 'Transcript' = transcript_getter(data)
     assume(len(transcript.orfs) == 0)
     note(f'tx seq: {transcript.sequence}')
     for nt in transcript.nucleotides:
@@ -240,7 +248,7 @@ def test_noncoding_nucleotide_has_no_residue(data, transcript_getter):
 
 @given(data=st.data())
 def test_residue_has_nucleotide(data, coding_transcript_getter):
-    transcript = coding_transcript_getter(data)
+    transcript: 'Transcript' = coding_transcript_getter(data)
     orf = transcript.primary_orf
     note(f'tx seq: {transcript.sequence}')
     note(f'orf seq: {orf.sequence}')
