@@ -100,6 +100,7 @@ class TranscriptLevelAlignmentCategory(StringEnum):
     UNTRANSLATED = 'u'
     FRAME_AHEAD = 'a'
     FRAME_BEHIND = 'b'
+    EDGE = 'e'
     EDGE_MATCH = 'e'
     EDGE_MISMATCH = 'g'
     COMPLEX = 'x'

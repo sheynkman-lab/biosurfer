@@ -17,7 +17,7 @@ def database_path(tmp_path_factory):
 def database(database_path):
     db_url = f'sqlite:///{database_path}'
     db = Database(url=db_url)
-    db.engine.echo = True
+    # db.engine.echo = True
     Base.metadata.drop_all(db.engine)
     Base.metadata.create_all(db.engine)
     db.load_gencode_gtf(data_dir/'gencode.v38.toy.gtf', overwrite=True)

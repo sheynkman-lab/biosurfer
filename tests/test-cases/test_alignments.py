@@ -12,6 +12,8 @@ def test_codon_alignment_blocks(session, alignment_case):
     strand = anchor.strand
     aln = ProteinAlignment.from_proteins(anchor.protein, other.protein)
     for block in aln.blocks:
+        print(block)
+    for block in aln.blocks:
         assert block.anchor_range or block.other_range
         if block.category is CodonAlignCat.MATCH:
             assert [anchor.protein.residues[i].codon for i in block.anchor_range] == [other.protein.residues[i].codon for i in block.other_range]
@@ -24,18 +26,13 @@ def test_codon_alignment_blocks(session, alignment_case):
             else:
                 for a, o in pr_coords:
                     assert anchor.protein.residues[a].codon[-2:] == other.protein.residues[o].codon[:2]
-        elif block.category in {CodonAlignCat.EDGE_MATCH, CodonAlignCat.EDGE_MISMATCH}:
-            assert len(block.anchor_range) == len(block.other_range) == 1
-            anchor_edge_res = anchor.protein.residues[block.anchor_range[0]]
-            other_edge_res = other.protein.residues[block.other_range[0]]
-            assert anchor_edge_res.codon[2:] == other_edge_res.codon[2:] or anchor_edge_res.codon[:2] == other_edge_res.codon[:2]
-            assert (anchor_edge_res.amino_acid == other_edge_res.amino_acid) ^ (block.category is CodonAlignCat.EDGE_MISMATCH)
-        elif block.category is CodonAlignCat.COMPLEX:
+        elif block.category in {CodonAlignCat.EDGE, CodonAlignCat.COMPLEX}:
             assert len(block.anchor_range) == len(block.other_range) == 1
             anchor_res = anchor.protein.residues[block.anchor_range[0]]
             other_res = other.protein.residues[block.other_range[0]]
-            overlap = set(anchor_res.codon) & set(other_res.codon)
-            assert overlap == {anchor_res.codon[1]} or overlap == {other_res.codon[1]}
+            if block.category is CodonAlignCat.EDGE:
+                difference = set(nt.coordinate for nt in anchor_res.codon) ^ set(nt.coordinate for nt in other_res.codon)
+                assert difference == {anchor_res.codon[0].coordinate, other_res.codon[0].coordinate} or difference == {anchor_res.codon[-1].coordinate, other_res.codon[-1].coordinate}
         elif block.category is CodonAlignCat.DELETION:
             assert not block.other_range
             for i in block.anchor_range:

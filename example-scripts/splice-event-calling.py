@@ -29,7 +29,11 @@ for a, o, _ in df.sort_values('anchor').itertuples(index=False):
     anchor: 'Transcript' = txs[a]
     other: 'Transcript' = txs[o]
 
-    pr_aln = ProteinAlignment.from_proteins(anchor.protein, other.protein)
+    try:
+        pr_aln = ProteinAlignment.from_proteins(anchor.protein, other.protein)
+    except ValueError as e:
+        pr_aln = None
+        print(f'{a}, {o}: {e}')
     tx_aln = TranscriptAlignment.from_transcripts(anchor, other)
     pr_aln_old = ProteinAlignmentOld(anchor.protein, other.protein)
     all_alns[a, o] = tx_aln, pr_aln, pr_aln_old
