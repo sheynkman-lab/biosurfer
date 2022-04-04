@@ -379,7 +379,7 @@ def call_transcript_events(anchor: 'Transcript', other: 'Transcript'):
         is_deletion = downstream_start == other_start
         bypass_events = [ExonBypassEvent(is_deletion, exon) for exon in upstream_exons]
         if tss_overlap_junction:
-            alt_downstream_exon = first(other_exons if is_deletion else anchor_exons)
+            alt_downstream_exon = (other_exons if is_deletion else anchor_exons)[0]
             last_bypass_event = ExonBypassEvent(
                 not is_deletion,
                 Junction(
@@ -400,7 +400,7 @@ def call_transcript_events(anchor: 'Transcript', other: 'Transcript'):
         is_deletion = upstream_stop == other_stop
         bypass_events = [ExonBypassEvent(is_deletion, exon) for exon in downstream_exons]
         if pas_overlap_junction:
-            alt_upstream_exon = first(other_exons if is_deletion else anchor_exons)
+            alt_upstream_exon = (other_exons if is_deletion else anchor_exons)[-1]
             first_bypass_event = ExonBypassEvent(
                 not is_deletion,
                 Junction(
