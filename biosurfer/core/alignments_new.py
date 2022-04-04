@@ -296,7 +296,9 @@ class ProteinAlignment:
             # skip blocks that are outside both ORF ranges
             outside_anchor_orf = compare_ranges(anchor_tx_range, range(0, len(anchor_orf_range)))
             outside_other_orf = compare_ranges(other_tx_range, range(0, len(other_orf_range)))
-            if outside_anchor_orf and outside_other_orf:
+            if (outside_anchor_orf and outside_other_orf
+            or outside_anchor_orf and tx_category is SeqAlignCat.DELETION
+            or outside_other_orf and tx_category is SeqAlignCat.INSERTION):
                 continue
             
             # convert block range to protein coords
@@ -330,109 +332,69 @@ class ProteinAlignment:
                 cd_category = CodonAlignCat.INSERTION
             else:
                 raise RuntimeError
-            if anchor_pr_stop > anchor_pr_start or other_pr_stop > other_pr_start:
-                boundaries.append((anchor_pr_stop, other_pr_stop))
-                overhangs.append((anchor_stop_overhang, other_stop_overhang))
-                categories.append(cd_category)
+            boundaries.append((anchor_pr_stop, other_pr_stop))
+            overhangs.append((anchor_stop_overhang, other_stop_overhang))
+            categories.append(cd_category)
         
         # second pass to adjust edges
         assert overhangs[-1] == (0, 0)
         anchor_boundary_shifts, other_boundary_shifts = dict(), dict()
+
         i = 0
         while i < len(boundaries) - 1:
             curr_category, next_category = categories[i:i+2]
             overhang = overhangs[i]
-            # boundaries[i] = (
-            #     anchor_boundary_shifts.get(boundaries[i][0], boundaries[i][0]),
-            #     other_boundary_shifts.get(boundaries[i][1], boundaries[i][1])
-            # )
-            # anchor_boundary, other_boundary = boundaries[i]
 
             try:
                 anchor_boundary = anchor_boundary_shifts[boundaries[i][0]]
             except KeyError:
                 anchor_boundary = boundaries[i][0]
-                if overhang[0] == 2 and (next_category in {CodonAlignCat.MATCH, CodonAlignCat.FRAME_AHEAD} 
-                or curr_category is CodonAlignCat.FRAME_AHEAD):
+                shift_anchor_boundary = (
+                    overhang[0] == 2 and (
+                        next_category in {CodonAlignCat.MATCH, CodonAlignCat.FRAME_AHEAD}
+                        or curr_category is CodonAlignCat.FRAME_AHEAD
+                        or curr_category in {CodonAlignCat.DELETION, CodonAlignCat.UNTRANSLATED} and next_category is CodonAlignCat.INSERTION
+                    ) or overhang[0] == 1 and curr_category is CodonAlignCat.DELETION and next_category is CodonAlignCat.FRAME_AHEAD
+                )
+                if shift_anchor_boundary:
                     anchor_boundary_shifts[anchor_boundary] = anchor_boundary + 1
                     anchor_boundary += 1
             try:
-                other_boundary = other_boundary_shifts[boundaries[i][0]]
+                other_boundary = other_boundary_shifts[boundaries[i][1]]
             except KeyError:
                 other_boundary = boundaries[i][1]
-                if overhang[1] == 2 and (next_category in {CodonAlignCat.MATCH, CodonAlignCat.FRAME_BEHIND} 
-                or curr_category is CodonAlignCat.FRAME_BEHIND):
+                shift_other_boundary = (
+                    overhang[1] == 2 and (
+                        next_category in {CodonAlignCat.MATCH, CodonAlignCat.FRAME_BEHIND}
+                        or curr_category is CodonAlignCat.FRAME_BEHIND
+                        or curr_category in {CodonAlignCat.INSERTION, CodonAlignCat.TRANSLATED} and next_category is CodonAlignCat.DELETION
+                    ) or overhang[1] == 1 and curr_category is CodonAlignCat.INSERTION and next_category is CodonAlignCat.FRAME_BEHIND
+                )
+                if shift_other_boundary:
                     other_boundary_shifts[other_boundary] = other_boundary + 1
                     other_boundary += 1
             boundaries[i] = anchor_boundary, other_boundary 
 
             # insert a single-codon block if necessary
-            overhang_to_insert = None
             category_to_insert = None
             if (curr_category is CodonAlignCat.MATCH and overhang == (2, 2) or next_category is CodonAlignCat.MATCH and overhang == (1, 1)):
-                overhang_to_insert = (0, 0)
                 category_to_insert = CodonAlignCat.EDGE
-            if (curr_category is CodonAlignCat.FRAME_AHEAD and overhang == (1, 2)
-            or next_category is CodonAlignCat.FRAME_AHEAD and overhang == (1, 2)
-            or curr_category is CodonAlignCat.FRAME_BEHIND and overhang == (2, 1)
-            or next_category is CodonAlignCat.FRAME_BEHIND and overhang == (2, 1)):
-                overhang_to_insert = overhang
+            if (curr_category is CodonAlignCat.FRAME_AHEAD and next_category is CodonAlignCat.DELETION and overhang == (1, 2)
+            or curr_category is CodonAlignCat.INSERTION and next_category is CodonAlignCat.FRAME_AHEAD and overhang == (1, 2)
+            or curr_category is CodonAlignCat.FRAME_BEHIND and next_category is CodonAlignCat.INSERTION and overhang == (2, 1)
+            or curr_category is CodonAlignCat.DELETION and next_category is CodonAlignCat.FRAME_BEHIND and overhang == (2, 1)):
                 category_to_insert = CodonAlignCat.COMPLEX
 
-            if overhang_to_insert and category_to_insert:
+            if category_to_insert:
                 boundaries.insert(i+1, (anchor_boundary + 1, other_boundary + 1))
-                overhangs.insert(i+1, overhang_to_insert)
+                overhangs.insert(i+1, overhang)
                 categories.insert(i+1, category_to_insert)
                 anchor_boundary_shifts[anchor_boundary] = anchor_boundary + 1
                 other_boundary_shifts[other_boundary] = other_boundary + 1
                 i += 1
             i += 1
-            continue
-            #region
-            if curr_category is CodonAlignCat.MATCH:
-                if start_overhang[0] != 0:
-                    first_res_category = CodonAlignCat.EDGE if start_overhang[0] == 1 else CodonAlignCat.COMPLEX
-                    cd_block_ranges[i:i+1] = [
-                        [first_res_category, anchor_pr_range[:1], other_pr_range[:1], start_overhang, (0, 0)],
-                        [curr_category, anchor_pr_range[1:], other_pr_range[1:], (0, 0), stop_overhang]
-                    ]
-                    i += 1
-                if stop_overhang[0] != 0:
-                    last_res_category = CodonAlignCat.EDGE if stop_overhang[0] == 2 else CodonAlignCat.COMPLEX
-                    cd_block_ranges[i:i+1] = [
-                        [curr_category, anchor_pr_range[:-1], other_pr_range[:-1], (0, 0), (0, 0)],
-                        [last_res_category, anchor_pr_range[-1:], other_pr_range[-1:], (0, 0), stop_overhang]
-                    ]
-                    i += 1
-            elif curr_category is CodonAlignCat.FRAME_AHEAD:
-                if start_overhang[0] != 0:
-                    cd_block_ranges[i:i+1] = [
-                        [CodonAlignCat.COMPLEX, anchor_pr_range[:1], other_pr_range[:1], start_overhang, (0, 1)],
-                        [curr_category, anchor_pr_range[1:], other_pr_range[1:], (0, 1), stop_overhang]
-                    ]
-                    i += 1
-                if stop_overhang[0] != 2:
-                    cd_block_ranges[i:i+1] = [
-                        [curr_category, anchor_pr_range[:-1], other_pr_range[:-1], (0, 1), (2, 0)],
-                        [CodonAlignCat.COMPLEX, anchor_pr_range[-1:], other_pr_range[-1:], (0, 0), stop_overhang]
-                    ]
-                    i += 1
-            elif curr_category is CodonAlignCat.FRAME_BEHIND:
-                if start_overhang != 1:
-                    cd_block_ranges[i:i+1] = [
-                        [CodonAlignCat.COMPLEX, anchor_pr_range[:1], other_pr_range[:1], start_overhang, (0, 0)],
-                        [curr_category, anchor_pr_range[1:], other_pr_range[1:], (0, 0), stop_overhang]
-                    ]
-                    i += 1
-                if stop_overhang != 0:
-                    cd_block_ranges[i:i+1] = [
-                        [curr_category, anchor_pr_range[:-1], other_pr_range[:-1], (0, 0), (0, 0)],
-                        [CodonAlignCat.COMPLEX, anchor_pr_range[-1:], other_pr_range[-1:], (0, 0), stop_overhang]
-                    ]
-                    i += 1
-            i += 1
-            #endregion
-        
+        #endregion
+
         # merge consecutive codon blocks w/ same category
         assert len(boundaries) == len(categories)
         cd_blocks = []
