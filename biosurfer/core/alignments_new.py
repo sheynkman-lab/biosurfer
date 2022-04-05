@@ -14,7 +14,7 @@ from biosurfer.core.helpers import Interval, IntervalTree
 from biosurfer.core.models.biomolecules import Protein, Transcript
 from biosurfer.core.splice_events import (BasicTranscriptEvent,
                                           call_transcript_events, sort_events)
-from more_itertools import first, last, partition
+from more_itertools import first, last, partition, only
 
 if TYPE_CHECKING:
     from biosurfer.core.constants import AlignmentCategory
@@ -74,6 +74,14 @@ class CodonAlignmentBlock(AlignmentBlock):
         A, O = len(self.anchor_range), len(self.other_range)
         if A == O == 0:
             raise ValueError(f'Invalid ranges {self.anchor_range} and {self.other_range}')
+
+
+@frozen(order=True, repr=False)
+class ProteinAlignmentBlock(AlignmentBlock):
+    category: 'SeqAlignCat' = field(kw_only=True)
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
 
 @define
@@ -220,7 +228,7 @@ class TranscriptAlignment:
 
 
 @define
-class ProteinAlignment:
+class CodonAlignment:
     anchor: 'Protein'
     other: 'Protein'
     anchor_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
@@ -413,4 +421,50 @@ class ProteinAlignment:
             (block.other_range.start, block.other_range.stop, block)
             for block in cd_blocks if block.other_range
         )
+        return cls(anchor, other, anchor_blocks, other_blocks)
+
+
+@define
+class ProteinAlignment:
+    anchor: 'Protein'
+    other: 'Protein'
+    anchor_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
+    other_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
+
+    @property
+    def blocks(self) -> tuple['ProteinAlignmentBlock', ...]:
+        return tuple(sorted({i.data for i in chain(self.anchor_blocks, self.other_blocks)}))
+
+    @classmethod
+    @lru_cache(maxsize=CACHE_SIZE)
+    def from_proteins(cls, anchor: 'Protein', other: 'Protein'):
+        cd_aln = CodonAlignment.from_proteins(anchor, other)
+
+        pr_blocks = []
+        for is_match, group in groupby(cd_aln.blocks, key=lambda block: block.category is CodonAlignCat.MATCH):
+            if is_match:
+                cd_block = only(group)
+                pr_block = ProteinAlignmentBlock(cd_block.anchor_range, cd_block.other_range, category=SeqAlignCat.MATCH)
+            else:
+                g1, g2 = tee(group, 2)
+                first_block, last_block = first(g1), last(g2)
+                anchor_range = range(first_block.anchor_range.start, last_block.anchor_range.stop)
+                other_range = range(first_block.other_range.start, last_block.other_range.stop)
+                if anchor_range and other_range:
+                    if len(anchor_range) == len(other_range) and anchor.sequence[anchor_range.start:anchor_range.stop] == other.sequence[other_range.start:other_range.stop]:
+                        category = SeqAlignCat.MATCH
+                    else:
+                        category = SeqAlignCat.SUBSTITUTION
+                elif not other_range:
+                    category = SeqAlignCat.DELETION
+                elif not anchor_range:
+                    category = SeqAlignCat.INSERTION
+                else:
+                    raise RuntimeError
+                pr_block = ProteinAlignmentBlock(anchor_range, other_range, category=category)
+            pr_blocks.append(pr_block)
+        
+        anchor_blocks = IntervalTree.from_tuples((block.anchor_range.start, block.anchor_range.stop, block) for block in pr_blocks if block.anchor_range)
+        other_blocks = IntervalTree.from_tuples((block.other_range.start, block.other_range.stop, block) for block in pr_blocks if block.other_range)
+
         return cls(anchor, other, anchor_blocks, other_blocks)

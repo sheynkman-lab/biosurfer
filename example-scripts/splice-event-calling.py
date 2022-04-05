@@ -5,7 +5,7 @@ from time import time
 import matplotlib.pyplot as plt
 import pandas as pd
 from biosurfer.core.alignments import Alignment as ProteinAlignmentOld
-from biosurfer.core.alignments_new import ProteinAlignment, TranscriptAlignment
+from biosurfer.core.alignments_new import CodonAlignment, TranscriptAlignment, ProteinAlignment
 from biosurfer.core.constants import \
     TranscriptLevelAlignmentCategory as CodonAlignCat
 from biosurfer.core.database import Database
@@ -23,7 +23,7 @@ session = db.get_session()
 txs = Transcript.from_names(session, pd.concat([df['anchor'], df['other']]).unique())
 
 # %%
-all_alns: dict[tuple[str, str], tuple['TranscriptAlignment', 'ProteinAlignment', 'ProteinAlignmentOld']] = dict()
+all_alns: dict[tuple[str, str], tuple['TranscriptAlignment', 'CodonAlignment', 'ProteinAlignmentOld']] = dict()
 t0 = time()
 for a, o, _ in df.sort_values('anchor').itertuples(index=False):
     anchor: 'Transcript' = txs[a]
@@ -34,13 +34,14 @@ for a, o, _ in df.sort_values('anchor').itertuples(index=False):
     except ValueError as e:
         pr_aln = None
         print(f'{a}, {o}: {e}')
+    cd_aln = CodonAlignment.from_proteins(anchor.protein, other.protein)
     tx_aln = TranscriptAlignment.from_transcripts(anchor, other)
     pr_aln_old = ProteinAlignmentOld(anchor.protein, other.protein)
-    all_alns[a, o] = tx_aln, pr_aln, pr_aln_old
+    all_alns[a, o] = tx_aln, cd_aln, pr_aln, pr_aln_old
 t1 = time()
 
 # %%
-for (a, o), (tx_aln, pr_aln, pr_aln_old) in all_alns.items():
+for (a, o), (tx_aln, cd_aln, pr_aln, pr_aln_old) in all_alns.items():
     print(tx_aln)
     for event in tx_aln.events:
         print(f'\t{type(event).__name__}')
@@ -49,26 +50,22 @@ for (a, o), (tx_aln, pr_aln, pr_aln_old) in all_alns.items():
     print(f'{a} events')
     for i in sorted(tx_aln.anchor_events):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t' + getattr(i.data, 'code', type(i.data).__name__))
-    print(f'{a} tx blocks')
-    for i in sorted(tx_aln.anchor_blocks):
-        print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
-    print(f'{a} pr blocks')
-    for i in sorted(pr_aln.anchor_blocks):
-        print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
     print(f'{o} events')
     for i in sorted(tx_aln.other_events):
         print(f'\t{i.begin:5d}\t{i.end:5d}\t' + getattr(i.data, 'code', type(i.data).__name__))
-    print(f'{o} tx blocks')
-    for i in sorted(tx_aln.other_blocks):
-        print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
-    print(f'{o} pr blocks')
-    for i in sorted(pr_aln.other_blocks):
-        print(f'\t{i.begin:5d}\t{i.end:5d}\t{i.data}')
+    print(f'{cd_aln} blocks')
+    for block in cd_aln.blocks:
+        print(f'\t{block.category}\t{block.anchor_range.start:5d} {block.anchor_range.stop:5d}\t| {block.other_range.start:5d} {block.other_range.stop:5d}')
+    print(f'{pr_aln_old} cblocks (old)')
+    for block in pr_aln_old.transcript_blocks:
+        anchor_range = (block.anchor_residues[0].position - 1, block.anchor_residues[-1].position) if block.anchor_residues else (-1, -1)
+        other_range = (block.other_residues[0].position - 1, block.other_residues[-1].position) if block.other_residues else (-1, -1)
+        print(f'\t{block.category}\t{anchor_range[0]:5d} {anchor_range[1]:5d}\t| {other_range[0]:5d} {other_range[1]:5d}')
     print(f'{pr_aln} blocks')
     for block in pr_aln.blocks:
         print(f'\t{block.category}\t{block.anchor_range.start:5d} {block.anchor_range.stop:5d}\t| {block.other_range.start:5d} {block.other_range.stop:5d}')
-    print(f'{pr_aln_old} blocks (old)')
-    for block in pr_aln_old.transcript_blocks:
+    print(f'{pr_aln_old} pblocks (old)')
+    for block in pr_aln_old.protein_blocks:
         anchor_range = (block.anchor_residues[0].position - 1, block.anchor_residues[-1].position) if block.anchor_residues else (-1, -1)
         other_range = (block.other_residues[0].position - 1, block.other_residues[-1].position) if block.other_residues else (-1, -1)
         print(f'\t{block.category}\t{anchor_range[0]:5d} {anchor_range[1]:5d}\t| {other_range[0]:5d} {other_range[1]:5d}')

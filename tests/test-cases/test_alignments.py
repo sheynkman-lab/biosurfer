@@ -1,6 +1,6 @@
 import pytest
 from biosurfer.core.alignments import Alignment
-from biosurfer.core.alignments_new import ProteinAlignment, CodonAlignCat
+from biosurfer.core.alignments_new import CodonAlignment, CodonAlignCat, ProteinAlignment, SeqAlignCat
 from biosurfer.core.models.biomolecules import Transcript
 from biosurfer.core.models.nonpersistent import Position
 
@@ -10,11 +10,10 @@ def test_codon_alignment_blocks(session, alignment_case):
     other: 'Transcript' = Transcript.from_name(session, alignment_case['other'])
     chr = anchor.gene.chromosome_id
     strand = anchor.strand
-    aln = ProteinAlignment.from_proteins(anchor.protein, other.protein)
+    aln = CodonAlignment.from_proteins(anchor.protein, other.protein)
     for block in aln.blocks:
         print(block)
     for block in aln.blocks:
-        assert block.anchor_range or block.other_range
         if block.category is CodonAlignCat.MATCH:
             assert [anchor.protein.residues[i].codon for i in block.anchor_range] == [other.protein.residues[i].codon for i in block.other_range]
         elif block.category in {CodonAlignCat.FRAME_AHEAD, CodonAlignCat.FRAME_BEHIND}:
@@ -49,6 +48,25 @@ def test_codon_alignment_blocks(session, alignment_case):
             assert not block.other_range and (block.other_range.start == 0 or block.other_range.start == other.protein.length)
         elif block.category is CodonAlignCat.TRANSLATED:
             assert not block.anchor_range and (block.anchor_range.start == 0 or block.anchor_range.start == anchor.protein.length)
+
+def test_protein_alignment_blocks(session, alignment_case):
+    print(session.get_bind())
+    anchor: 'Transcript' = Transcript.from_name(session, alignment_case['anchor'])
+    other: 'Transcript' = Transcript.from_name(session, alignment_case['other'])
+    aln = ProteinAlignment.from_proteins(anchor.protein, other.protein)
+    for block in aln.blocks:
+        print(block)
+    for block in aln.blocks:
+        if block.category is SeqAlignCat.MATCH:
+            assert anchor.protein.sequence[block.anchor_range.start:block.anchor_range.stop] == other.protein.sequence[block.other_range.start:block.other_range.stop]
+        elif block.category is SeqAlignCat.SUBSTITUTION:
+            assert anchor.protein.sequence[block.anchor_range.start:block.anchor_range.stop] != other.protein.sequence[block.other_range.start:block.other_range.stop]
+        elif block.category is SeqAlignCat.DELETION:
+            assert not block.other_range
+        elif block.category is SeqAlignCat.INSERTION:
+            assert not block.anchor_range
+        else:
+            raise ValueError(block.category)
 
 # @pytest.mark.skip(reason='old Alignment is deprecated')
 # def test_alignment_full(session, alignment_case):
