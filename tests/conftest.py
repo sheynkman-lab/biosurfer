@@ -1,13 +1,15 @@
-import hypothesis
 import pytest
 from biosurfer.core.database import Database
 from biosurfer.core.models.base import Base
 from biosurfer.core.helpers import get_ids_from_gencode_fasta
+from hypothesis import settings
 from pathlib import Path
 
-hypothesis.settings(deadline=300)
-
 data_dir = Path(__file__).parent.parent/'data'/'gencode'
+
+def pytest_sessionstart(session):
+    settings.register_profile('default', deadline=400)
+    settings.load_profile('default')
 
 @pytest.fixture(scope='session')
 def database_path(tmp_path_factory):
