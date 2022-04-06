@@ -7,14 +7,14 @@ from typing import TYPE_CHECKING
 
 from attrs import define, field, frozen
 from biosurfer.core.constants import \
-    ProteinLevelAlignmentCategory as SeqAlignCat
+    SequenceAlignmentCategory as SeqAlignCat
 from biosurfer.core.constants import \
-    TranscriptLevelAlignmentCategory as CodonAlignCat
+    CodonAlignmentCategory as CodonAlignCat
 from biosurfer.core.helpers import Interval, IntervalTree
 from biosurfer.core.models.biomolecules import Protein, Transcript
 from biosurfer.core.splice_events import (BasicTranscriptEvent,
                                           call_transcript_events, sort_events)
-from more_itertools import first, last, partition, only
+from more_itertools import first, last, partition, one
 
 if TYPE_CHECKING:
     from biosurfer.core.constants import AlignmentCategory
@@ -443,7 +443,7 @@ class ProteinAlignment:
         pr_blocks = []
         for is_match, group in groupby(cd_aln.blocks, key=lambda block: block.category is CodonAlignCat.MATCH):
             if is_match:
-                cd_block = only(group)
+                cd_block = one(group)
                 pr_block = ProteinAlignmentBlock(cd_block.anchor_range, cd_block.other_range, category=SeqAlignCat.MATCH)
             else:
                 g1, g2 = tee(group, 2)

@@ -11,10 +11,10 @@ from Bio.Align import substitution_matrices
 from Bio.pairwise2 import align
 from biosurfer.core.constants import AminoAcid, AnnotationFlag
 from biosurfer.core.constants import \
-    ProteinLevelAlignmentCategory as ProteinAlignCat
+    SequenceAlignmentCategory as ProteinAlignCat
 from biosurfer.core.constants import ProteinRegion, Strand
 from biosurfer.core.constants import \
-    TranscriptLevelAlignmentCategory as TranscriptAlignCat
+    CodonAlignmentCategory as TranscriptAlignCat
 from biosurfer.core.helpers import run_length_encode
 from biosurfer.core.models.biomolecules import Exon, Protein, Residue
 from biosurfer.core.models.features import ProjectedFeature, ProteinFeature
@@ -348,9 +348,6 @@ class Alignment(ResidueAlignmentSequence):
                                 tblock.flags |= AnnotationFlag.IE
                                 pblock.event = 'IE'
                 
-                elif tblock.category is TranscriptAlignCat.EDGE_MISMATCH:
-                    pblock._annotations.append(f'{tblock[0].anchor} replaced with {tblock[0].other} due to use of alternate junction')
-                
                 elif tblock.category in FRAMESHIFT:
                     first_exon = tblock[0].anchor.codon[2].exon
                     last_exon = tblock[-1].anchor.codon[0].exon
@@ -647,10 +644,8 @@ def rough_alignment(anchor: 'Protein', other: 'Protein', strand: 'Strand') -> Li
                         event_type = TranscriptAlignCat.FRAME_AHEAD
                     elif coord_diff > 0:
                         event_type = TranscriptAlignCat.FRAME_BEHIND
-                    elif anchor_current.amino_acid is other_current.amino_acid:
-                        event_type = TranscriptAlignCat.EDGE_MATCH
-                    elif anchor_current.amino_acid is not other_current.amino_acid:
-                        event_type = TranscriptAlignCat.EDGE_MISMATCH
+                    else:
+                        event_type = TranscriptAlignCat.EDGE
                 elif overlap == 3 and anchor_current.amino_acid is other_current.amino_acid:
                     event_type = TranscriptAlignCat.MATCH
         elif not other_stack:
@@ -735,7 +730,6 @@ def get_transcript_blocks(aln: Iterable['ResidueAlignment']) -> List['Transcript
 
 
 def get_protein_blocks(parent: 'Alignment') -> List['ProteinAlignmentBlock']:
-    EDGE = {TranscriptAlignCat.EDGE_MATCH, TranscriptAlignCat.EDGE_MISMATCH}
     # TODO: account for amino acid sequence
     pblocks = []
     for i, (is_match, tblock_group) in enumerate(groupby(parent.transcript_blocks, key=lambda tblock: tblock.category is TranscriptAlignCat.MATCH)):
@@ -743,7 +737,7 @@ def get_protein_blocks(parent: 'Alignment') -> List['ProteinAlignmentBlock']:
         if is_match:
             pblock_category = ProteinAlignCat.MATCH
         else:
-            categories = {tblock.category for tblock in tblock_group if tblock.category not in EDGE}
+            categories = {tblock.category for tblock in tblock_group if tblock.category is not TranscriptAlignCat.EDGE}
             pblock_category = ProteinAlignCat.SUBSTITUTION
             if len(categories) == 1:
                 single_category = list(categories)[0]

@@ -7,7 +7,7 @@ import pandas as pd
 from biosurfer.core.alignments import Alignment as ProteinAlignmentOld
 from biosurfer.core.alignments_new import CodonAlignment, TranscriptAlignment, ProteinAlignment
 from biosurfer.core.constants import \
-    TranscriptLevelAlignmentCategory as CodonAlignCat
+    CodonAlignmentCategory as CodonAlignCat
 from biosurfer.core.database import Database
 from biosurfer.core.models.biomolecules import Transcript
 from biosurfer.core.splice_events import (AcceptorSpliceEvent,
@@ -86,8 +86,8 @@ BLOCK_COLORS = {
     CodonAlignCat.FRAME_BEHIND: '#ffd700',
     CodonAlignCat.UNTRANSLATED: '#ff99ce',
     CodonAlignCat.DELETION: '#ff0082',
-    CodonAlignCat.EDGE_MATCH: '#cdc6e7',
-    CodonAlignCat.EDGE_MISMATCH: '#8270c1'
+    CodonAlignCat.EDGE: '#8270c1',
+    CodonAlignCat.COMPLEX: '#aaaaaa'
 }
 
 force_plotting = False
@@ -133,7 +133,7 @@ for a, others in df.groupby('anchor')['other']:
                 else:
                     start = anchor.protein.residues[block.anchor_range[0]].codon[1].coordinate
                     stop = anchor.protein.residues[block.anchor_range[-1]].codon[1].coordinate
-                if block.category in {CodonAlignCat.EDGE_MATCH, CodonAlignCat.EDGE_MISMATCH}:
+                if block.category in {CodonAlignCat.EDGE, CodonAlignCat.COMPLEX}:
                     isoplot.draw_point(
                         i,
                         start,

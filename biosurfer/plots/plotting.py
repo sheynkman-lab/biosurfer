@@ -15,8 +15,8 @@ import numpy as np
 import seaborn as sns
 from biosurfer.core.alignments import (FRAMESHIFT, ProjectedFeature,
                                        Alignment)
-from biosurfer.core.constants import (AminoAcid, FeatureType, ProteinLevelAlignmentCategory,
-                                      Strand, TranscriptLevelAlignmentCategory)
+from biosurfer.core.constants import (AminoAcid, FeatureType, SequenceAlignmentCategory,
+                                      Strand, CodonAlignmentCategory)
 from biosurfer.core.helpers import ExceptionLogger, Interval, IntervalTree, get_interval_overlap_graph
 from biosurfer.core.models.biomolecules import (GencodeTranscript,
                                                 PacBioTranscript, Transcript)
@@ -45,14 +45,14 @@ ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 
 # hatching styles for different relative frameshifts
 REL_FRAME_STYLE = {
-    TranscriptLevelAlignmentCategory.FRAME_AHEAD: '////',
-    TranscriptLevelAlignmentCategory.FRAME_BEHIND: 'xxxx'
+    CodonAlignmentCategory.FRAME_AHEAD: '////',
+    CodonAlignmentCategory.FRAME_BEHIND: 'xxxx'
 }
 
 PBLOCK_COLORS = {
-    ProteinLevelAlignmentCategory.DELETION: '#FF0082',
-    ProteinLevelAlignmentCategory.INSERTION: '#05E0FF',
-    ProteinLevelAlignmentCategory.SUBSTITUTION: '#FFD700'
+    SequenceAlignmentCategory.DELETION: '#FF0082',
+    SequenceAlignmentCategory.INSERTION: '#05E0FF',
+    SequenceAlignmentCategory.SUBSTITUTION: '#FFD700'
 }
 
 FEATURE_COLORS = {
@@ -412,8 +412,8 @@ class IsoformPlot:
     
     def draw_frameshifts(self, anchor: Optional['Transcript'] = None, hatch_color='white'):
         """Plot relative frameshifts on all isoforms. Uses first isoform as the anchor by default."""
-        self._handles['frame +1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_AHEAD])
-        self._handles['frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_BEHIND])
+        self._handles['frame +1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_AHEAD])
+        self._handles['frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_BEHIND])
         
         if anchor is None:
             anchor = next(filter(None, self.transcripts))
@@ -446,19 +446,19 @@ class IsoformPlot:
     
     def draw_protein_block(self, pblock: 'ProteinAlignmentBlock', alpha: float = 0.5):
         if 'deletion' not in self._handles:
-            self._handles['deletion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.DELETION])
+            self._handles['deletion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[SequenceAlignmentCategory.DELETION])
         if 'insertion' not in self._handles:
-            self._handles['insertion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.INSERTION])
+            self._handles['insertion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[SequenceAlignmentCategory.INSERTION])
         if 'substitution' not in self._handles:
-            self._handles['substitution'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.SUBSTITUTION])
+            self._handles['substitution'] = mpatches.Patch(facecolor=PBLOCK_COLORS[SequenceAlignmentCategory.SUBSTITUTION])
 
-        if pblock.category is ProteinLevelAlignmentCategory.DELETION:
+        if pblock.category is SequenceAlignmentCategory.DELETION:
             other_start = pblock.anchor_residues[0].codon[1].coordinate
             other_stop = pblock.anchor_residues[-1].codon[1].coordinate
         else:
             other_start = pblock.other_residues[0].codon[1].coordinate
             other_stop = pblock.other_residues[-1].codon[1].coordinate
-        if pblock.category is ProteinLevelAlignmentCategory.INSERTION:
+        if pblock.category is SequenceAlignmentCategory.INSERTION:
             anchor_start = pblock.other_residues[0].codon[1].coordinate
             anchor_stop = pblock.other_residues[-1].codon[1].coordinate
         else:

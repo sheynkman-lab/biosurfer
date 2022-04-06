@@ -84,7 +84,7 @@ class AminoAcid(StringEnum):
     GAP = '-'
 
 
-class ProteinLevelAlignmentCategory(StringEnum):
+class SequenceAlignmentCategory(StringEnum):
     MATCH = 'M'
     INSERTION = 'I'
     DELETION = 'D'
@@ -92,7 +92,7 @@ class ProteinLevelAlignmentCategory(StringEnum):
     UNKNOWN = '?'
 
 
-class TranscriptLevelAlignmentCategory(StringEnum):
+class CodonAlignmentCategory(StringEnum):
     MATCH = 'm'
     INSERTION = 'i'
     DELETION = 'd'
@@ -101,13 +101,11 @@ class TranscriptLevelAlignmentCategory(StringEnum):
     FRAME_AHEAD = 'a'
     FRAME_BEHIND = 'b'
     EDGE = 'e'
-    EDGE_MATCH = 'e'
-    EDGE_MISMATCH = 'g'
     COMPLEX = 'x'
     UNKNOWN = '?'
 
 
-AlignmentCategory = Union[ProteinLevelAlignmentCategory, TranscriptLevelAlignmentCategory]
+AlignmentCategory = Union[SequenceAlignmentCategory, CodonAlignmentCategory]
 
 
 class AnnotationFlag(Flag):

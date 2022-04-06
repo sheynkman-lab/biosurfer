@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, List
 
 from biosurfer.core.constants import FeatureType
 from biosurfer.core.constants import \
-    TranscriptLevelAlignmentCategory as TranscriptAlignCat
+    CodonAlignmentCategory as TranscriptAlignCat
 from biosurfer.core.helpers import run_length_decode
 from biosurfer.core.models.base import AccessionMixin, Base, NameMixin, TablenameMixin
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -121,7 +121,7 @@ class ProjectedFeature(ProteinFeature, TablenameMixin):
         for token in self._differences.split(','):
             char = token[-1]
             length = int(token[:-1])
-            if TranscriptAlignCat(char) not in {TranscriptAlignCat.MATCH, TranscriptAlignCat.EDGE_MATCH}:
+            if char != TranscriptAlignCat.MATCH.value:
                 alt_res.extend(self.residues[i:i+length])
             i += length
         return alt_res
