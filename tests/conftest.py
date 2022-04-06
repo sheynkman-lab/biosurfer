@@ -41,6 +41,7 @@ def database(database_path):
 @pytest.fixture(scope='session')
 def session(database):
     session = database.get_session()
+    print(session.get_bind())
     yield session
     session.close()
 

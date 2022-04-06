@@ -3,9 +3,10 @@ from biosurfer.core.alignments import Alignment
 from biosurfer.core.alignments_new import CodonAlignment, CodonAlignCat, ProteinAlignment, SeqAlignCat
 from biosurfer.core.models.biomolecules import Transcript
 from biosurfer.core.models.nonpersistent import Position
+from hypothesis import given, note, strategies as st
+from more_itertools import one
 
 def test_codon_alignment_blocks(session, alignment_case):
-    print(session.get_bind())
     anchor: 'Transcript' = Transcript.from_name(session, alignment_case['anchor'])
     other: 'Transcript' = Transcript.from_name(session, alignment_case['other'])
     chr = anchor.gene.chromosome_id
@@ -50,7 +51,6 @@ def test_codon_alignment_blocks(session, alignment_case):
             assert not block.anchor_range and (block.anchor_range.start == 0 or block.anchor_range.start == anchor.protein.length)
 
 def test_protein_alignment_blocks(session, alignment_case):
-    print(session.get_bind())
     anchor: 'Transcript' = Transcript.from_name(session, alignment_case['anchor'])
     other: 'Transcript' = Transcript.from_name(session, alignment_case['other'])
     aln = ProteinAlignment.from_proteins(anchor.protein, other.protein)
@@ -68,9 +68,38 @@ def test_protein_alignment_blocks(session, alignment_case):
         else:
             raise ValueError(block.category)
 
+@given(data=st.data())
+def test_alignment_coordinate_projection(data, session, alignment_case):
+    anchor: 'Transcript' = Transcript.from_name(session, alignment_case['anchor'])
+    other: 'Transcript' = Transcript.from_name(session, alignment_case['other'])
+    aln = CodonAlignment.from_proteins(anchor.protein, other.protein)
+    note(aln.blocks)
+    anchor_coord = data.draw(st.integers(min_value=0, max_value=anchor.protein.length - 1))
+    other_coord = aln.project_coordinate(anchor_coord)
+    if other_coord is None:
+        assert one(aln.anchor_blocks.at(anchor_coord)).data.category in {CodonAlignCat.DELETION, CodonAlignCat.UNTRANSLATED}
+    else:
+        note(f'{other_coord = }')
+        assert anchor_coord == aln.project_coordinate(other_coord, from_anchor=False)
+
+@given(data=st.data())
+def test_alignment_range_projection(data, session, alignment_case):
+    anchor: 'Transcript' = Transcript.from_name(session, alignment_case['anchor'])
+    other: 'Transcript' = Transcript.from_name(session, alignment_case['other'])
+    aln = CodonAlignment.from_proteins(anchor.protein, other.protein)
+    note(aln.blocks)
+    anchor_start = data.draw(st.integers(min_value=0, max_value=anchor.protein.length - 1))
+    anchor_stop = data.draw(st.integers(min_value=anchor_start + 1, max_value=anchor.protein.length))
+    other_range = aln.project_range(anchor_start, anchor_stop)
+    if other_range:
+        note(f'{other_range = }')
+        anchor_range = aln.project_range(other_range.start, other_range.stop, from_anchor=False)
+        assert anchor_start <= anchor_range.start and anchor_range.stop <= anchor_stop
+        assert other_range.start == 0 or aln.project_coordinate(other_range.start - 1, from_anchor=False) not in range(anchor_start, anchor_stop)
+        assert other_range.stop == other.protein.length or aln.project_coordinate(other_range.stop, from_anchor=False) not in range(anchor_start, anchor_stop)
+
 # @pytest.mark.skip(reason='old Alignment is deprecated')
 # def test_alignment_full(session, alignment_case):
-#     print(session.get_bind())
 #     anchor = alignment_case['anchor']
 #     other = alignment_case['other']
 #     expected = alignment_case['full']
@@ -80,7 +109,7 @@ def test_protein_alignment_blocks(session, alignment_case):
 
 # @pytest.mark.skip(reason='feature cases may be outdated')
 # def test_feature_alignment(session, feature_case):
-#     print(session.get_bind())
+#     
 #     anchor = feature_case['anchor']
 #     other = feature_case['other']
 #     txs = Transcript.from_names(session, (anchor, other))

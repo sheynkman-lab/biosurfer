@@ -105,6 +105,11 @@ class CodonAlignmentCategory(StringEnum):
     UNKNOWN = '?'
 
 
+FRAMESHIFT = {CodonAlignmentCategory.FRAME_AHEAD, CodonAlignmentCategory.FRAME_BEHIND}
+ANCHOR_EXCLUSIVE = {CodonAlignmentCategory.DELETION, CodonAlignmentCategory.UNTRANSLATED}
+OTHER_EXCLUSIVE = {CodonAlignmentCategory.INSERTION, CodonAlignmentCategory.TRANSLATED}
+
+
 AlignmentCategory = Union[SequenceAlignmentCategory, CodonAlignmentCategory]
 
 

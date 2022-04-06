@@ -5,16 +5,15 @@ from itertools import chain, groupby, tee
 from operator import attrgetter, itemgetter
 from typing import TYPE_CHECKING
 
-from attrs import define, field, frozen
-from biosurfer.core.constants import \
-    SequenceAlignmentCategory as SeqAlignCat
-from biosurfer.core.constants import \
-    CodonAlignmentCategory as CodonAlignCat
+from attrs import define, evolve, field, frozen
+from biosurfer.core.constants import FRAMESHIFT, OTHER_EXCLUSIVE, CodonAlignmentCategory as CodonAlignCat
+from biosurfer.core.constants import SequenceAlignmentCategory as SeqAlignCat
 from biosurfer.core.helpers import Interval, IntervalTree
 from biosurfer.core.models.biomolecules import Protein, Transcript
+from biosurfer.core.models.features import ProjectedFeature, ProteinFeature
 from biosurfer.core.splice_events import (BasicTranscriptEvent,
                                           call_transcript_events, sort_events)
-from more_itertools import first, last, partition, one
+from more_itertools import first, last, one, partition
 
 if TYPE_CHECKING:
     from biosurfer.core.constants import AlignmentCategory
@@ -42,12 +41,21 @@ class AlignmentBlock(ABC):
     other_range: range = field(factory=range, order=attrgetter('start', 'stop'))
     category: 'AlignmentCategory' = field(default=None, order=False)
     
-    @abstractmethod
     def __attrs_post_init__(self):
-        pass
-    
+        A, O = len(self.anchor_range), len(self.other_range)
+        if A == O == 0:
+            raise ValueError(f'Invalid ranges {self.anchor_range} and {self.other_range}')
+
     def __repr__(self):
         return f'{self.category}({self.anchor_range.start}:{self.anchor_range.stop}|{self.other_range.start}:{self.other_range.stop})'
+    
+    def project_coordinate(self, coord: int, *, from_anchor: bool = True):
+        source, target = (self.anchor_range, self.other_range) if from_anchor else (self.other_range, self.anchor_range)
+        index = source.index(coord)
+        try:
+            return target[index]
+        except IndexError:
+            return None
 
 
 @frozen(order=True, repr=False)
@@ -70,22 +78,58 @@ class TranscriptAlignmentBlock(AlignmentBlock):
 class CodonAlignmentBlock(AlignmentBlock):
     category: 'CodonAlignCat' = field(kw_only=True)
 
-    def __attrs_post_init__(self):
-        A, O = len(self.anchor_range), len(self.other_range)
-        if A == O == 0:
-            raise ValueError(f'Invalid ranges {self.anchor_range} and {self.other_range}')
-
 
 @frozen(order=True, repr=False)
 class ProteinAlignmentBlock(AlignmentBlock):
     category: 'SeqAlignCat' = field(kw_only=True)
 
-    def __attrs_post_init__(self):
-        super().__attrs_post_init__()
+
+class ProjectionMixin:
+    def range_to_blocks(self, start: int, stop: int, *, from_anchor: bool = True):
+        mapper: 'IntervalTree' = self.anchor_blocks if from_anchor else self.other_blocks
+        blocks: list['AlignmentBlock'] = [interval.data for interval in sorted(mapper.overlap(start, stop))]
+        if not blocks:
+            raise ValueError(f'Could not locate mapping in {self.anchor if from_anchor else self.other} for range({start}, {stop})')
+        first_block = blocks[0]
+        last_block = blocks[-1]
+        first_block_source = first_block.anchor_range if from_anchor else first_block.other_range
+        last_block_source = last_block.anchor_range if from_anchor else last_block.other_range
+        first_block_offset = start - first_block_source.start
+        last_block_offset = stop - last_block_source.start
+        if first_block is last_block:
+            blocks[0] = evolve(
+                first_block,
+                anchor_range = first_block.anchor_range[first_block_offset:last_block_offset],
+                other_range = first_block.other_range[first_block_offset:last_block_offset]
+            )
+        else:
+            blocks[0] = evolve(
+                first_block,
+                anchor_range = first_block.anchor_range[first_block_offset:],
+                other_range = first_block.other_range[first_block_offset:]
+            )
+            blocks[-1] = evolve(
+                last_block,
+                anchor_range = last_block.anchor_range[:last_block_offset],
+                other_range = last_block.other_range[:last_block_offset]
+            )
+        return blocks
+
+    def project_range(self, start: int, stop: int, *, from_anchor: bool = True) -> range:
+        blocks = self.range_to_blocks(start, stop, from_anchor=from_anchor)
+        if from_anchor:
+            return range(blocks[0].other_range.start, blocks[-1].other_range.stop)
+        else:
+            return range(blocks[0].anchor_range.start, blocks[-1].anchor_range.stop)
+    
+    def project_coordinate(self, coord: int, *, from_anchor: bool = True):
+        mapper: 'IntervalTree' = self.anchor_blocks if from_anchor else self.other_blocks
+        block: 'AlignmentBlock' = one(mapper.at(coord)).data
+        return block.project_coordinate(coord, from_anchor=from_anchor)
 
 
 @define
-class TranscriptAlignment:
+class TranscriptAlignment(ProjectionMixin):
     anchor: 'Transcript'
     other: 'Transcript' = field()
     events: tuple['CompoundTranscriptEvent', ...] = field(converter=sort_events)
@@ -228,7 +272,7 @@ class TranscriptAlignment:
 
 
 @define
-class CodonAlignment:
+class CodonAlignment(ProjectionMixin):
     anchor: 'Protein'
     other: 'Protein'
     anchor_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
@@ -434,6 +478,17 @@ class ProteinAlignment:
     @property
     def blocks(self) -> tuple['ProteinAlignmentBlock', ...]:
         return tuple(sorted({i.data for i in chain(self.anchor_blocks, self.other_blocks)}))
+
+    def project_feature(self, anchor_feature: 'ProteinFeature'):
+        if anchor_feature.protein is not self.anchor:
+            raise ValueError(f'{anchor_feature} is not a feature of {self.anchor}')
+        cd_aln = CodonAlignment.from_proteins(self.anchor, self.other)
+        other_range = cd_aln.project_range(anchor_feature.protein_start - 1, anchor_feature.protein_stop)
+        altered_blocks = [
+            interval.data for interval in sorted(self.other_blocks.overlap(other_range.start, other_range.stop))
+            if interval.data.category in FRAMESHIFT | OTHER_EXCLUSIVE
+        ]
+        
 
     @classmethod
     @lru_cache(maxsize=CACHE_SIZE)
