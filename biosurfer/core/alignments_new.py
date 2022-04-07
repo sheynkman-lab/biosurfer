@@ -6,7 +6,7 @@ from operator import attrgetter, itemgetter
 from typing import TYPE_CHECKING
 
 from attrs import define, evolve, field, frozen
-from biosurfer.core.constants import FRAMESHIFT, OTHER_EXCLUSIVE, CodonAlignmentCategory as CodonAlignCat
+from biosurfer.core.constants import ANCHOR_EXCLUSIVE, FRAMESHIFT, OTHER_EXCLUSIVE, CodonAlignmentCategory as CodonAlignCat
 from biosurfer.core.constants import SequenceAlignmentCategory as SeqAlignCat
 from biosurfer.core.helpers import Interval, IntervalTree
 from biosurfer.core.models.biomolecules import Protein, Transcript
@@ -282,6 +282,28 @@ class CodonAlignment(ProjectionMixin):
     def blocks(self) -> tuple['CodonAlignmentBlock', ...]:
         return tuple(sorted({i.data for i in chain(self.anchor_blocks, self.other_blocks)}))
 
+    def project_feature(self, anchor_feature: 'ProteinFeature'):
+        if anchor_feature.protein is not self.anchor:
+            raise ValueError(f'{anchor_feature} is not a feature of {self.anchor}')
+        other_range = self.project_range(anchor_feature.protein_start - 1, anchor_feature.protein_stop)
+        if not other_range:
+            return None
+        other_blocks = self.range_to_blocks(other_range.start, other_range.stop)
+        differences = [
+            ((len(block.anchor_range) if block.anchor_range else len(block.other_range)), block.category)
+            for block in other_blocks
+        ]
+        proj_feat = ProjectedFeature(
+            feature = anchor_feature.feature,
+            protein = self.other,
+            protein_start = other_range.start + 1,
+            protein_stop = other_range.stop,
+            reference = False,
+            anchor = anchor_feature,
+            _differences = ''.join(f'{t[0]}{t[1]}' for t in differences)
+        )
+        return proj_feat
+
     @classmethod
     @lru_cache(maxsize=CACHE_SIZE)
     def from_proteins(cls, anchor: 'Protein', other: 'Protein'):
@@ -478,17 +500,6 @@ class ProteinAlignment:
     @property
     def blocks(self) -> tuple['ProteinAlignmentBlock', ...]:
         return tuple(sorted({i.data for i in chain(self.anchor_blocks, self.other_blocks)}))
-
-    def project_feature(self, anchor_feature: 'ProteinFeature'):
-        if anchor_feature.protein is not self.anchor:
-            raise ValueError(f'{anchor_feature} is not a feature of {self.anchor}')
-        cd_aln = CodonAlignment.from_proteins(self.anchor, self.other)
-        other_range = cd_aln.project_range(anchor_feature.protein_start - 1, anchor_feature.protein_stop)
-        altered_blocks = [
-            interval.data for interval in sorted(self.other_blocks.overlap(other_range.start, other_range.stop))
-            if interval.data.category in FRAMESHIFT | OTHER_EXCLUSIVE
-        ]
-        
 
     @classmethod
     @lru_cache(maxsize=CACHE_SIZE)
