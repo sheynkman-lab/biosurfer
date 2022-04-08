@@ -1,32 +1,34 @@
 # functions to create different visualizations of isoforms/clones/domains/muts
 from copy import copy
 from dataclasses import dataclass
-from itertools import chain, groupby, islice
+from itertools import chain, groupby, islice, tee
 from operator import attrgetter, sub
 from typing import (TYPE_CHECKING, Any, Callable, Collection, Dict, Iterable,
                     List, Literal, Optional, Set, Tuple, Union)
 from warnings import filterwarnings, warn
-from Bio import Align
 
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from biosurfer.core.alignments import (FRAMESHIFT, ProjectedFeature,
-                                       Alignment)
-from biosurfer.core.constants import (AminoAcid, FeatureType, SequenceAlignmentCategory,
-                                      Strand, CodonAlignmentCategory)
-from biosurfer.core.helpers import ExceptionLogger, Interval, IntervalTree, get_interval_overlap_graph
+from Bio import Align
+from biosurfer.core.alignments import CodonAlignment, ProjectedFeature
+from biosurfer.core.constants import (FRAMESHIFT, AminoAcid,
+                                      CodonAlignmentCategory, FeatureType,
+                                      SequenceAlignmentCategory, Strand)
+from biosurfer.core.helpers import (ExceptionLogger, Interval, IntervalTree,
+                                    get_interval_overlap_graph)
 from biosurfer.core.models.biomolecules import (GencodeTranscript,
                                                 PacBioTranscript, Transcript)
 from brokenaxes import BrokenAxes
 from graph_tool import Graph
 from graph_tool.topology import sequential_vertex_coloring
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
+from more_itertools import first, last
 
 if TYPE_CHECKING:
-    from biosurfer.core.alignments import ProteinAlignmentBlock
+    from biosurfer.core.alignments import ProteinAlignment
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
@@ -155,7 +157,7 @@ class IsoformPlot:
                 height = 0.3*self.opts.max_track_width
             artist = mlines.Line2D(
                 xdata = (pos, pos),
-                ydata = (-0.25 - height, -0.25),
+                ydata = (track - 0.25 - height, track - 0.25),
                 linewidth = linewidth,
                 marker = marker,
                 markevery = 2,
@@ -425,14 +427,14 @@ class IsoformPlot:
         for i, other in enumerate(self.transcripts):
             if not other or not other.protein or other is anchor:
                 continue
-            aln = Alignment(anchor.protein, other.protein)
-            for (category, exons), block in groupby(aln, key=attrgetter('category', 'other.exons')):
-                if category in FRAMESHIFT:
+            aln = CodonAlignment.from_proteins(anchor.protein, other.protein)
+            for block in filter(lambda block: block.category in FRAMESHIFT, aln.blocks):
+                for exons, residues in groupby(other.protein.residues[block.other_range.start:block.other_range.stop], key=attrgetter('exons')):
                     if len(exons) > 1:
                         continue
-                    block = list(block)
-                    start = block[0].other.codon[0].coordinate
-                    stop = block[-1].other.codon[2].coordinate
+                    r1, r2 = tee(residues, 2)
+                    start = first(r1).codon[1].coordinate
+                    stop = last(r2).codon[1].coordinate
                     self.draw_region(
                         track = i,
                         start = start,
@@ -441,10 +443,10 @@ class IsoformPlot:
                         edgecolor = hatch_color,
                         linewidth = 0.0,
                         zorder = 1.9,
-                        hatch = REL_FRAME_STYLE[category]
+                        hatch = REL_FRAME_STYLE[block.category]
                     )
-    
-    def draw_protein_block(self, pblock: 'ProteinAlignmentBlock', alpha: float = 0.5):
+
+    def draw_protein_alignment_blocks(self, pr_aln: 'ProteinAlignment', alpha: float = 0.5):
         if 'deletion' not in self._handles:
             self._handles['deletion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[SequenceAlignmentCategory.DELETION])
         if 'insertion' not in self._handles:
@@ -452,38 +454,39 @@ class IsoformPlot:
         if 'substitution' not in self._handles:
             self._handles['substitution'] = mpatches.Patch(facecolor=PBLOCK_COLORS[SequenceAlignmentCategory.SUBSTITUTION])
 
-        if pblock.category is SequenceAlignmentCategory.DELETION:
-            other_start = pblock.anchor_residues[0].codon[1].coordinate
-            other_stop = pblock.anchor_residues[-1].codon[1].coordinate
-        else:
-            other_start = pblock.other_residues[0].codon[1].coordinate
-            other_stop = pblock.other_residues[-1].codon[1].coordinate
-        if pblock.category is SequenceAlignmentCategory.INSERTION:
-            anchor_start = pblock.other_residues[0].codon[1].coordinate
-            anchor_stop = pblock.other_residues[-1].codon[1].coordinate
-        else:
-            anchor_start = pblock.anchor_residues[0].codon[1].coordinate
-            anchor_stop = pblock.anchor_residues[-1].codon[1].coordinate
-        self.draw_region(
-            self.transcripts.index(pblock.parent.anchor.transcript),
-            start = anchor_start,
-            stop = anchor_stop,
-            y_offset = -0.9*self.opts.max_track_width,
-            height = 0.4*self.opts.max_track_width,
-            edgecolor = 'none',
-            facecolor = PBLOCK_COLORS[pblock.category],
-            alpha = alpha
-        )
-        self.draw_region(
-            self.transcripts.index(pblock.parent.other.transcript),
-            start = other_start,
-            stop = other_stop,
-            y_offset = 0.5*self.opts.max_track_width,
-            height = 0.4*self.opts.max_track_width,
-            edgecolor = 'none',
-            facecolor = PBLOCK_COLORS[pblock.category],
-            alpha = alpha
-        )
+        for pblock in filter(lambda block: block.category is not SequenceAlignmentCategory.MATCH, pr_aln.blocks):
+            anchor_start, anchor_stop, other_start, other_stop = None, None, None, None
+            if pblock.anchor_range:
+                anchor_start = pr_aln.anchor.transcript.get_genome_coord_from_transcript_coord(pblock.anchor_range[0]).coordinate
+                anchor_stop = pr_aln.anchor.transcript.get_genome_coord_from_transcript_coord(pblock.anchor_range[-1]).coordinate
+            if pblock.other_range:
+                other_start = pr_aln.other.transcript.get_genome_coord_from_transcript_coord(pblock.other_range[0]).coordinate
+                other_stop = pr_aln.other.transcript.get_genome_coord_from_transcript_coord(pblock.other_range[-1]).coordinate
+            if anchor_start is None and anchor_stop is None:
+                anchor_start, anchor_stop = other_start, other_stop
+            elif other_start is None and other_stop is None:
+                other_start, other_stop = anchor_start, anchor_stop
+
+            self.draw_region(
+                self.transcripts.index(pr_aln.anchor.transcript),
+                start = anchor_start,
+                stop = anchor_stop,
+                y_offset = -0.9*self.opts.max_track_width,
+                height = 0.4*self.opts.max_track_width,
+                edgecolor = 'none',
+                facecolor = PBLOCK_COLORS[pblock.category],
+                alpha = alpha
+            )
+            self.draw_region(
+                self.transcripts.index(pr_aln.other.transcript),
+                start = other_start,
+                stop = other_stop,
+                y_offset = 0.5*self.opts.max_track_width,
+                height = 0.4*self.opts.max_track_width,
+                edgecolor = 'none',
+                facecolor = PBLOCK_COLORS[pblock.category],
+                alpha = alpha
+            )
     
     def draw_features(self):
         h = self.opts.max_track_width

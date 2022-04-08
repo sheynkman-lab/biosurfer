@@ -1,6 +1,5 @@
 import pytest
-from biosurfer.core.alignments import Alignment
-from biosurfer.core.alignments_new import CodonAlignment, CodonAlignCat, ProteinAlignment, SeqAlignCat
+from biosurfer.core.alignments import CodonAlignment, CodonAlignCat, ProteinAlignment, SeqAlignCat
 from biosurfer.core.models.biomolecules import Transcript
 from biosurfer.core.models.nonpersistent import Position
 from hypothesis import given, note, strategies as st
@@ -97,22 +96,3 @@ def test_alignment_range_projection(data, session, alignment_case):
         assert anchor_start <= anchor_range.start and anchor_range.stop <= anchor_stop
         assert other_range.start == 0 or aln.project_coordinate(other_range.start - 1, from_anchor=False) not in range(anchor_start, anchor_stop)
         assert other_range.stop == other.protein.length or aln.project_coordinate(other_range.stop, from_anchor=False) not in range(anchor_start, anchor_stop)
-
-# @pytest.mark.skip(reason='old Alignment is deprecated')
-# def test_alignment_full(session, alignment_case):
-#     anchor = alignment_case['anchor']
-#     other = alignment_case['other']
-#     expected = alignment_case['full']
-#     txs = Transcript.from_names(session, (anchor, other))
-#     aln = Alignment(txs[anchor].protein, txs[other].protein)
-#     assert aln.full == expected
-
-# @pytest.mark.skip(reason='feature cases may be outdated')
-# def test_feature_alignment(session, feature_case):
-#     
-#     anchor = feature_case['anchor']
-#     other = feature_case['other']
-#     txs = Transcript.from_names(session, (anchor, other))
-#     aln = Alignment(txs[anchor].protein, txs[other].protein)
-#     for feat_aln, expected in zip((aln.project_feature(feat)[1] for feat in aln.anchor.features), feature_case['expected']):
-#         assert feat_aln.full == expected
