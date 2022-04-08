@@ -21,6 +21,9 @@ from biosurfer.core.helpers import (ExceptionLogger, Interval, IntervalTree,
                                     get_interval_overlap_graph)
 from biosurfer.core.models.biomolecules import (GencodeTranscript,
                                                 PacBioTranscript, Transcript)
+from biosurfer.core.splice_events import (AcceptorSpliceEvent,
+                                          DonorSpliceEvent, ExonBypassEvent,
+                                          ExonSpliceEvent, IntronSpliceEvent)
 from brokenaxes import BrokenAxes
 from graph_tool import Graph
 from graph_tool.topology import sequential_vertex_coloring
@@ -28,7 +31,7 @@ from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 from more_itertools import first, last
 
 if TYPE_CHECKING:
-    from biosurfer.core.alignments import ProteinAlignment
+    from biosurfer.core.alignments import ProteinAlignment, TranscriptAlignment
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
@@ -42,6 +45,15 @@ TRANSCRIPT_COLORS = {
     PacBioTranscript: ('#61374D', '#91677D')
 }
 
+# colors for transcript events
+EVENT_COLORS = {
+    IntronSpliceEvent: '#e69138',
+    DonorSpliceEvent: '#6aa84f',
+    AcceptorSpliceEvent: '#674ea7',
+    ExonSpliceEvent: '#3d85c6',
+    ExonBypassEvent: '#bebebe',
+}
+
 # alpha values for different absolute reading frames
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 
@@ -49,6 +61,18 @@ ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 REL_FRAME_STYLE = {
     CodonAlignmentCategory.FRAME_AHEAD: '////',
     CodonAlignmentCategory.FRAME_BEHIND: 'xxxx'
+}
+
+# colors for CodonAlignmentBlocks
+CBLOCK_COLORS = {
+    CodonAlignmentCategory.TRANSLATED: '#9bf3ff',
+    CodonAlignmentCategory.INSERTION: '#05e0ff',
+    CodonAlignmentCategory.FRAME_AHEAD: '#fff099',
+    CodonAlignmentCategory.FRAME_BEHIND: '#ffd700',
+    CodonAlignmentCategory.UNTRANSLATED: '#ff99ce',
+    CodonAlignmentCategory.DELETION: '#ff0082',
+    CodonAlignmentCategory.EDGE: '#8270c1',
+    CodonAlignmentCategory.COMPLEX: '#aaaaaa'
 }
 
 PBLOCK_COLORS = {
@@ -446,13 +470,47 @@ class IsoformPlot:
                         hatch = REL_FRAME_STYLE[block.category]
                     )
 
+    def draw_codon_alignment_blocks(self, cd_aln: 'CodonAlignment', alpha: float = 0.5):
+        for category, color in CBLOCK_COLORS.items():
+            label = category.name.lower().replace('_', ' ')
+            if label not in self._handles:
+                self._handles[label] = mpatches.Patch(facecolor=color)
+        height = 0.25*self.opts.max_track_width
+        track = self.transcripts.index(cd_aln.other.transcript)
+        for block in filter(lambda block: block.category is not CodonAlignmentCategory.MATCH, cd_aln.blocks):
+            if block.other_range:
+                start = cd_aln.other.residues[block.other_range[0]].codon[1].coordinate
+                stop = cd_aln.other.residues[block.other_range[-1]].codon[1].coordinate
+            else:
+                start = cd_aln.anchor.residues[block.anchor_range[0]].codon[1].coordinate
+                stop = cd_aln.anchor.residues[block.anchor_range[-1]].codon[1].coordinate
+            if block.category in {CodonAlignmentCategory.EDGE, CodonAlignmentCategory.COMPLEX}:
+                self.draw_point(
+                    track,
+                    start,
+                    height = height,
+                    type = 'lollipop',
+                    marker = '.',
+                    color = CBLOCK_COLORS[block.category],
+                    zorder = 1.9,
+                    alpha = alpha
+                )
+            else:
+                self.draw_region(
+                    track,
+                    start,
+                    stop,
+                    y_offset = -0.5*self.opts.max_track_width,
+                    height = -height,
+                    facecolor = CBLOCK_COLORS[block.category],
+                    alpha = alpha
+                )
+
     def draw_protein_alignment_blocks(self, pr_aln: 'ProteinAlignment', alpha: float = 0.5):
-        if 'deletion' not in self._handles:
-            self._handles['deletion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[SequenceAlignmentCategory.DELETION])
-        if 'insertion' not in self._handles:
-            self._handles['insertion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[SequenceAlignmentCategory.INSERTION])
-        if 'substitution' not in self._handles:
-            self._handles['substitution'] = mpatches.Patch(facecolor=PBLOCK_COLORS[SequenceAlignmentCategory.SUBSTITUTION])
+        for category, color in PBLOCK_COLORS.items():
+            label = category.name.lower().replace('_', ' ')
+            if label not in self._handles:
+                self._handles[label] = mpatches.Patch(facecolor=color)
 
         for pblock in filter(lambda block: block.category is not SequenceAlignmentCategory.MATCH, pr_aln.blocks):
             anchor_start, anchor_stop, other_start, other_stop = None, None, None, None

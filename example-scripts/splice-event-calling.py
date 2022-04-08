@@ -4,8 +4,8 @@ from time import time
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from biosurfer.core.alignments import Alignment as ProteinAlignmentOld
-from biosurfer.core.alignments_new import CodonAlignment, TranscriptAlignment, ProteinAlignment
+from biosurfer.core.alignments_old import Alignment as ProteinAlignmentOld
+from biosurfer.core.alignments import CodonAlignment, TranscriptAlignment, ProteinAlignment
 from biosurfer.core.constants import \
     CodonAlignmentCategory as CodonAlignCat
 from biosurfer.core.database import Database
@@ -123,35 +123,7 @@ for a, others in df.groupby('anchor')['other']:
         isoplot.draw_all_isoforms()
         isoplot.draw_frameshifts()
         for i, o in enumerate(others, start=1):
-            other = txs[o]
-            for b, block in enumerate(all_alns[a, o][1].blocks):
-                if block.category is CodonAlignCat.MATCH:
-                    continue
-                if block.other_range:
-                    start = other.protein.residues[block.other_range[0]].codon[1].coordinate
-                    stop = other.protein.residues[block.other_range[-1]].codon[1].coordinate
-                else:
-                    start = anchor.protein.residues[block.anchor_range[0]].codon[1].coordinate
-                    stop = anchor.protein.residues[block.anchor_range[-1]].codon[1].coordinate
-                if block.category in {CodonAlignCat.EDGE, CodonAlignCat.COMPLEX}:
-                    isoplot.draw_point(
-                        i,
-                        start,
-                        y_offset = -0.5,
-                        height = 0.1,
-                        type = 'lollipop',
-                        color = BLOCK_COLORS[block.category]
-                    )
-                else:
-                    isoplot.draw_region(
-                        i,
-                        start,
-                        stop,
-                        y_offset = -0.5,
-                        height = 0.1,
-                        facecolor = BLOCK_COLORS[block.category],
-                        alpha = 0.75
-                    )
+            isoplot.draw_codon_alignment_blocks(all_alns[a, o][1])
         isoplot.fig.set_size_inches(10, 0.2 + 0.4 * len(transcripts))
         plt.savefig(fig_path2, dpi=200, bbox_inches='tight', facecolor='w')
         print('saved '+fig_path2)
