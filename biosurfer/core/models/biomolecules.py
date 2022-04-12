@@ -460,5 +460,8 @@ class Protein(Base, TablenameMixin, AccessionMixin):
     def length(self):
         return len(self.sequence)
     
-    def protein_coord_from_transcript_coord(self, transcript_coord: int):
+    def get_protein_coord_from_transcript_coord(self, transcript_coord: int):
         return (transcript_coord - self.orf.transcript_start + 1) // 3
+    
+    def get_transcript_coord_from_protein_coord(self, protein_coord: int):
+        return protein_coord*3 + self.orf.transcript_start - 1

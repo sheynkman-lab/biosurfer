@@ -1,19 +1,19 @@
 from abc import ABC, abstractmethod
 from collections import deque
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from itertools import chain, groupby, tee
 from operator import attrgetter, itemgetter
 from typing import TYPE_CHECKING
 
 from attrs import define, evolve, field, frozen
-from biosurfer.core.constants import ANCHOR_EXCLUSIVE, FRAMESHIFT, OTHER_EXCLUSIVE, CodonAlignmentCategory as CodonAlignCat
+from biosurfer.core.constants import ANCHOR_EXCLUSIVE, FRAMESHIFT, CD_DEL_INS, OTHER_EXCLUSIVE, SEQ_DEL_INS, CodonAlignmentCategory as CodonAlignCat
 from biosurfer.core.constants import SequenceAlignmentCategory as SeqAlignCat
 from biosurfer.core.helpers import Interval, IntervalTree
 from biosurfer.core.models.biomolecules import Protein, Transcript
 from biosurfer.core.models.features import ProjectedFeature, ProteinFeature
-from biosurfer.core.splice_events import (BasicTranscriptEvent,
+from biosurfer.core.splice_events import (BasicTranscriptEvent, TranscriptEvent,
                                           call_transcript_events, sort_events)
-from more_itertools import first, last, one, partition
+from more_itertools import first, last, one, only, partition
 
 if TYPE_CHECKING:
     from biosurfer.core.constants import AlignmentCategory
@@ -137,6 +137,8 @@ class TranscriptAlignment(ProjectionMixin):
     anchor_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
     other_events: 'IntervalTree' = field(factory=IntervalTree, repr=False)
     other_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
+    event_to_block: dict['BasicTranscriptEvent', 'TranscriptAlignmentBlock'] = field(factory=dict, repr=False)
+    block_to_events: dict['TranscriptAlignmentBlock', tuple['BasicTranscriptEvent', ...]] = field(factory=dict, repr=False)
 
     @other.validator
     def _check_transcripts(self, attribute, value):
@@ -156,6 +158,10 @@ class TranscriptAlignment(ProjectionMixin):
         tx_length_diff = self.other.length - self.anchor.length
         if total_delta_nt != tx_length_diff:
             raise ValueError(f'TranscriptEvent lengths add up to {total_delta_nt}; expected {tx_length_diff}')
+        for event in self.basic_events:
+            block = self.event_to_block.get(event, None)
+            if event not in self.block_to_events.get(block, ()):
+                raise ValueError(f'Broken event-to-block mapping for {event}')
 
     @property
     def basic_events(self) -> tuple['BasicTranscriptEvent', ...]:
@@ -209,15 +215,17 @@ class TranscriptAlignment(ProjectionMixin):
 
         # determine deletion and insertion block ranges
         del_ranges = anchor_basic.copy()
-        del_ranges.merge_neighbors()
+        del_ranges.merge_neighbors(data_reducer=lambda a, b: a + (b,), data_initializer=())
         ins_ranges = other_basic.copy()
-        ins_ranges.merge_neighbors()
+        ins_ranges.merge_neighbors(data_reducer=lambda a, b: a + (b,), data_initializer=())
 
         # determine match block ranges
         blocks = []
+        block_to_events = dict()
+        event_to_block = dict()
         position = {'anchor': 0, 'other': 0}
-        sorted_del_ranges = deque(sorted(i[:2] for i in del_ranges))
-        sorted_ins_ranges = deque(sorted(i[:2] for i in ins_ranges))
+        sorted_del_ranges = deque(sorted(map(tuple, del_ranges)))
+        sorted_ins_ranges = deque(sorted(map(tuple, ins_ranges)))
 
         def add_match_block(length: int):
             if length > 0:
@@ -230,19 +238,27 @@ class TranscriptAlignment(ProjectionMixin):
             position['other'] += length
 
         def add_del_block():
-            del_start, del_stop = sorted_del_ranges.popleft()
-            blocks.append(TranscriptAlignmentBlock(
+            del_start, del_stop, events = sorted_del_ranges.popleft()
+            del_block = TranscriptAlignmentBlock(
                 range(del_start, del_stop),
                 range(position['other'], position['other'])
-            ))
+            )
+            blocks.append(del_block)
+            block_to_events[del_block] = events
+            for event in events:
+                event_to_block[event] = del_block
             position['anchor'] = del_stop
         
         def add_ins_block():
-            ins_start, ins_stop = sorted_ins_ranges.popleft()
-            blocks.append(TranscriptAlignmentBlock(
+            ins_start, ins_stop, events = sorted_ins_ranges.popleft()
+            ins_block = TranscriptAlignmentBlock(
                 range(position['anchor'], position['anchor']),
                 range(ins_start, ins_stop)
-            ))
+            )
+            blocks.append(ins_block)
+            block_to_events[ins_block] = events
+            for event in events:
+                event_to_block[event] = ins_block
             position['other'] = ins_stop
 
         while sorted_del_ranges or sorted_ins_ranges:
@@ -268,7 +284,7 @@ class TranscriptAlignment(ProjectionMixin):
         anchor_blocks = IntervalTree.from_tuples((block.anchor_range.start, block.anchor_range.stop, block) for block in blocks if block.anchor_range)
         other_blocks = IntervalTree.from_tuples((block.other_range.start, block.other_range.stop, block) for block in blocks if block.other_range)
 
-        return cls(anchor, other, events, anchor_events, anchor_blocks, other_events, other_blocks)
+        return cls(anchor, other, events, anchor_events, anchor_blocks, other_events, other_blocks, event_to_block, block_to_events)
 
 
 @define
@@ -277,6 +293,18 @@ class CodonAlignment(ProjectionMixin):
     other: 'Protein'
     anchor_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
     other_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
+    tblock_to_cblocks: dict['TranscriptAlignmentBlock', tuple['CodonAlignmentBlock', ...]] = field(factory=dict, repr=False)
+    cblock_to_tblock: dict['CodonAlignmentBlock', 'TranscriptAlignmentBlock'] = field(factory=dict, repr=False)
+
+    def __attrs_post_init__(self):
+        anchor_shared = {i.data for i in self.anchor_blocks if i.data.category not in ANCHOR_EXCLUSIVE}
+        other_shared = {i.data for i in self.other_blocks if i.data.category not in OTHER_EXCLUSIVE}
+        if anchor_shared != other_shared:
+            raise ValueError(f'{anchor_shared} != {other_shared}')
+        for cblock in filter(lambda cblock: cblock.category is not CodonAlignCat.MATCH, self.blocks):
+            tblock = self.cblock_to_tblock.get(cblock, None)
+            if tblock and cblock not in self.tblock_to_cblocks.get(tblock, ()):
+                raise ValueError(f'Broken tblock-to-cblock mapping for {cblock}')
 
     @property
     def blocks(self) -> tuple['CodonAlignmentBlock', ...]:
@@ -447,7 +475,7 @@ class CodonAlignment(ProjectionMixin):
                 if shift_other_boundary:
                     other_boundary_shifts[other_boundary] = other_boundary + 1
                     other_boundary += 1
-            boundaries[i] = anchor_boundary, other_boundary 
+            boundaries[i] = anchor_boundary, other_boundary
 
             # insert a single-codon block if necessary
             category_to_insert = None
@@ -471,14 +499,16 @@ class CodonAlignment(ProjectionMixin):
 
         # merge consecutive codon blocks w/ same category
         assert len(boundaries) == len(categories)
-        cd_blocks = []
+        cd_blocks: list['CodonAlignmentBlock'] = []
         prev_boundary = (0, 0)
         for category, group in groupby(range(len(categories)), key=categories.__getitem__):
             anchor_start, other_start = prev_boundary
-            anchor_stop, other_stop = boundaries[last(group)]
+            idx = last(group)
+            anchor_stop, other_stop = boundaries[idx]
             prev_boundary = anchor_stop, other_stop
-            cd_blocks.append(CodonAlignmentBlock(range(anchor_start, anchor_stop), range(other_start, other_stop), category=category))
-
+            cblock = CodonAlignmentBlock(range(anchor_start, anchor_stop), range(other_start, other_stop), category=category)
+            cd_blocks.append(cblock)
+        
         anchor_blocks = IntervalTree.from_tuples(
             (block.anchor_range.start, block.anchor_range.stop, block)
             for block in cd_blocks if block.anchor_range
@@ -487,7 +517,82 @@ class CodonAlignment(ProjectionMixin):
             (block.other_range.start, block.other_range.stop, block)
             for block in cd_blocks if block.other_range
         )
-        return cls(anchor, other, anchor_blocks, other_blocks)
+
+        # map each cblock to one or more tblocks
+        tblock_to_cblocks: dict['TranscriptAlignmentBlock', tuple['CodonAlignmentBlock', ...]] = dict()
+        cblock_to_tblock: dict['CodonAlignmentBlock', 'TranscriptAlignmentBlock'] = dict()
+        
+        def link_cblock_and_tblock(cblock, tblock):
+            cblock_to_tblock[cblock] = tblock
+            tblock_to_cblocks.setdefault(tblock, []).append(cblock)
+
+        nt_shared, nt_exclusive = partition(lambda t: t[1].category in CD_DEL_INS, enumerate(cd_blocks))
+        non_frameshift, frameshift = partition(lambda t: t[1].category in FRAMESHIFT, nt_shared)
+        for i, cblock in nt_exclusive:
+            if cblock.anchor_range:
+                tx_start, tx_stop = map(anchor.get_transcript_coord_from_protein_coord, (cblock.anchor_range.start, cblock.anchor_range.stop))
+                mapper = tx_aln.anchor_blocks
+            else:
+                tx_start, tx_stop = map(other.get_transcript_coord_from_protein_coord, (cblock.other_range.start, cblock.other_range.stop))
+                mapper = tx_aln.other_blocks
+            intervals = mapper.overlap(tx_start + 1, tx_stop + 1)  # use coord of the nucleotide in the middle of the codon to avoid edge cases
+            tblock = one(interval.data for interval in intervals if interval.data.category in SEQ_DEL_INS)
+            link_cblock_and_tblock(cblock, tblock)
+        
+        # map frameshifts to closest preceding del/ins tblock with length indivisible by 3
+        match_tblock_to_nonsymmetric_tblock = dict()
+        latest_nonsymmetric_tblock = None
+        for tblock in tx_aln.blocks:
+            if tblock.category is SeqAlignCat.MATCH:
+                if latest_nonsymmetric_tblock:
+                    match_tblock_to_nonsymmetric_tblock[tblock] = latest_nonsymmetric_tblock
+            else:
+                if (len(tblock.other_range) - len(tblock.anchor_range)) % 3:
+                    latest_nonsymmetric_tblock = tblock
+        for i, cblock in frameshift:
+            tx_start, tx_stop = map(anchor.get_transcript_coord_from_protein_coord, (cblock.anchor_range.start, cblock.anchor_range.stop))
+            intervals = tx_aln.anchor_blocks.overlap(tx_start + 1, tx_stop + 1)
+            match_tblock = one(interval.data for interval in intervals if interval.data.category is SeqAlignCat.MATCH)
+            try:
+                tblock = match_tblock_to_nonsymmetric_tblock[match_tblock]
+            except KeyError:
+                pass
+            else:
+                link_cblock_and_tblock(cblock, tblock)
+        
+        for i, cblock in non_frameshift:
+            tblock = None
+            if cblock.category in {CodonAlignCat.UNTRANSLATED, CodonAlignCat.TRANSLATED}:
+                if not cblock.other_range:
+                    nterminal = cblock.other_range.start == 0
+                else:
+                    nterminal = cblock.anchor_range.start == 0
+                if nterminal:
+                    mapper = anchor_blocks if cblock.category is CodonAlignCat.UNTRANSLATED else other_blocks
+                    start_codon_cblock = only(
+                        interval.data for interval in mapper.at(0)
+                        if interval.data.category in CD_DEL_INS
+                    )
+                    tblock = cblock_to_tblock.get(start_codon_cblock)
+                else:
+                    if cblock.category is CodonAlignCat.UNTRANSLATED:
+                        mapper = other_blocks
+                        stop_codon_pos = other.length - 1
+                    else:
+                        mapper = anchor_blocks
+                        stop_codon_pos = anchor.length - 1
+                    stop_codon_cblock = one(interval.data for interval in mapper.at(stop_codon_pos))
+                    tblock = cblock_to_tblock.get(stop_codon_cblock)
+            elif cblock.category in {CodonAlignCat.EDGE, CodonAlignCat.COMPLEX}:
+                del_ins_cblock = cd_blocks[i-1] if cd_blocks[i-1].category in CD_DEL_INS else cd_blocks[i+1]
+                tblock = cblock_to_tblock.get(del_ins_cblock)
+            if tblock:
+                link_cblock_and_tblock(cblock, tblock)
+
+        tblock_to_cblocks = dict((k, tuple(v)) for (k, v) in sorted(tblock_to_cblocks.items()))
+        cblock_to_tblock = dict(sorted(cblock_to_tblock.items()))
+
+        return cls(anchor, other, anchor_blocks, other_blocks, tblock_to_cblocks, cblock_to_tblock)
 
 
 @define

@@ -16,7 +16,7 @@ from biosurfer.core.splice_events import (AcceptorSpliceEvent,
 from biosurfer.plots.plotting import IsoformPlot
 from tqdm import tqdm
 
-df = pd.read_csv('complex-splice-events.csv', names=['anchor', 'other', 'score'])
+df = pd.read_csv('complex-splice-events.csv', names=['anchor', 'other'])
 
 db = Database('gencode')
 session = db.get_session()
@@ -25,7 +25,7 @@ txs = Transcript.from_names(session, pd.concat([df['anchor'], df['other']]).uniq
 # %%
 all_alns: dict[tuple[str, str], tuple['TranscriptAlignment', 'CodonAlignment', 'ProteinAlignmentOld']] = dict()
 t0 = time()
-for a, o, _ in df.sort_values('anchor').itertuples(index=False):
+for a, o in df.sort_values('anchor').itertuples(index=False):
     anchor: 'Transcript' = txs[a]
     other: 'Transcript' = txs[o]
 
@@ -55,7 +55,9 @@ for (a, o), (tx_aln, cd_aln, pr_aln, pr_aln_old) in all_alns.items():
         print(f'\t{i.begin:5d}\t{i.end:5d}\t' + getattr(i.data, 'code', type(i.data).__name__))
     print(f'{cd_aln} blocks')
     for block in cd_aln.blocks:
-        print(f'\t{block.category}\t{block.anchor_range.start:5d} {block.anchor_range.stop:5d}\t| {block.other_range.start:5d} {block.other_range.stop:5d}')
+        tblock = cd_aln.cblock_to_tblock.get(block)
+        event_names = ', '.join(type(event).__name__ for event in tx_aln.block_to_events.get(tblock, ()))
+        print(f'\t{block.category}\t{block.anchor_range.start:5d} {block.anchor_range.stop:5d}\t| {block.other_range.start:5d} {block.other_range.stop:5d}\t\t{str(tblock) if tblock else "":22}\t{event_names}')
     print(f'{pr_aln_old} cblocks (old)')
     for block in pr_aln_old.transcript_blocks:
         anchor_range = (block.anchor_residues[0].position - 1, block.anchor_residues[-1].position) if block.anchor_residues else (-1, -1)

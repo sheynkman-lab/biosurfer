@@ -92,6 +92,9 @@ class SequenceAlignmentCategory(StringEnum):
     UNKNOWN = '?'
 
 
+SEQ_DEL_INS = {SequenceAlignmentCategory.DELETION, SequenceAlignmentCategory.INSERTION}
+
+
 class CodonAlignmentCategory(StringEnum):
     MATCH = 'm'
     INSERTION = 'i'
@@ -105,9 +108,10 @@ class CodonAlignmentCategory(StringEnum):
     UNKNOWN = '?'
 
 
-FRAMESHIFT = {CodonAlignmentCategory.FRAME_AHEAD, CodonAlignmentCategory.FRAME_BEHIND}
 ANCHOR_EXCLUSIVE = {CodonAlignmentCategory.DELETION, CodonAlignmentCategory.UNTRANSLATED}
 OTHER_EXCLUSIVE = {CodonAlignmentCategory.INSERTION, CodonAlignmentCategory.TRANSLATED}
+CD_DEL_INS = {CodonAlignmentCategory.DELETION, CodonAlignmentCategory.INSERTION}
+FRAMESHIFT = {CodonAlignmentCategory.FRAME_AHEAD, CodonAlignmentCategory.FRAME_BEHIND}
 
 
 AlignmentCategory = Union[SequenceAlignmentCategory, CodonAlignmentCategory]
