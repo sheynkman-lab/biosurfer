@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from biosurfer.analysis.sqtl import (get_event_counts,
-                                     get_pblocks_related_to_junction,
+                                     get_pblocks_attributed_to_junction,
                                      junction_has_drastic_effect_in_pair,
                                      split_transcripts_on_junction_usage)
 from biosurfer.core.alignments import (Alignment,
@@ -207,7 +207,7 @@ def get_augmented_sqtl_record(row):
         }
         assert abs(sum(weights.values()) - 1) < 2**-8 or not weights
 
-        pblocks = get_pblocks_related_to_junction(junc, alns)
+        pblocks = get_pblocks_attributed_to_junction(junc, alns)
 
         # calculate fraction of pairs where one isoform is NMD and other is not
         junc_info['NMD'] = None

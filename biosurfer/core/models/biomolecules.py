@@ -427,7 +427,8 @@ class Protein(Base, TablenameMixin, AccessionMixin):
     features = relationship(
         'ProteinFeature',
         back_populates = 'protein',
-        uselist = True
+        uselist = True,
+        order_by = 'ProteinFeature.protein_start'
     )
 
     # def __init__(self, **kwargs):

@@ -31,7 +31,8 @@ from matplotlib._api.deprecation import MatplotlibDeprecationWarning
 from more_itertools import first, last
 
 if TYPE_CHECKING:
-    from biosurfer.core.alignments import ProteinAlignment, TranscriptAlignment
+    from biosurfer.core.alignments import ProteinAlignmentBlock, CodonAlignmentBlock
+    from biosurfer.core.models.biomolecules import Protein
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
@@ -506,27 +507,27 @@ class IsoformPlot:
                     alpha = alpha
                 )
 
-    def draw_protein_alignment_blocks(self, pr_aln: 'ProteinAlignment', alpha: float = 0.5):
+    def draw_protein_alignment_blocks(self, pblocks: Iterable['ProteinAlignmentBlock'], anchor: 'Protein', other: 'Protein', alpha: float = 0.5):
         for category, color in PBLOCK_COLORS.items():
             label = category.name.lower().replace('_', ' ')
             if label not in self._handles:
                 self._handles[label] = mpatches.Patch(facecolor=color)
 
-        for pblock in filter(lambda block: block.category is not SequenceAlignmentCategory.MATCH, pr_aln.blocks):
+        for pblock in filter(lambda block: block.category is not SequenceAlignmentCategory.MATCH, pblocks):
             anchor_start, anchor_stop, other_start, other_stop = None, None, None, None
             if pblock.anchor_range:
-                anchor_start = pr_aln.anchor.transcript.get_genome_coord_from_transcript_coord(pblock.anchor_range[0]).coordinate
-                anchor_stop = pr_aln.anchor.transcript.get_genome_coord_from_transcript_coord(pblock.anchor_range[-1]).coordinate
+                anchor_start = anchor.transcript.get_genome_coord_from_transcript_coord(anchor.get_transcript_coord_from_protein_coord(pblock.anchor_range[0]) + 1).coordinate
+                anchor_stop = anchor.transcript.get_genome_coord_from_transcript_coord(anchor.get_transcript_coord_from_protein_coord(pblock.anchor_range[-1]) + 1).coordinate
             if pblock.other_range:
-                other_start = pr_aln.other.transcript.get_genome_coord_from_transcript_coord(pblock.other_range[0]).coordinate
-                other_stop = pr_aln.other.transcript.get_genome_coord_from_transcript_coord(pblock.other_range[-1]).coordinate
+                other_start = other.transcript.get_genome_coord_from_transcript_coord(other.get_transcript_coord_from_protein_coord(pblock.other_range[0]) + 1).coordinate
+                other_stop = other.transcript.get_genome_coord_from_transcript_coord(other.get_transcript_coord_from_protein_coord(pblock.other_range[-1]) + 1).coordinate
             if anchor_start is None and anchor_stop is None:
                 anchor_start, anchor_stop = other_start, other_stop
             elif other_start is None and other_stop is None:
                 other_start, other_stop = anchor_start, anchor_stop
 
             self.draw_region(
-                self.transcripts.index(pr_aln.anchor.transcript),
+                self.transcripts.index(anchor.transcript),
                 start = anchor_start,
                 stop = anchor_stop,
                 y_offset = -0.9*self.opts.max_track_width,
@@ -536,7 +537,7 @@ class IsoformPlot:
                 alpha = alpha
             )
             self.draw_region(
-                self.transcripts.index(pr_aln.other.transcript),
+                self.transcripts.index(other.transcript),
                 start = other_start,
                 stop = other_stop,
                 y_offset = 0.5*self.opts.max_track_width,

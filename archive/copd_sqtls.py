@@ -10,7 +10,7 @@ from warnings import filterwarnings
 import matplotlib.pyplot as plt
 import pandas as pd
 from biosurfer.analysis.sqtl import (get_event_counts,
-                                     get_pblocks_related_to_junction,
+                                     get_pblocks_attributed_to_junction,
                                      junction_has_drastic_effect_in_pair,
                                      split_transcripts_on_junction_usage)
 from biosurfer.core.alignments import (Alignment,
@@ -146,7 +146,7 @@ for gene_chunk in chunked(gene_to_sqtls.keys(), 100):
             junc_info['pairs'] = n_pairs
 
             if n_pairs > 0:
-                pblocks = get_pblocks_related_to_junction(junc, alns)
+                pblocks = get_pblocks_attributed_to_junction(junc, alns)
 
                 # calculate fraction of pairs where junction-lacking isoform is not NMD but junction-using isoform is NMD
                 junc_info['NMD'] = sum(tx2.primary_orf.nmd and not tx1.primary_orf.nmd for tx1, tx2 in pairs) / n_pairs
