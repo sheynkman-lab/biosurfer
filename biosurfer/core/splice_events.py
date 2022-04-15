@@ -325,7 +325,7 @@ def call_splice_event(comp: 'GraphView') -> 'SpliceEvent':
 
 
 def call_transcript_events(anchor: 'Transcript', other: 'Transcript'):
-    chr = anchor.chromosome.name
+    chr = anchor.gene.chromosome_id
     strand = anchor.strand
     anchor_start = Position(chr, strand, anchor.start)
     anchor_stop = Position(chr, strand, anchor.stop)

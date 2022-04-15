@@ -67,19 +67,17 @@ def test_protein_alignment_blocks(session, alignment_case):
         else:
             raise ValueError(block.category)
 
-@given(data=st.data())
-def test_alignment_coordinate_projection(data, session, alignment_case):
+def test_alignment_coordinate_projection(session, alignment_case):
     anchor: 'Transcript' = Transcript.from_name(session, alignment_case['anchor'])
     other: 'Transcript' = Transcript.from_name(session, alignment_case['other'])
     aln = CodonAlignment.from_proteins(anchor.protein, other.protein)
-    note(aln.blocks)
-    anchor_coord = data.draw(st.integers(min_value=0, max_value=anchor.protein.length - 1))
-    other_coord = aln.project_coordinate(anchor_coord)
-    if other_coord is None:
-        assert one(aln.anchor_blocks.at(anchor_coord)).data.category in {CodonAlignCat.DELETION, CodonAlignCat.UNTRANSLATED}
-    else:
-        note(f'{other_coord = }')
-        assert anchor_coord == aln.project_coordinate(other_coord, from_anchor=False)
+    print(aln.blocks)
+    for anchor_coord in range(anchor.protein.length):
+        other_coord = aln.project_coordinate(anchor_coord)
+        if other_coord is None:
+            assert one(aln.anchor_blocks.at(anchor_coord)).data.category in {CodonAlignCat.DELETION, CodonAlignCat.UNTRANSLATED}
+        else:
+            assert anchor_coord == aln.project_coordinate(other_coord, from_anchor=False)
 
 @given(data=st.data())
 def test_alignment_range_projection(data, session, alignment_case):
@@ -96,3 +94,19 @@ def test_alignment_range_projection(data, session, alignment_case):
         assert anchor_start <= anchor_range.start and anchor_range.stop <= anchor_stop
         assert other_range.start == 0 or aln.project_coordinate(other_range.start - 1, from_anchor=False) not in range(anchor_start, anchor_stop)
         assert other_range.stop == other.protein.length or aln.project_coordinate(other_range.stop, from_anchor=False) not in range(anchor_start, anchor_stop)
+
+def test_alignment_feature_projection(session, alignment_case):
+    anchor: 'Transcript' = Transcript.from_name(session, alignment_case['anchor'])
+    other: 'Transcript' = Transcript.from_name(session, alignment_case['other'])
+    aln = CodonAlignment.from_proteins(anchor.protein, other.protein)
+    print(aln.blocks)
+    for feature in anchor.protein.features:
+        proj_feat = aln.project_feature(feature)
+        if proj_feat:
+            print(f'{feature}\t{feature.sequence}')
+            print(f'{proj_feat}\t{proj_feat.sequence}')
+            for residue in (residue for residue in proj_feat.residues if residue not in proj_feat.altered_residues):
+                anchor_residue_pos = aln.project_coordinate(residue.position - 1, from_anchor=False)
+                assert residue.amino_acid is anchor.protein.residues[anchor_residue_pos].amino_acid
+        else:
+            assert not any(interval.data.other_range for interval in aln.anchor_blocks.overlap(feature.protein_start - 1, feature.protein_stop))

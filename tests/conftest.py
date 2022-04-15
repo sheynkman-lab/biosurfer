@@ -8,7 +8,7 @@ from pathlib import Path
 data_dir = Path(__file__).parent.parent/'data'/'gencode'
 
 def pytest_sessionstart(session):
-    settings.register_profile('default', deadline=400)
+    settings.register_profile('default', deadline=500)
     settings.load_profile('default')
 
 @pytest.fixture(scope='session')

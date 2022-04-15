@@ -8,6 +8,7 @@ from biosurfer.core.constants import APPRIS, SQANTI, Strand
 from biosurfer.core.helpers import BisectDict
 from biosurfer.core.models.base import AccessionMixin, Base, NameMixin, TablenameMixin
 from biosurfer.core.models.nonpersistent import *
+from more_itertools import only
 from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
@@ -164,6 +165,8 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
     
     def get_nucleotide_from_coordinate(self, coordinate: int) -> 'Nucleotide':
         """Given a genomic coordinate (1-based) included in the transcript, return the Nucleotide object corresponding to that coordinate."""
+        if not hasattr(self, '_nucleotide_mapping'):
+            self.nucleotides
         if coordinate in self._nucleotide_mapping:
             return self._nucleotide_mapping[coordinate]
         else:
@@ -188,6 +191,10 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
             return pos + (tx_coord - self.length + 1)
     
     def get_transcript_coord_from_genome_coord(self, gn_coord: Position) -> int:
+        if self.strand is not gn_coord.strand:
+            raise ValueError(f'{gn_coord} is different strand from {self}')
+        elif self.gene.chromosome_id != gn_coord.chromosome:
+            raise ValueError(f'{gn_coord} is different chromosome from {self}')
         nt = self.get_nucleotide_from_coordinate(gn_coord.coordinate)
         if nt:
             return nt.position - 1

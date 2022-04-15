@@ -560,6 +560,7 @@ class Database:
                 options(
                     protein_tx.joinedload(Transcript.orfs),
                     protein_tx.joinedload(Transcript.exons).joinedload(Exon.transcript),
+                    protein_tx.joinedload(Transcript.gene),
                     contains_eager(Protein.orf).joinedload(ORF.protein),
                     joinedload(Protein.features).joinedload(ProteinFeature.protein),
                     joinedload(Protein.features).joinedload(ProteinFeature.feature),

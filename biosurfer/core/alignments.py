@@ -320,7 +320,7 @@ class CodonAlignment(ProjectionMixin):
         other_range = self.project_range(anchor_feature.protein_start - 1, anchor_feature.protein_stop)
         if not other_range:
             return None
-        other_blocks = self.range_to_blocks(other_range.start, other_range.stop)
+        other_blocks = self.range_to_blocks(other_range.start, other_range.stop, from_anchor=False)
         differences = [
             ((len(block.anchor_range) if block.anchor_range else len(block.other_range)), block.category)
             for block in other_blocks
@@ -332,7 +332,7 @@ class CodonAlignment(ProjectionMixin):
             protein_stop = other_range.stop,
             reference = False,
             anchor = anchor_feature,
-            _differences = ''.join(f'{t[0]}{t[1]}' for t in differences)
+            _differences = ','.join(f'{t[0]}{t[1]}' for t in differences)
         )
         return proj_feat
 
