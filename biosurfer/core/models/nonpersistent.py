@@ -203,14 +203,14 @@ class Junction:
             return NotImplemented
         donor = max(self.donor, other.donor)
         acceptor = min(self.acceptor, other.acceptor)
-        return evolve(self, donor=donor, acceptor=acceptor) if donor < acceptor else None
+        return evolve(self, donor=donor, acceptor=acceptor) if donor <= acceptor else None
 
     def __or__(self, other: 'Junction'):
         if not isinstance(other, Junction):
             return NotImplemented
         donor = min(self.donor, other.donor)
         acceptor = max(self.acceptor, other.acceptor)
-        return evolve(self, donor=donor, acceptor=acceptor) if donor < acceptor else None
+        return evolve(self, donor=donor, acceptor=acceptor) if donor <= acceptor else None
 
     @property
     def length(self) -> int:
