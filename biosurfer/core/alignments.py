@@ -49,6 +49,10 @@ class AlignmentBlock(ABC):
     def __repr__(self):
         return f'{self.category}({self.anchor_range.start}:{self.anchor_range.stop}|{self.other_range.start}:{self.other_range.stop})'
     
+    @property
+    def delta_length(self):
+        return len(self.other_range) - len(self.anchor_range)
+
     def project_coordinate(self, coord: int, *, from_anchor: bool = True):
         source, target = (self.anchor_range, self.other_range) if from_anchor else (self.other_range, self.anchor_range)
         index = source.index(coord)
@@ -128,11 +132,11 @@ class ProjectionMixin:
         return block.project_coordinate(coord, from_anchor=from_anchor)
 
 
-@define
+@define(eq=False)
 class TranscriptAlignment(ProjectionMixin):
     anchor: 'Transcript'
     other: 'Transcript' = field()
-    events: tuple['CompoundTranscriptEvent', ...] = field(converter=sort_events)
+    events: tuple['CompoundTranscriptEvent', ...] = field(converter=sort_events, repr=False)
     anchor_events: 'IntervalTree' = field(factory=IntervalTree, repr=False)
     anchor_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
     other_events: 'IntervalTree' = field(factory=IntervalTree, repr=False)
@@ -287,7 +291,7 @@ class TranscriptAlignment(ProjectionMixin):
         return cls(anchor, other, events, anchor_events, anchor_blocks, other_events, other_blocks, event_to_block, block_to_events)
 
 
-@define
+@define(eq=False)
 class CodonAlignment(ProjectionMixin):
     anchor: 'Protein'
     other: 'Protein'
@@ -595,12 +599,20 @@ class CodonAlignment(ProjectionMixin):
         return cls(anchor, other, anchor_blocks, other_blocks, tblock_to_cblocks, cblock_to_tblock)
 
 
-@define
+@define(eq=False)
 class ProteinAlignment:
     anchor: 'Protein'
     other: 'Protein'
     anchor_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
     other_blocks: 'IntervalTree' = field(factory=IntervalTree, repr=False, validator=check_block_ranges)
+    cblock_to_pblock: dict['CodonAlignmentBlock', 'ProteinAlignmentBlock'] = field(factory=dict, repr=False)
+    pblock_to_cblocks: dict['ProteinAlignmentBlock', tuple['CodonAlignmentBlock', ...]] = field(factory=dict, repr=False)
+
+    def __attrs_post_init__(self):
+        for pblock in self.blocks:
+            cblocks = self.pblock_to_cblocks.get(pblock, ())
+            if any(pblock is not self.cblock_to_pblock.get(cblock) for cblock in cblocks):
+                raise ValueError(f'Broken pblock-to-cblock mapping for {pblock}')
 
     @property
     def blocks(self) -> tuple['ProteinAlignmentBlock', ...]:
@@ -611,31 +623,32 @@ class ProteinAlignment:
     def from_proteins(cls, anchor: 'Protein', other: 'Protein'):
         cd_aln = CodonAlignment.from_proteins(anchor, other)
 
-        pr_blocks = []
+        pblock_to_cblocks: dict['ProteinAlignmentBlock', tuple['CodonAlignmentBlock', ...]] = dict()
+        cblock_to_pblock: dict['CodonAlignmentBlock', 'ProteinAlignmentBlock'] = dict()
         for is_match, group in groupby(cd_aln.blocks, key=lambda block: block.category is CodonAlignCat.MATCH):
+            cblocks = tuple(group)
+            anchor_range = range(cblocks[0].anchor_range.start, cblocks[-1].anchor_range.stop)
+            other_range = range(cblocks[0].other_range.start, cblocks[-1].other_range.stop)
             if is_match:
-                cd_block = one(group)
-                pr_block = ProteinAlignmentBlock(cd_block.anchor_range, cd_block.other_range, category=SeqAlignCat.MATCH)
-            else:
-                g1, g2 = tee(group, 2)
-                first_block, last_block = first(g1), last(g2)
-                anchor_range = range(first_block.anchor_range.start, last_block.anchor_range.stop)
-                other_range = range(first_block.other_range.start, last_block.other_range.stop)
-                if anchor_range and other_range:
-                    if len(anchor_range) == len(other_range) and anchor.sequence[anchor_range.start:anchor_range.stop] == other.sequence[other_range.start:other_range.stop]:
-                        category = SeqAlignCat.MATCH
-                    else:
-                        category = SeqAlignCat.SUBSTITUTION
-                elif not other_range:
-                    category = SeqAlignCat.DELETION
-                elif not anchor_range:
-                    category = SeqAlignCat.INSERTION
+                category = SeqAlignCat.MATCH
+            elif anchor_range and other_range:
+                if len(anchor_range) == len(other_range) and anchor.sequence[anchor_range.start:anchor_range.stop] == other.sequence[other_range.start:other_range.stop]:
+                    category = SeqAlignCat.MATCH
                 else:
-                    raise RuntimeError
-                pr_block = ProteinAlignmentBlock(anchor_range, other_range, category=category)
-            pr_blocks.append(pr_block)
-        
-        anchor_blocks = IntervalTree.from_tuples((block.anchor_range.start, block.anchor_range.stop, block) for block in pr_blocks if block.anchor_range)
-        other_blocks = IntervalTree.from_tuples((block.other_range.start, block.other_range.stop, block) for block in pr_blocks if block.other_range)
+                    category = SeqAlignCat.SUBSTITUTION
+            elif not other_range:
+                category = SeqAlignCat.DELETION
+            elif not anchor_range:
+                category = SeqAlignCat.INSERTION
+            else:
+                raise RuntimeError
+            pblock = ProteinAlignmentBlock(anchor_range, other_range, category=category)
+            pblock_to_cblocks[pblock] = cblocks
+            for cblock in cblocks:
+                cblock_to_pblock[cblock] = pblock
+        # TODO: second pass to merge match pblocks
 
-        return cls(anchor, other, anchor_blocks, other_blocks)
+        anchor_blocks = IntervalTree.from_tuples((block.anchor_range.start, block.anchor_range.stop, block) for block in pblock_to_cblocks if block.anchor_range)
+        other_blocks = IntervalTree.from_tuples((block.other_range.start, block.other_range.stop, block) for block in pblock_to_cblocks if block.other_range)
+
+        return cls(anchor, other, anchor_blocks, other_blocks, cblock_to_pblock, pblock_to_cblocks)
