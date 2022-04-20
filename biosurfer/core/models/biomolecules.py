@@ -90,7 +90,7 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
             chr = self.gene.chromosome_id
             donor = Position(chr, self.strand, up_exon.nucleotides[-1].coordinate) + 1
             acceptor = Position(chr, self.strand, down_exon.nucleotides[0].coordinate) - 1
-            junction = Junction(donor, acceptor)
+            junction = Junction.from_splice_sites(donor, acceptor)
             mapping[junction] = (up_exon, down_exon)
         return mapping
     

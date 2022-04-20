@@ -170,58 +170,106 @@ class Residue:
 
 
 @frozen(hash=True)
-class Junction:
-    donor: 'Position' = field(validator=validators.instance_of(Position))
-    acceptor: 'Position' = field()
-    @acceptor.validator
-    def _check_acceptor(self, attribute, value):
-        if self.donor > value:
-            raise ValueError(f'Donor {self.donor} is downstream of acceptor {value}')
+class GenomeRange:
+    begin: 'Position' = field(validator=validators.instance_of(Position))
+    end: 'Position' = field(validator=validators.instance_of(Position))
+    
+    def __attrs_post_init__(self):
+        if self.begin > self.end:
+            raise ValueError(f'{self.begin} is downstream of {self.end}')
 
     @property
     def chromosome(self):
-        return self.donor.chromosome
+        return self.begin.chromosome
     
     @property
     def strand(self):
-        return self.donor.strand
+        return self.begin.strand
 
     def __repr__(self):
-        return f'{self.donor.chromosome}({self.donor.strand}):{self.donor.coordinate}^{self.acceptor.coordinate}'
+        return f'{self.begin.chromosome}({self.begin.strand}):{self.begin.coordinate}^{self.end.coordinate}'
+    
+    def __eq__(self, other: 'GenomeRange'):
+        if not isinstance(other, GenomeRange):
+            return NotImplemented
+        delta_begin = abs(self.begin - other.begin)
+        delta_end = abs(self.end - other.end)
+        if delta_begin <= 2 and delta_end <= 2 and (delta_begin != 0 or delta_end != 0):
+            warn(f'Possible off-by-one error for ranges {self} and {other}')
+        return delta_begin == 0 and delta_end == 0
+    
+    def __and__(self, other: 'GenomeRange'):
+        if not isinstance(other, GenomeRange):
+            return NotImplemented
+        begin = max(self.begin, other.begin)
+        end = min(self.end, other.end)
+        return evolve(self, begin=begin, end=end) if begin <= end else None
+
+    def __or__(self, other: 'GenomeRange'):
+        if not isinstance(other, GenomeRange):
+            return NotImplemented
+        begin = min(self.begin, other.begin)
+        end = max(self.end, other.end)
+        return evolve(self, begin=begin, end=end) if begin <= end else None
+
+    @property
+    def length(self) -> int:
+        return (self.end - self.begin) + 1
+
+    def as_tuple(self):
+        return self.chromosome, self.strand, self.begin.coordinate, self.end.coordinate
+
+    @classmethod
+    def from_coordinates(cls, chromosome: str, strand: 'Strand', begin: int, end: int):
+        return cls(Position(chromosome, strand, begin), Position(chromosome, strand, end))
+
+
+@frozen(hash=True)
+class Junction:
+    range: 'GenomeRange' = field(validator=validators.instance_of(GenomeRange))
+
+    @property
+    def donor(self):
+        return self.range.begin
+    
+    @property
+    def acceptor(self):
+        return self.range.end
+
+    def __repr__(self):
+        return f'{self.range.chromosome}({self.range.strand}):{self.donor.coordinate}^{self.acceptor.coordinate}'
     
     def __eq__(self, other: 'Junction'):
         if not isinstance(other, Junction):
             return NotImplemented
-        delta_donor = abs(self.donor - other.donor)
-        delta_acceptor = abs(self.acceptor - other.acceptor)
-        if delta_donor <= 2 and delta_acceptor <= 2 and (delta_donor != 0 or delta_acceptor != 0):
-            warn(f'Possible off-by-one error for junctions {self} and {other}')
-        return delta_donor == 0 and delta_acceptor == 0
+        return self.range == other.range
     
     def __and__(self, other: 'Junction'):
         if not isinstance(other, Junction):
             return NotImplemented
-        donor = max(self.donor, other.donor)
-        acceptor = min(self.acceptor, other.acceptor)
-        return evolve(self, donor=donor, acceptor=acceptor) if donor <= acceptor else None
+        intersection = self.range & other.range
+        return Junction(intersection) if intersection else None
 
     def __or__(self, other: 'Junction'):
         if not isinstance(other, Junction):
             return NotImplemented
-        donor = min(self.donor, other.donor)
-        acceptor = max(self.acceptor, other.acceptor)
-        return evolve(self, donor=donor, acceptor=acceptor) if donor <= acceptor else None
+        union = self.range | other.range
+        return Junction(union) if union else None
 
     @property
-    def length(self) -> int:
-        return (self.acceptor - self.donor) + 1
+    def length(self):
+        return self.range.length
 
     def as_tuple(self):
-        return self.chromosome, self.strand, self.donor.coordinate, self.acceptor.coordinate
+        return self.range.as_tuple()
 
     @classmethod
     def from_coordinates(cls, chromosome: str, strand: 'Strand', donor: int, acceptor: int):
-        return Junction(Position(chromosome, strand, donor), Position(chromosome, strand, acceptor))
+        return Junction(GenomeRange.from_coordinates(chromosome, strand, donor, acceptor))
+
+    @classmethod
+    def from_splice_sites(cls, donor: 'Position', acceptor: 'Position'):
+        return Junction(GenomeRange(donor, acceptor))
 
 
 class UTR(ABC):

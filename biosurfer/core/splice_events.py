@@ -7,7 +7,7 @@ from typing import Iterable, Union
 from attrs import evolve, field, frozen
 from biosurfer.core.helpers import get_interval_overlap_graph
 from biosurfer.core.models.biomolecules import Exon, Transcript
-from biosurfer.core.models.nonpersistent import Position, Junction
+from biosurfer.core.models.nonpersistent import GenomeRange, Position, Junction
 from graph_tool import GraphView
 from graph_tool.topology import is_bipartite, shortest_path, label_components
 from more_itertools import first, windowed
@@ -222,16 +222,16 @@ class SpliceEvent(CompoundTranscriptEvent):
 
 @frozen(eq=True)
 class ExonBypassEvent(BasicTranscriptEvent):
-    exon: 'Junction'  # TODO: replace with updated Exon object
+    exon: 'GenomeRange'  # TODO: replace with updated Exon object
     is_partial: bool = False
 
     @property
     def start(self) -> 'Position':
-        return self.exon.donor
+        return self.exon.begin
     
     @property
     def stop(self) -> 'Position':
-        return self.exon.acceptor
+        return self.exon.end
 
 
 @frozen(eq=True)
@@ -368,12 +368,12 @@ def call_transcript_events(anchor: 'Transcript', other: 'Transcript'):
     
     # TODO: simplify this when Exons are refactored
     def get_exon(exon_obj: 'Exon'):
-        return Junction(*sorted((Position(chr, strand, exon_obj.start), Position(chr, strand, exon_obj.stop))))
+        return GenomeRange(*sorted((Position(chr, strand, exon_obj.start), Position(chr, strand, exon_obj.stop))))
     
     anchor_exons = [get_exon(exon) for exon in anchor.exons]
     other_exons = [get_exon(exon) for exon in other.exons]
-    upstream_exons = sorted((exon for exon in set(anchor_exons) | set(other_exons) if exon.donor < downstream_start), key=attrgetter('donor'))
-    downstream_exons = sorted((exon for exon in set(anchor_exons) | set(other_exons) if upstream_stop < exon.acceptor), key=attrgetter('donor'))
+    upstream_exons = sorted((exon for exon in set(anchor_exons) | set(other_exons) if exon.begin < downstream_start), key=attrgetter('begin'))
+    downstream_exons = sorted((exon for exon in set(anchor_exons) | set(other_exons) if upstream_stop < exon.end), key=attrgetter('begin'))
     # call TSS event
     if upstream_exons:
         is_deletion = downstream_start == other_start
@@ -382,15 +382,15 @@ def call_transcript_events(anchor: 'Transcript', other: 'Transcript'):
             alt_downstream_exon = (other_exons if is_deletion else anchor_exons)[0]
             last_bypass_event = ExonBypassEvent(
                 not is_deletion,
-                Junction(
+                GenomeRange(
                     downstream_start,
-                    min(alt_downstream_exon.acceptor, tss_overlap_junction.acceptor)
+                    min(alt_downstream_exon.end, tss_overlap_junction.acceptor)
                 ),
-                is_partial = tss_overlap_junction.acceptor < alt_downstream_exon.acceptor
+                is_partial = tss_overlap_junction.acceptor < alt_downstream_exon.end
             )
             bypass_events.append(last_bypass_event)
-        elif any(exon.donor < downstream_start <= exon.acceptor for exon in (anchor_exons if is_deletion else other_exons)):
-            upstream_exons[-1] = evolve(upstream_exons[-1], acceptor=downstream_start-1)
+        elif any(exon.begin < downstream_start <= exon.end for exon in (anchor_exons if is_deletion else other_exons)):
+            upstream_exons[-1] = evolve(upstream_exons[-1], end=downstream_start-1)
             bypass_events[-1] = evolve(bypass_events[-1], exon=upstream_exons[-1], is_partial=True)
         tss_event = TSSEvent.from_basic_events(bypass_events)
     else:
@@ -403,15 +403,15 @@ def call_transcript_events(anchor: 'Transcript', other: 'Transcript'):
             alt_upstream_exon = (other_exons if is_deletion else anchor_exons)[-1]
             first_bypass_event = ExonBypassEvent(
                 not is_deletion,
-                Junction(
-                    max(alt_upstream_exon.donor, pas_overlap_junction.donor),
+                GenomeRange(
+                    max(alt_upstream_exon.begin, pas_overlap_junction.donor),
                     upstream_stop
                 ),
-                is_partial = alt_upstream_exon.donor < pas_overlap_junction.donor
+                is_partial = alt_upstream_exon.begin < pas_overlap_junction.donor
             )
             bypass_events.insert(0, first_bypass_event)
-        elif any(exon.donor <= upstream_stop < exon.acceptor for exon in (anchor_exons if is_deletion else other_exons)):
-            downstream_exons[0] = evolve(downstream_exons[0], donor=upstream_stop+1)
+        elif any(exon.begin <= upstream_stop < exon.end for exon in (anchor_exons if is_deletion else other_exons)):
+            downstream_exons[0] = evolve(downstream_exons[0], begin=upstream_stop+1)
             bypass_events[0] = evolve(bypass_events[0], exon=downstream_exons[0], is_partial=True)
         apa_event = APAEvent.from_basic_events(bypass_events)
     else:

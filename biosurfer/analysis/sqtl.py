@@ -7,7 +7,7 @@ from biosurfer.core.alignments import TranscriptAlignment, CodonAlignment, Prote
 from biosurfer.core.constants import (AnnotationFlag,
                                       SequenceAlignmentCategory,
                                       ProteinRegion, Strand)
-from biosurfer.core.models.nonpersistent import Junction
+from biosurfer.core.models.nonpersistent import GenomeRange, Junction
 from biosurfer.core.splice_events import ExonBypassEvent
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ def get_transcript_events_associated_with_junction(junction: 'Junction', tx_aln:
         event for event in tx_aln.basic_events
         if (
             junction in getattr(event, 'anchor_junctions', ()) + getattr(event, 'other_junctions', ())
-            or isinstance(event, ExonBypassEvent) and (event.exon & Junction(junction.donor - 1, junction.acceptor + 1))
+            or isinstance(event, ExonBypassEvent) and (event.exon & GenomeRange(junction.donor - 1, junction.acceptor + 1))
         )
     ]
 
