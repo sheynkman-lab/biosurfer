@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Callable, Dict, Iterable
 from warnings import warn
 
 from Bio import SeqIO
-from biosurfer.core.alignments import Alignment
+from biosurfer.core.alignments import CodonAlignment
 from biosurfer.core.constants import (APPRIS, SQANTI, STOP_CODONS, AminoAcid,
                                       FeatureType, Strand)
 from biosurfer.core.helpers import (ExceptionLogger, FastaHeaderFields,
@@ -560,6 +560,7 @@ class Database:
                 options(
                     protein_tx.joinedload(Transcript.orfs),
                     protein_tx.joinedload(Transcript.exons).joinedload(Exon.transcript),
+                    protein_tx.joinedload(Transcript.gene),
                     contains_eager(Protein.orf).joinedload(ORF.protein),
                     joinedload(Protein.features).joinedload(ProteinFeature.protein),
                     joinedload(Protein.features).joinedload(ProteinFeature.feature),
@@ -600,12 +601,12 @@ class Database:
                         if not anchor.features:
                             continue
                         try:
-                            aln = Alignment(anchor, other)
+                            aln = CodonAlignment.from_proteins(anchor, other)
                         except Exception as e:
                             tqdm.write(f'{anchor}|{other}\t{e}')
                             continue
                         for feat in anchor.features:
-                            proj_feat, _ = aln.project_feature(feat)
+                            proj_feat = aln.project_feature(feat)
                             if proj_feat:
                                 record = {
                                     k: getattr(proj_feat, k)

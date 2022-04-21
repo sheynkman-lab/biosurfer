@@ -12,7 +12,7 @@ from biosurfer.core.alignments import (Alignment,
                                        export_annotated_pblocks_to_tsv)
 from biosurfer.core.constants import FeatureType
 from biosurfer.core.constants import \
-    ProteinLevelAlignmentCategory as PblockCategory
+    SequenceAlignmentCategory as PblockCategory
 from biosurfer.core.database import Database
 from biosurfer.core.helpers import ExceptionLogger
 from biosurfer.core.models.biomolecules import (ORF, Exon, Gene, Protein,

@@ -1,4 +1,5 @@
 from enum import Flag, auto, Enum
+from typing import Union
 
 from biosurfer.core.helpers import OrderedEnum, StringEnum
 
@@ -83,7 +84,7 @@ class AminoAcid(StringEnum):
     GAP = '-'
 
 
-class ProteinLevelAlignmentCategory(StringEnum):
+class SequenceAlignmentCategory(StringEnum):
     MATCH = 'M'
     INSERTION = 'I'
     DELETION = 'D'
@@ -91,16 +92,29 @@ class ProteinLevelAlignmentCategory(StringEnum):
     UNKNOWN = '?'
 
 
-class TranscriptLevelAlignmentCategory(StringEnum):
+SEQ_DEL_INS = {SequenceAlignmentCategory.DELETION, SequenceAlignmentCategory.INSERTION}
+
+
+class CodonAlignmentCategory(StringEnum):
     MATCH = 'm'
     INSERTION = 'i'
     DELETION = 'd'
-    FRAME_AHEAD = '1'
-    FRAME_BEHIND = '2'
-    EDGE_MATCH = 'e'
-    EDGE_MISMATCH = 'g'
+    TRANSLATED = 't'
+    UNTRANSLATED = 'u'
+    FRAME_AHEAD = 'a'
+    FRAME_BEHIND = 'b'
+    EDGE = 'e'
     COMPLEX = 'x'
     UNKNOWN = '?'
+
+
+ANCHOR_EXCLUSIVE = {CodonAlignmentCategory.DELETION, CodonAlignmentCategory.UNTRANSLATED}
+OTHER_EXCLUSIVE = {CodonAlignmentCategory.INSERTION, CodonAlignmentCategory.TRANSLATED}
+CD_DEL_INS = {CodonAlignmentCategory.DELETION, CodonAlignmentCategory.INSERTION}
+FRAMESHIFT = {CodonAlignmentCategory.FRAME_AHEAD, CodonAlignmentCategory.FRAME_BEHIND}
+
+
+AlignmentCategory = Union[SequenceAlignmentCategory, CodonAlignmentCategory]
 
 
 class AnnotationFlag(Flag):

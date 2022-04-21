@@ -8,6 +8,7 @@ from biosurfer.core.constants import APPRIS, SQANTI, Strand
 from biosurfer.core.helpers import BisectDict
 from biosurfer.core.models.base import AccessionMixin, Base, NameMixin, TablenameMixin
 from biosurfer.core.models.nonpersistent import *
+from more_itertools import only
 from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
@@ -86,11 +87,10 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
         for i in range(1, len(self.exons)):
             up_exon = self.exons[i-1]
             down_exon = self.exons[i]
-
-            donor = up_exon.nucleotides[-1].coordinate
-            acceptor = down_exon.nucleotides[0].coordinate
-
-            junction = Junction(donor, acceptor, self.gene.chromosome_id, self.strand)
+            chr = self.gene.chromosome_id
+            donor = Position(chr, self.strand, up_exon.nucleotides[-1].coordinate) + 1
+            acceptor = Position(chr, self.strand, down_exon.nucleotides[0].coordinate) - 1
+            junction = Junction.from_splice_sites(donor, acceptor)
             mapping[junction] = (up_exon, down_exon)
         return mapping
     
@@ -121,11 +121,11 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
     # FIXME: make this work in SQL queries
     @property
     def start(self) -> int:
-        return min(exon.start for exon in self.exons)
+        return self.exons[0].stop if self.strand is Strand.MINUS else self.exons[0].start
     
     @property
     def stop(self) -> int:
-        return max(exon.stop for exon in self.exons)
+        return self.exons[-1].start if self.strand is Strand.MINUS else self.exons[-1].stop
     
     @hybrid_property
     def length(self):
@@ -165,6 +165,8 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
     
     def get_nucleotide_from_coordinate(self, coordinate: int) -> 'Nucleotide':
         """Given a genomic coordinate (1-based) included in the transcript, return the Nucleotide object corresponding to that coordinate."""
+        if not hasattr(self, '_nucleotide_mapping'):
+            self.nucleotides
         if coordinate in self._nucleotide_mapping:
             return self._nucleotide_mapping[coordinate]
         else:
@@ -180,6 +182,25 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
         except KeyError as e:
             raise KeyError(f'{self} does not use junction {junction}') from e
 
+    def get_genome_coord_from_transcript_coord(self, tx_coord: int) -> Position:
+        try:
+            nt = self.nucleotides[tx_coord]
+            return Position(self.gene.chromosome_id, self.strand, nt.coordinate)
+        except IndexError:
+            pos = Position(self.gene.chromosome_id, self.strand, self.nucleotides[-1].coordinate)
+            return pos + (tx_coord - self.length + 1)
+    
+    def get_transcript_coord_from_genome_coord(self, gn_coord: Position) -> int:
+        if self.strand is not gn_coord.strand:
+            raise ValueError(f'{gn_coord} is different strand from {self}')
+        elif self.gene.chromosome_id != gn_coord.chromosome:
+            raise ValueError(f'{gn_coord} is different chromosome from {self}')
+        nt = self.get_nucleotide_from_coordinate(gn_coord.coordinate)
+        if nt:
+            return nt.position - 1
+        else:
+            raise KeyError
+        
 
 class GencodeTranscript(Transcript):
     __tablename__ = None
@@ -406,7 +427,8 @@ class Protein(Base, TablenameMixin, AccessionMixin):
     features = relationship(
         'ProteinFeature',
         back_populates = 'protein',
-        uselist = True
+        uselist = True,
+        order_by = 'ProteinFeature.protein_start'
     )
 
     # def __init__(self, **kwargs):
@@ -439,9 +461,15 @@ class Protein(Base, TablenameMixin, AccessionMixin):
         return self.orf.transcript.gene
     
     @property
-    def transcript(self):
+    def transcript(self) -> 'Transcript':
         return self.orf.transcript
     
     @hybrid_property
     def length(self):
         return len(self.sequence)
+    
+    def get_protein_coord_from_transcript_coord(self, transcript_coord: int):
+        return (transcript_coord - self.orf.transcript_start + 1) // 3
+    
+    def get_transcript_coord_from_protein_coord(self, protein_coord: int):
+        return protein_coord*3 + self.orf.transcript_start - 1

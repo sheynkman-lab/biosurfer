@@ -4,35 +4,44 @@ import multiprocessing as mp
 import os
 import re
 import sys
-from itertools import groupby, product
+from collections import Counter
+from functools import reduce
+from itertools import chain, groupby, product
 from operator import attrgetter, itemgetter
+from typing import TYPE_CHECKING, NamedTuple
 from warnings import warn
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from biosurfer.analysis.sqtl import (get_event_counts,
-                                     get_pblocks_related_to_junction,
-                                     junction_has_drastic_effect_in_pair,
-                                     split_transcripts_on_junction_usage)
-from biosurfer.core.alignments import (Alignment,
-                                       export_annotated_pblocks_to_tsv)
-from biosurfer.core.constants import SQANTI, AnnotationFlag, Strand
+from biosurfer.analysis.sqtl import (
+    get_cblocks_attributed_to_transcript_event,
+    get_transcript_events_associated_with_junction,
+    split_transcripts_on_junction_usage)
+from biosurfer.core.alignments import (CodonAlignment, ProteinAlignment,
+                                       TranscriptAlignment)
+from biosurfer.core.constants import OTHER_EXCLUSIVE, SQANTI, Strand
 from biosurfer.core.database import Database
 from biosurfer.core.helpers import ExceptionLogger
-from biosurfer.core.models.biomolecules import (GencodeTranscript,
-                                                Gene, Junction,
-                                                PacBioTranscript, Transcript)
+from biosurfer.core.models.biomolecules import (GencodeTranscript, Gene,
+                                                Junction, PacBioTranscript,
+                                                Transcript)
 from biosurfer.plots.plotting import IsoformPlot, mpatches
 from IPython.display import display
-from more_itertools import first
 from matplotlib.colors import LogNorm
 from matplotlib.gridspec import GridSpec
+from more_itertools import first, only
 from scipy.sparse import coo_matrix
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql.expression import and_, not_, or_, select
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from biosurfer.core.alignments import (CodonAlignmentBlock,
+                                           ProteinAlignmentBlock)
+    from biosurfer.core.models.features import ProteinFeature
+    from biosurfer.core.splice_events import BasicTranscriptEvent
 
 plt.switch_backend('agg')
 
@@ -43,45 +52,48 @@ db = Database('bone2')
 
 # %%
 print('Loading isoform expression table...')
-expr_raw = pd.read_csv(f'{data_dir}/counts_threshold.tsv', sep='\t', index_col='rn', usecols=[0] + list(range(117-11, 117)))
-
-print('Loading transcript collapse mapping table...')
-collapsed = dict()
-with open(f'{data_dir}/hfobs_orf_refined.tsv') as f:
-    reader = csv.DictReader(f, delimiter='\t')
-    for row in reader:
-        group = row['pb_accs'].split('|')
-        base = row['base_acc']
-        if base not in expr_raw.index:
-            try:
-                base = first(acc for acc in group if acc in expr_raw.index)
-            except ValueError:
-                continue
-        for tx in group:
-            collapsed[tx] = base
-
-# %%
-print('Correcting isoform expression table...')
-expr_raw = expr_raw.filter(items=collapsed.keys(), axis=0)
-tx_to_idx = {tx: i for i, tx in enumerate(expr_raw.index)}
-# N = len(expr_raw.index)
-ijv = ((tx_to_idx[collapsed.get(tx, tx)], i, 1) for tx, i in tx_to_idx.items())
-row, col, data = zip(*ijv)
-transform = coo_matrix((data, (row, col))).tocsr()
-
-# %%
-pattern = re.compile(r't\d+[abc]')
-with db.get_session() as session:
-    all_pb_ids = set(acc for acc in session.execute(select(PacBioTranscript.accession)).scalars())
-expression = pd.DataFrame(data=transform.dot(expr_raw.to_numpy()), index=expr_raw.index, columns=expr_raw.columns)
-expression = (expression.
-    filter(items=all_pb_ids, axis=0).
-    rename(columns=lambda name: match[0] if (match := pattern.search(name)) else name)
-)
 timepoints = [f't{t}' for t in (0, 2, 4, 10)]
-for t in timepoints:
-    expression[t] = expression[[col for col in expression.columns if col.startswith(t)]].mean(axis=1)
-expression['average'] = expression[timepoints].mean(axis=1)
+try:
+    expression = pd.read_csv(f'{data_dir}/corrected_expression.tsv', sep='\t', index_col='rn')
+except FileNotFoundError:
+    expr_raw = pd.read_csv(f'{data_dir}/counts_threshold.tsv', sep='\t', index_col='rn', usecols=[0] + list(range(117-11, 117)))
+
+    print('Loading transcript collapse mapping table...')
+    collapsed = dict()
+    with open(f'{data_dir}/hfobs_orf_refined.tsv') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        for row in reader:
+            group = row['pb_accs'].split('|')
+            base = row['base_acc']
+            if base not in expr_raw.index:
+                try:
+                    base = first(acc for acc in group if acc in expr_raw.index)
+                except ValueError:
+                    continue
+            for tx in group:
+                collapsed[tx] = base
+
+    print('Correcting isoform expression table...')
+    expr_raw = expr_raw.filter(items=collapsed.keys(), axis=0)
+    tx_to_idx = {tx: i for i, tx in enumerate(expr_raw.index)}
+    # N = len(expr_raw.index)
+    ijv = ((tx_to_idx[collapsed.get(tx, tx)], i, 1) for tx, i in tx_to_idx.items())
+    row, col, data = zip(*ijv)
+    transform = coo_matrix((data, (row, col))).tocsr()
+
+    pattern = re.compile(r't\d+[abc]')
+    with db.get_session() as session:
+        all_pb_ids = set(acc for acc in session.execute(select(PacBioTranscript.accession)).scalars())
+    expression = pd.DataFrame(data=transform.dot(expr_raw.to_numpy()), index=expr_raw.index, columns=expr_raw.columns)
+    expression = (expression.
+        filter(items=all_pb_ids, axis=0).
+        rename(columns=lambda name: match[0] if (match := pattern.search(name)) else name)
+    )
+    for t in timepoints:
+        expression[t] = expression[[col for col in expression.columns if col.startswith(t)]].mean(axis=1)
+    expression['average'] = expression[timepoints].mean(axis=1)
+
+    expression.to_csv(f'{data_dir}/corrected_expression.tsv', sep='\t')
 
 # %%
 print('Loading sQTL table...')
@@ -89,6 +101,8 @@ sqtls: pd.DataFrame = pd.read_csv(f'{data_dir}/sqtl_coloc.tsv', sep='\t', nrows=
 sqtls[['chr', 'start', 'end', 'cluster', 'gene_id']] = sqtls['phenotype_id'].str.split(':', expand=True)
 sqtls['gene_id_stem'] = sqtls['gene_id'].str.split('.').str.get(0)
 sqtls[['start', 'end']] = sqtls[['start', 'end']].astype(int)
+sqtls = sqtls.sample(frac=0.01, axis=0, random_state=329)
+# sqtls = sqtls[sqtls['gene_id_stem'] == 'ENSG00000185340']
 
 # %%
 gene_id_mapper = dict()
@@ -101,30 +115,7 @@ with db.get_session() as session:
         if gene_id:
             gene_id_mapper[gene_id_stem] = gene_id
 
-# gene_id_stems = {stem(gene_id) for gene_id in sqtls['gene_id']}
-# gene_ids = {row.accession for row in
-#     session.query(Gene.accession).where(
-#         or_(
-#             False,
-#             *(Gene.accession.startswith(gene_id_stem) 
-#                 for gene_id_stem in gene_id_stems)
-#         )
-#     )
-# }
-# db.project_feature_mappings(gene_ids=gene_ids)
-
-# %%
-# gene_query = session.query(Gene).join(Gene.transcripts).\
-#     where(
-#         and_(
-#             Transcript.sequence != None,
-#             Gene.accession.in_(gene_ids),
-#             not_(Gene.accession.contains('_', autoescape=True))
-#         )
-#     )
-# print(str(gene_query))
-# print('Loading database objects...')
-# genes = {stem(gene.accession): gene for gene in gene_query}
+# db.project_feature_mappings(gene_ids=gene_id_mapper.values())
 
 # %%
 # def abundant_and_coding(transcript: 'Transcript'):
@@ -138,11 +129,31 @@ junc_colors = {
 def sortkey(transcript: 'Transcript'):
     return -abundance(transcript), getattr(transcript, 'sqanti', SQANTI.OTHER)
 
-def abundance(transcript: 'Transcript'):
+def abundance(transcript: 'Transcript') -> float:
     try:
         return expression.average[transcript.accession]
     except KeyError:
         return 0.0
+
+class CBlockEventTuple(NamedTuple):
+    cblock: 'CodonAlignmentBlock'
+    event: 'BasicTranscriptEvent'
+    anchor: 'Transcript'
+    other: 'Transcript'
+
+class BlockTuple(NamedTuple):
+    pblock: 'ProteinAlignmentBlock'
+    cblock: 'CodonAlignmentBlock'
+    events: tuple['BasicTranscriptEvent', ...]
+    anchor: 'Transcript'
+    other: 'Transcript'
+
+class FeatureTuple(NamedTuple):
+    feature: 'ProteinFeature'
+    cblock: 'CodonAlignmentBlock'
+    affects_whole: bool
+    anchor: 'Transcript'
+    other: 'Transcript'
 
 def get_augmented_sqtl_record(row):
     chr, gene_id, start, end, pval, slope, maf = row
@@ -155,10 +166,12 @@ def get_augmented_sqtl_record(row):
         gene = Gene.from_accession(session, gene_id)
         if not gene:
             return None
+        start += 1
+        end -= 1
         strand = gene.strand
         if strand is Strand.MINUS:
             start, end = end, start
-        junc = Junction(start, end, chr, strand)
+        junc = Junction.from_coordinates(chr, strand, start, end)
         junc_info = {
             'chr': chr,
             'strand': str(junc.strand),
@@ -184,10 +197,7 @@ def get_augmented_sqtl_record(row):
         anchor_tx = gc_transcripts[0]
 
         pairs = list(product(lacking, containing))
-        alns = []
-        for tx1, tx2 in pairs:
-            with ExceptionLogger(f'Error for {tx1.name} and {tx2.name}'):
-                alns.append(Alignment(tx1.protein, tx2.protein))
+        
         abundance_denom = sum(abundance(tx) for tx in containing) * sum(abundance(tx) for tx in lacking)
         weights = {
             (tx1, tx2): abundance(tx1) * abundance(tx2) / abundance_denom
@@ -196,7 +206,7 @@ def get_augmented_sqtl_record(row):
         if weights and abs(error := sum(weights.values()) - 1) > 2**-8:
             warn(f'Weights add up to 1{error:+.3e}')
 
-        pblocks = get_pblocks_related_to_junction(junc, alns)
+        top_pair, junc_info['highest_pair_weight'] = max(weights.items(), key=itemgetter(1), default=(None, None))
 
         # calculate fraction of pairs where one isoform is NMD and other is not
         junc_info['NMD'] = None
@@ -206,33 +216,113 @@ def get_augmented_sqtl_record(row):
                 for tx1, tx2 in pairs
             )
 
-        # calculate weighted mean of change in sequence length for junction-related pblocks
-        junc_info['avg_delta_length'] = np.average(
-            [pblock.delta_length for pblock in pblocks],
-            weights = [weights[pblock.anchor.transcript, pblock.other.transcript] for pblock in pblocks]
-        ) if pblocks else 0.0
+        tx_aln_to_events: dict['TranscriptAlignment', set['BasicTranscriptEvent']] = dict()
+        for anchor, other in pairs:
+            with ExceptionLogger(f'Error for {anchor} and {other}'):
+                anchor.nucleotides, other.nucleotides
+                tx_aln = TranscriptAlignment.from_transcripts(anchor, other)
+                events = set(get_transcript_events_associated_with_junction(junc, tx_aln))
+                tx_aln_to_events[tx_aln] = events
+        cblock_event_tuples = [
+            CBlockEventTuple(cblock, event, tx_aln.anchor, tx_aln.other)
+            for tx_aln, events in tx_aln_to_events.items()
+            for event in events
+            for cblock in get_cblocks_attributed_to_transcript_event(event, CodonAlignment.from_proteins(tx_aln.anchor.protein, tx_aln.other.protein))
+        ]
+        cblock_event_tuples.sort(key=lambda cet: (cet.anchor.name, cet.other.name, cet.cblock, cet.event.start, cet.event.stop))
+        block_tuples = [
+            BlockTuple(
+                ProteinAlignment.from_proteins(anchor.protein, other.protein).cblock_to_pblock[cblock],
+                cblock,
+                tuple(cet.event for cet in group),
+                anchor, other
+            )
+            for (anchor, other, cblock), group in groupby(cblock_event_tuples, key=lambda cet: (cet.anchor, cet.other, cet.cblock))
+        ]
 
-        # # classify "drastic" vs. "subtle" changes for each pair
-        # pair_pblocks = groupby(pblocks, key=attrgetter('anchor', 'other'))
-        # junc_info['drastic_effect_frequency'] = sum(
-        #     float(junction_has_drastic_effect_in_pair(pblocks=list(pblock_group))) * weights[p1.transcript, p2.transcript]
-        #     for (p1, p2), pblock_group in pair_pblocks
-        # )
+        feature_tuples = list(chain(
+            (
+                FeatureTuple(
+                    feature,
+                    bt.cblock,
+                    bt.cblock.anchor_range.start <= feature.protein_start - 1 and feature.protein_stop <= bt.cblock.anchor_range.stop,
+                    bt.anchor,
+                    bt.other
+                )
+                for bt in block_tuples if (bt.anchor, bt.other) == top_pair
+                for feature in bt.anchor.protein.features if feature.protein_start - 1 < bt.cblock.anchor_range.stop and bt.cblock.anchor_range.start < feature.protein_stop
+            ),
+            (
+                FeatureTuple(
+                    feature,
+                    bt.cblock,
+                    bt.cblock.other_range.start <= feature.protein_start - 1 and feature.protein_stop <= bt.cblock.other_range.stop,
+                    bt.anchor,
+                    bt.other
+                )
+                for bt in block_tuples if (bt.anchor, bt.other) == top_pair
+                for feature in bt.other.protein.features if feature.protein_start - 1 < bt.cblock.other_range.stop and bt.cblock.other_range.start < feature.protein_stop
+            )
+        ))
 
-        freqs = {
-            event: sum(int(event & pblock.flags == event)*weights[pblock.anchor.transcript, pblock.other.transcript] for pblock in pblocks)
-            for event in AnnotationFlag.__members__.values() if event is not AnnotationFlag.NONE}
-        junc_info.update(freqs)
+        delta_aa_weights = tuple(zip(*(
+            (sum(bt.cblock.delta_length for bt in group), weights[pair])
+            for pair, group in groupby(block_tuples, key=lambda bt: (bt.anchor, bt.other))
+        )))
+        if delta_aa_weights:
+            junc_info['avg_delta_aa'] = np.average(delta_aa_weights[0], weights=delta_aa_weights[1])
+        else:
+            junc_info['avg_delta_aa'] = None
 
-        try:
+        # calculate event frequencies
+        event_freqs = reduce(
+            Counter.__add__,
+            (
+                Counter({k: v*weight for k, v in counts.items()})
+                for counts, weight in (
+                    (Counter(events), weights[tx_aln.anchor, tx_aln.other])
+                    for tx_aln, events in tx_aln_to_events.items()
+                )
+            ),
+            Counter()
+        )
+        junc_info['most_common_event'] = ', '.join(
+            f'{type(event).__name__}(start={event.start.coordinate}, stop={event.stop.coordinate})'
+            for event, freq in event_freqs.items() if freq == max(event_freqs.values())
+        )
+        junc_info['highest_event_freq'] = max(event_freqs.values()) if event_freqs else None
+
+        junc_info['affected_features'] = {ft.feature.feature.name for ft in feature_tuples}
+
+        if not os.path.isdir(f'{output_dir}/{gene.name}'):
             os.mkdir(f'{output_dir}/{gene.name}')
-        except FileExistsError:
-            pass
 
-        export_annotated_pblocks_to_tsv(f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.tsv', pblocks)
+        blocks_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor.coordinate}_{junc.acceptor.coordinate}_blocks.tsv'
+        with open(blocks_path, 'w') as f:
+            writer = csv.writer(f, delimiter='\t')
+            writer.writerow(['protein_alignment_block', 'codon_alignment_block', 'delta_aa', 'transcript_events', 'anchor', 'other', 'anchor_cpm', 'other_cpm', 'pair_weight'])
+            writer.writerows(
+                (
+                    bt.pblock,
+                    bt.cblock,
+                    bt.cblock.delta_length,
+                    ', '.join(f'{type(event).__name__}(start={event.start.coordinate}, stop={event.stop.coordinate})' for event in bt.events),
+                    bt.anchor, bt.other,
+                    abundance(bt.anchor), abundance(bt.other),
+                    weights[bt.anchor, bt.other]
+                )
+                for bt in block_tuples
+            )
+        
+        features_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor.coordinate}_{junc.acceptor.coordinate}_features.tsv'
+        with open(features_path, 'w') as f:
+            writer = csv.writer(f, delimiter='\t')
+            writer.writerow(['affected_feature', 'codon_alignment_block', 'affects_whole_feature', 'anchor', 'other'])
+            writer.writerows(feature_tuples)
 
         force_plotting = False
-        fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor}_{junc.acceptor}.png'
+        fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor.coordinate}_{junc.acceptor.coordinate}.png'
+
         if force_plotting or not os.path.isfile(fig_path):
             isoplot = IsoformPlot(
                 gc_transcripts + [None] + containing + [None] + lacking + [None, None],
@@ -258,10 +348,10 @@ def get_augmented_sqtl_record(row):
                 isoplot.draw_region(type='line', color='k', linewidth=1, track=len(gc_transcripts), start=gene.start, stop=gene.stop)
                 isoplot.draw_region(type='line', color='k', linestyle='--', linewidth=1, track=len(gc_transcripts) + len(containing) + 1, start=gene.start, stop=gene.stop)
                 junc_color = '#eeeeee'
-                isoplot.draw_background_rect(start=junc.donor, stop=junc.acceptor, facecolor=junc_color)
+                isoplot.draw_background_rect(start=junc.donor.coordinate, stop=junc.acceptor.coordinate, facecolor=junc_color)
                 isoplot._handles['sQTL junction'] = mpatches.Patch(facecolor=junc_color)
-                for pblock in pblocks:
-                    isoplot.draw_protein_block(pblock, alpha=weights[pblock.anchor.transcript, pblock.other.transcript]**0.5)
+                for (anchor, other), group in groupby(block_tuples, key=lambda bt: (bt.anchor, bt.other)):
+                    isoplot.draw_protein_alignment_blocks((pt[0] for pt in group), anchor.protein, other.protein, alpha = weights[anchor, other]*0.75)
                 isoplot.draw_features()
                 isoplot.draw_legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
                 heatmap_ax = isoplot.fig.add_subplot(gs[-1])

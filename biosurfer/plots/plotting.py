@@ -1,32 +1,38 @@
 # functions to create different visualizations of isoforms/clones/domains/muts
 from copy import copy
 from dataclasses import dataclass
-from itertools import chain, groupby, islice
+from itertools import chain, groupby, islice, tee
 from operator import attrgetter, sub
 from typing import (TYPE_CHECKING, Any, Callable, Collection, Dict, Iterable,
                     List, Literal, Optional, Set, Tuple, Union)
 from warnings import filterwarnings, warn
-from Bio import Align
 
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from biosurfer.core.alignments import (FRAMESHIFT, ProjectedFeature,
-                                       Alignment)
-from biosurfer.core.constants import (AminoAcid, FeatureType, ProteinLevelAlignmentCategory,
-                                      Strand, TranscriptLevelAlignmentCategory)
-from biosurfer.core.helpers import ExceptionLogger, Interval, IntervalTree
+from Bio import Align
+from biosurfer.core.alignments import CodonAlignment, ProjectedFeature
+from biosurfer.core.constants import (FRAMESHIFT, AminoAcid,
+                                      CodonAlignmentCategory, FeatureType,
+                                      SequenceAlignmentCategory, Strand)
+from biosurfer.core.helpers import (ExceptionLogger, Interval, IntervalTree,
+                                    get_interval_overlap_graph)
 from biosurfer.core.models.biomolecules import (GencodeTranscript,
                                                 PacBioTranscript, Transcript)
+from biosurfer.core.splice_events import (AcceptorSpliceEvent,
+                                          DonorSpliceEvent, ExonBypassEvent,
+                                          ExonSpliceEvent, IntronSpliceEvent)
 from brokenaxes import BrokenAxes
 from graph_tool import Graph
 from graph_tool.topology import sequential_vertex_coloring
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
+from more_itertools import first, last
 
 if TYPE_CHECKING:
-    from biosurfer.core.alignments import ProteinAlignmentBlock
+    from biosurfer.core.alignments import ProteinAlignmentBlock, CodonAlignmentBlock
+    from biosurfer.core.models.biomolecules import Protein
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
@@ -40,19 +46,40 @@ TRANSCRIPT_COLORS = {
     PacBioTranscript: ('#61374D', '#91677D')
 }
 
+# colors for transcript events
+EVENT_COLORS = {
+    IntronSpliceEvent: '#e69138',
+    DonorSpliceEvent: '#6aa84f',
+    AcceptorSpliceEvent: '#674ea7',
+    ExonSpliceEvent: '#3d85c6',
+    ExonBypassEvent: '#bebebe',
+}
+
 # alpha values for different absolute reading frames
 ABS_FRAME_ALPHA = {0: 1.0, 1: 0.45, 2: 0.15}
 
 # hatching styles for different relative frameshifts
 REL_FRAME_STYLE = {
-    TranscriptLevelAlignmentCategory.FRAME_AHEAD: '////',
-    TranscriptLevelAlignmentCategory.FRAME_BEHIND: 'xxxx'
+    CodonAlignmentCategory.FRAME_AHEAD: '////',
+    CodonAlignmentCategory.FRAME_BEHIND: 'xxxx'
+}
+
+# colors for CodonAlignmentBlocks
+CBLOCK_COLORS = {
+    CodonAlignmentCategory.TRANSLATED: '#9bf3ff',
+    CodonAlignmentCategory.INSERTION: '#05e0ff',
+    CodonAlignmentCategory.FRAME_AHEAD: '#fff099',
+    CodonAlignmentCategory.FRAME_BEHIND: '#ffd700',
+    CodonAlignmentCategory.UNTRANSLATED: '#ff99ce',
+    CodonAlignmentCategory.DELETION: '#ff0082',
+    CodonAlignmentCategory.EDGE: '#8270c1',
+    CodonAlignmentCategory.COMPLEX: '#aaaaaa'
 }
 
 PBLOCK_COLORS = {
-    ProteinLevelAlignmentCategory.DELETION: '#FF0082',
-    ProteinLevelAlignmentCategory.INSERTION: '#05E0FF',
-    ProteinLevelAlignmentCategory.SUBSTITUTION: '#FFD700'
+    SequenceAlignmentCategory.DELETION: '#FF0082',
+    SequenceAlignmentCategory.INSERTION: '#05E0FF',
+    SequenceAlignmentCategory.SUBSTITUTION: '#FFD700'
 }
 
 FEATURE_COLORS = {
@@ -155,7 +182,7 @@ class IsoformPlot:
                 height = 0.3*self.opts.max_track_width
             artist = mlines.Line2D(
                 xdata = (pos, pos),
-                ydata = (-0.25 - height, -0.25),
+                ydata = (track - 0.25 - height, track - 0.25),
                 linewidth = linewidth,
                 marker = marker,
                 markevery = 2,
@@ -412,8 +439,8 @@ class IsoformPlot:
     
     def draw_frameshifts(self, anchor: Optional['Transcript'] = None, hatch_color='white'):
         """Plot relative frameshifts on all isoforms. Uses first isoform as the anchor by default."""
-        self._handles['frame +1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_AHEAD])
-        self._handles['frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[TranscriptLevelAlignmentCategory.FRAME_BEHIND])
+        self._handles['frame +1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_AHEAD])
+        self._handles['frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_BEHIND])
         
         if anchor is None:
             anchor = next(filter(None, self.transcripts))
@@ -425,14 +452,14 @@ class IsoformPlot:
         for i, other in enumerate(self.transcripts):
             if not other or not other.protein or other is anchor:
                 continue
-            aln = Alignment(anchor.protein, other.protein)
-            for (category, exons), block in groupby(aln, key=attrgetter('category', 'other.exons')):
-                if category in FRAMESHIFT:
+            aln = CodonAlignment.from_proteins(anchor.protein, other.protein)
+            for block in filter(lambda block: block.category in FRAMESHIFT, aln.blocks):
+                for exons, residues in groupby(other.protein.residues[block.other_range.start:block.other_range.stop], key=attrgetter('exons')):
                     if len(exons) > 1:
                         continue
-                    block = list(block)
-                    start = block[0].other.codon[0].coordinate
-                    stop = block[-1].other.codon[2].coordinate
+                    r1, r2 = tee(residues, 2)
+                    start = first(r1).codon[1].coordinate
+                    stop = last(r2).codon[1].coordinate
                     self.draw_region(
                         track = i,
                         start = start,
@@ -441,49 +468,84 @@ class IsoformPlot:
                         edgecolor = hatch_color,
                         linewidth = 0.0,
                         zorder = 1.9,
-                        hatch = REL_FRAME_STYLE[category]
+                        hatch = REL_FRAME_STYLE[block.category]
                     )
-    
-    def draw_protein_block(self, pblock: 'ProteinAlignmentBlock', alpha: float = 0.5):
-        if 'deletion' not in self._handles:
-            self._handles['deletion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.DELETION])
-        if 'insertion' not in self._handles:
-            self._handles['insertion'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.INSERTION])
-        if 'substitution' not in self._handles:
-            self._handles['substitution'] = mpatches.Patch(facecolor=PBLOCK_COLORS[ProteinLevelAlignmentCategory.SUBSTITUTION])
 
-        if pblock.category is ProteinLevelAlignmentCategory.DELETION:
-            other_start = pblock.anchor_residues[0].codon[1].coordinate
-            other_stop = pblock.anchor_residues[-1].codon[1].coordinate
-        else:
-            other_start = pblock.other_residues[0].codon[1].coordinate
-            other_stop = pblock.other_residues[-1].codon[1].coordinate
-        if pblock.category is ProteinLevelAlignmentCategory.INSERTION:
-            anchor_start = pblock.other_residues[0].codon[1].coordinate
-            anchor_stop = pblock.other_residues[-1].codon[1].coordinate
-        else:
-            anchor_start = pblock.anchor_residues[0].codon[1].coordinate
-            anchor_stop = pblock.anchor_residues[-1].codon[1].coordinate
-        self.draw_region(
-            self.transcripts.index(pblock.parent.anchor.transcript),
-            start = anchor_start,
-            stop = anchor_stop,
-            y_offset = -0.9*self.opts.max_track_width,
-            height = 0.4*self.opts.max_track_width,
-            edgecolor = 'none',
-            facecolor = PBLOCK_COLORS[pblock.category],
-            alpha = alpha
-        )
-        self.draw_region(
-            self.transcripts.index(pblock.parent.other.transcript),
-            start = other_start,
-            stop = other_stop,
-            y_offset = 0.5*self.opts.max_track_width,
-            height = 0.4*self.opts.max_track_width,
-            edgecolor = 'none',
-            facecolor = PBLOCK_COLORS[pblock.category],
-            alpha = alpha
-        )
+    def draw_codon_alignment_blocks(self, cd_aln: 'CodonAlignment', alpha: float = 0.5):
+        for category, color in CBLOCK_COLORS.items():
+            label = category.name.lower().replace('_', ' ')
+            if label not in self._handles:
+                self._handles[label] = mpatches.Patch(facecolor=color)
+        height = 0.25*self.opts.max_track_width
+        track = self.transcripts.index(cd_aln.other.transcript)
+        for block in filter(lambda block: block.category is not CodonAlignmentCategory.MATCH, cd_aln.blocks):
+            if block.other_range:
+                start = cd_aln.other.residues[block.other_range[0]].codon[1].coordinate
+                stop = cd_aln.other.residues[block.other_range[-1]].codon[1].coordinate
+            else:
+                start = cd_aln.anchor.residues[block.anchor_range[0]].codon[1].coordinate
+                stop = cd_aln.anchor.residues[block.anchor_range[-1]].codon[1].coordinate
+            if block.category in {CodonAlignmentCategory.EDGE, CodonAlignmentCategory.COMPLEX}:
+                self.draw_point(
+                    track,
+                    start,
+                    height = height,
+                    type = 'lollipop',
+                    marker = '.',
+                    color = CBLOCK_COLORS[block.category],
+                    zorder = 1.9,
+                    alpha = alpha
+                )
+            else:
+                self.draw_region(
+                    track,
+                    start,
+                    stop,
+                    y_offset = -0.5*self.opts.max_track_width,
+                    height = -height,
+                    facecolor = CBLOCK_COLORS[block.category],
+                    alpha = alpha
+                )
+
+    def draw_protein_alignment_blocks(self, pblocks: Iterable['ProteinAlignmentBlock'], anchor: 'Protein', other: 'Protein', alpha: float = 0.5):
+        for category, color in PBLOCK_COLORS.items():
+            label = category.name.lower().replace('_', ' ')
+            if label not in self._handles:
+                self._handles[label] = mpatches.Patch(facecolor=color)
+
+        for pblock in filter(lambda block: block.category is not SequenceAlignmentCategory.MATCH, pblocks):
+            anchor_start, anchor_stop, other_start, other_stop = None, None, None, None
+            if pblock.anchor_range:
+                anchor_start = anchor.transcript.get_genome_coord_from_transcript_coord(anchor.get_transcript_coord_from_protein_coord(pblock.anchor_range[0]) + 1).coordinate
+                anchor_stop = anchor.transcript.get_genome_coord_from_transcript_coord(anchor.get_transcript_coord_from_protein_coord(pblock.anchor_range[-1]) + 1).coordinate
+            if pblock.other_range:
+                other_start = other.transcript.get_genome_coord_from_transcript_coord(other.get_transcript_coord_from_protein_coord(pblock.other_range[0]) + 1).coordinate
+                other_stop = other.transcript.get_genome_coord_from_transcript_coord(other.get_transcript_coord_from_protein_coord(pblock.other_range[-1]) + 1).coordinate
+            if anchor_start is None and anchor_stop is None:
+                anchor_start, anchor_stop = other_start, other_stop
+            elif other_start is None and other_stop is None:
+                other_start, other_stop = anchor_start, anchor_stop
+
+            self.draw_region(
+                self.transcripts.index(anchor.transcript),
+                start = anchor_start,
+                stop = anchor_stop,
+                y_offset = -0.9*self.opts.max_track_width,
+                height = 0.4*self.opts.max_track_width,
+                edgecolor = 'none',
+                facecolor = PBLOCK_COLORS[pblock.category],
+                alpha = alpha
+            )
+            self.draw_region(
+                self.transcripts.index(other.transcript),
+                start = other_start,
+                stop = other_stop,
+                y_offset = 0.5*self.opts.max_track_width,
+                height = 0.4*self.opts.max_track_width,
+                edgecolor = 'none',
+                facecolor = PBLOCK_COLORS[pblock.category],
+                alpha = alpha
+            )
     
     def draw_features(self):
         h = self.opts.max_track_width
@@ -543,26 +605,11 @@ class IsoformPlot:
 
 def generate_subtracks(intervals: Iterable[Tuple[int, int]], labels: Iterable):
     # inspired by https://stackoverflow.com/a/19088519
-    labels = list(labels)
-    index_to_label = list(dict.fromkeys(labels))  # remove duplicates while preserving order
-    label_to_index = {label: i for i, label in enumerate(index_to_label)}
-    N = len(index_to_label)
-    active_labels = set()
     # build graph of labels where labels are adjacent if their intervals overlap
-    g = Graph(directed=False)
-    boundaries = sorted(chain.from_iterable([(a, True, label), (b, False, label)] for (a, b), label in zip(intervals, labels)))
-    for _, start_of_interval, label in boundaries:
-        if start_of_interval:
-            for other_label in active_labels:
-                i = label_to_index[label]
-                j = label_to_index[other_label]
-                g.add_edge(i, j)
-            active_labels.add(label)
-        else:
-            active_labels.discard(label)
+    g, vertex_labels = get_interval_overlap_graph(intervals, labels)
     # find vertex coloring of graph
     # all labels w/ same color can be put into same subtrack
     coloring = sequential_vertex_coloring(g)
-    label_to_subtrack = {index_to_label[i]: coloring[i] for i in range(N)}
+    label_to_subtrack = dict(zip(vertex_labels, coloring))
     subtracks = max(label_to_subtrack.values(), default=0) + 1
     return label_to_subtrack, subtracks
