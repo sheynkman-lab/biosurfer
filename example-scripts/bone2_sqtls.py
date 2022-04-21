@@ -197,6 +197,7 @@ def get_augmented_sqtl_record(row):
         anchor_tx = gc_transcripts[0]
 
         pairs = list(product(lacking, containing))
+        
         abundance_denom = sum(abundance(tx) for tx in containing) * sum(abundance(tx) for tx in lacking)
         weights = {
             (tx1, tx2): abundance(tx1) * abundance(tx2) / abundance_denom
@@ -204,6 +205,7 @@ def get_augmented_sqtl_record(row):
         }
         if weights and abs(error := sum(weights.values()) - 1) > 2**-8:
             warn(f'Weights add up to 1{error:+.3e}')
+
         top_pair, junc_info['highest_pair_weight'] = max(weights.items(), key=itemgetter(1), default=(None, None))
 
         # calculate fraction of pairs where one isoform is NMD and other is not
@@ -320,6 +322,7 @@ def get_augmented_sqtl_record(row):
 
         force_plotting = False
         fig_path = f'{output_dir}/{gene.name}/{gene.name}_{junc.donor.coordinate}_{junc.acceptor.coordinate}.png'
+
         if force_plotting or not os.path.isfile(fig_path):
             isoplot = IsoformPlot(
                 gc_transcripts + [None] + containing + [None] + lacking + [None, None],
