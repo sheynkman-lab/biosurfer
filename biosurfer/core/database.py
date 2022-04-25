@@ -697,6 +697,11 @@ def _process_orfs(transcripts_to_cdss, transcripts_to_exons, minus_transcripts):
     return orfs_to_upsert
 
 
+# Create databases folder if it doesn't exist
+if not Database._databases_dir.exists():
+    Database._databases_dir.mkdir()
+
+
 # Make sure SQLite enforces foreign key constraints
 # https://www.scrygroup.com/tutorial/2018-05-07/SQLite-foreign-keys/
 @event.listens_for(Engine, "connect")
