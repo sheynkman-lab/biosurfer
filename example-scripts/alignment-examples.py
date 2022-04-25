@@ -16,7 +16,38 @@ from biosurfer.core.splice_events import (AcceptorSpliceEvent,
 from biosurfer.plots.plotting import IsoformPlot
 from tqdm import tqdm
 
-df = pd.read_csv('complex-splice-events.csv', names=['anchor', 'other'])
+df = pd.DataFrame.from_records(
+    data = [
+        ('CRYBG2-206', 'CRYBG2-202'),
+        ('DCST1-201', 'DCST1-205'),
+        ('DERL3-202', 'DERL3-203'),
+        ('DERL3-202', 'DERL3-204'),
+        ('ETV2-203', 'ETV2-204'),
+        ('ETV2-203', 'ETV2-205'),
+        ('ETV2-203', 'ETV2-207'),
+        ('KCNT2-201', 'KCNT2-203'),
+        ('MAST2-201', 'MAST2-203'),
+        ('MECP2-201', 'MECP2-205'),
+        ('MUC1-201', 'MUC1-216'),
+        ('NAXD-206', 'NAXD-201'),
+        ('NAXD-206', 'NAXD-202'),
+        ('NBPF12-208', 'NBPF12-205'),
+        ('NBPF14-205', 'NBPF14-208'),
+        ('NBPF14-205', 'NBPF14-209'),
+        ('NBPF26-208', 'NBPF26-204'),
+        ('NBPF26-208', 'NBPF26-205'),
+        ('NR1I3-205', 'NR1I3-225'),
+        ('NR1I3-205', 'NR1I3-229'),
+        ('NTRK1-206', 'NTRK1-205'),
+        ('PAQR6-201', 'PAQR6-213'),
+        ('RBFOX2-201', 'RBFOX2-202'),
+        ('SGIP1-203', 'SGIP1-205'),
+        ('SLC16A4-201', 'SLC16A4-203'),
+        ('THBS3-201', 'THBS3-202'),
+        ('TMPO-202', 'TMPO-201')
+    ],
+    columns = ['anchor', 'other']
+)
 
 db = Database('gencode')
 session = db.get_session()
