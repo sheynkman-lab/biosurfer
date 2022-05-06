@@ -185,13 +185,31 @@ class ExonSpliceEvent(BasicTranscriptEvent):
 
 BasicSpliceEvent = Union[IntronSpliceEvent, DonorSpliceEvent, AcceptorSpliceEvent, ExonSpliceEvent]
 
+@frozen(eq=True)
+class ExonBypassEvent(BasicTranscriptEvent):
+    exon: 'GenomeRange'  # TODO: replace with updated Exon object
+    is_partial: bool = False
 
-SPLICE_EVENT_CODES = {
+    @property
+    def start(self) -> 'Position':
+        return self.exon.begin
+    
+    @property
+    def stop(self) -> 'Position':
+        return self.exon.end
+
+
+EVENT_CODES = {
     IntronSpliceEvent: ('I', 'i'),
     DonorSpliceEvent: ('D', 'd'),
     AcceptorSpliceEvent: ('A', 'a'),
-    ExonSpliceEvent: ('E', 'e')
+    ExonSpliceEvent: ('E', 'e'),
+    ExonBypassEvent: ('B', 'b')
 }
+
+
+def get_event_code(events: Iterable['BasicTranscriptEvent']):
+    return ''.join(EVENT_CODES[type(event)][event.is_deletion] for event in events)
 
 
 @frozen(eq=True)
@@ -214,24 +232,10 @@ class SpliceEvent(CompoundTranscriptEvent):
     @classmethod
     def from_basic_events(cls, events: Iterable['BasicSpliceEvent']):
         events = tuple(events)
-        code = ''.join(SPLICE_EVENT_CODES[type(event)][event.is_deletion] for event in events)
+        code = get_event_code(events)
         anchor_junctions = sorted({junc for event in events for junc in event.anchor_junctions}, key=attrgetter('donor'))
         other_junctions = sorted({junc for event in events for junc in event.other_junctions}, key=attrgetter('donor'))
         return cls(members=events, code=code, anchor_junctions=tuple(anchor_junctions), other_junctions=tuple(other_junctions))
-
-
-@frozen(eq=True)
-class ExonBypassEvent(BasicTranscriptEvent):
-    exon: 'GenomeRange'  # TODO: replace with updated Exon object
-    is_partial: bool = False
-
-    @property
-    def start(self) -> 'Position':
-        return self.exon.begin
-    
-    @property
-    def stop(self) -> 'Position':
-        return self.exon.end
 
 
 @frozen(eq=True)
