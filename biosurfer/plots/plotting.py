@@ -601,6 +601,11 @@ class IsoformPlot:
                     alpha = 0.5,
                     zorder = 1.4
                 )
+    
+    def savefig(self, fig_path):
+        self.fig.set_size_inches(20, 0.8 + 0.4*len(self.transcripts))
+        plt.figure(self.fig)
+        plt.savefig(fig_path, facecolor='w', transparent=False, dpi=200, bbox_inches='tight')
 
 
 def generate_subtracks(intervals: Iterable[Tuple[int, int]], labels: Iterable):
