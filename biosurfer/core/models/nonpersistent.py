@@ -22,35 +22,43 @@ class Position:
         return f'{self.chromosome}({self.strand}):{self.coordinate}'
 
     def _is_comparable(self, other: 'Position'):
-        return isinstance(other, Position) and (self.chromosome, self.strand) == (other.chromosome, other.strand)
+        return (self.chromosome, self.strand) == (other.chromosome, other.strand)
 
     def __lt__(self, other: 'Position'):
-        if not self._is_comparable(other):
+        if not isinstance(other, Position):
             return NotImplemented
+        if not self._is_comparable(other):
+            raise ValueError(f'{self} and {other} are from different strands')
         elif self.strand is Strand.MINUS:
             return self.coordinate > other.coordinate
         else:
             return self.coordinate < other.coordinate
     
     def __le__(self, other: 'Position'):
-        if not self._is_comparable(other):
+        if not isinstance(other, Position):
             return NotImplemented
+        if not self._is_comparable(other):
+            raise ValueError(f'{self} and {other} are from different strands')
         elif self.strand is Strand.MINUS:
             return self.coordinate >= other.coordinate
         else:
             return self.coordinate <= other.coordinate
     
     def __gt__(self, other: 'Position'):
-        if not self._is_comparable(other):
+        if not isinstance(other, Position):
             return NotImplemented
+        if not self._is_comparable(other):
+            raise ValueError(f'{self} and {other} are from different strands')
         elif self.strand is Strand.MINUS:
             return self.coordinate < other.coordinate
         else:
             return self.coordinate > other.coordinate
     
     def __ge__(self, other: 'Position'):
-        if not self._is_comparable(other):
+        if not isinstance(other, Position):
             return NotImplemented
+        if not self._is_comparable(other):
+            raise ValueError(f'{self} and {other} are from different strands')
         elif self.strand is Strand.MINUS:
             return self.coordinate <= other.coordinate
         else:
@@ -70,8 +78,10 @@ class Position:
     def __sub__(self, other: Union['Position', int]):
         if isinstance(other, int):
             return self.__add__(-other)
-        elif not self._is_comparable(other):
+        elif not isinstance(other, Position):
             return NotImplemented
+        elif not self._is_comparable(other):
+            raise ValueError(f'{self} and {other} are from different strands')
         delta = self.coordinate - other.coordinate
         if self.strand is Strand.MINUS:
             delta = -delta
