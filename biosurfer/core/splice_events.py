@@ -209,7 +209,14 @@ EVENT_CODES = {
 
 
 def get_event_code(events: Iterable['BasicTranscriptEvent']):
-    return ''.join(EVENT_CODES[type(event)][event.is_deletion] for event in events)
+    # return ''.join(EVENT_CODES[type(event)][event.is_deletion] for event in events)
+    code = ''
+    for event in events:
+        if getattr(event, 'is_partial', False):
+            code += 'p' if event.is_deletion else 'P'
+        else:
+            code += EVENT_CODES[type(event)][event.is_deletion]
+    return code
 
 
 @frozen(eq=True)

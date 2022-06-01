@@ -1,10 +1,12 @@
 # %%
+from functools import reduce
 from math import ceil
 import multiprocessing as mp
 import os
+from pathlib import Path
 import sys
 from itertools import chain, groupby, starmap
-from operator import attrgetter
+from operator import attrgetter, or_
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -19,11 +21,13 @@ from biosurfer.core.models.biomolecules import (ORF, GencodeTranscript, Gene,
 from biosurfer.core.splice_events import SpliceEvent, get_event_code
 from biosurfer.plots.plotting import IsoformPlot
 from IPython.display import display
+from matplotlib.patches import Patch
 from more_itertools import first, one
 from sqlalchemy import select, func
 from tqdm import tqdm
 
 db = Database('gencode')
+output_dir = Path('../output/alignment-analysis')
 
 # %%
 gene_to_transcripts: dict[str, list[str]] = dict()
@@ -74,14 +78,14 @@ def process_gene(gene_name: str):
                             'affects_upstream_stop': anchor_stops_upstream and cblock is anchor_stop_cblock or not anchor_stops_upstream and cblock is other_stop_cblock,
                             'affects_downstream_stop': anchor_stops_upstream and cblock is other_stop_cblock or not anchor_stops_upstream and cblock is anchor_stop_cblock
                         })
-            # fig_path = f'../output/chr19/{gene_name}.png'
-            # if not os.path.isfile(fig_path) and len(transcripts) > 1:
+            # fig_path = output_dir/f'chr19/{gene_name}.png'
+            # if not fig_path.isfile() and len(transcripts) > 1:
             #     isoplot = IsoformPlot(transcripts)
             #     isoplot.draw_all_isoforms()
             #     isoplot.draw_frameshifts()
             #     isoplot.savefig(fig_path)
             #     plt.close(isoplot.fig)
-            # elif os.path.isfile(fig_path) and len(transcripts) <= 1:
+            # elif fig_path.isfile() and len(transcripts) <= 1:
             #     os.remove(fig_path)
     return out
 
@@ -100,7 +104,7 @@ def process_chr(chr: str):
         for gene_name, tx_name in rows:
             gene_to_transcripts.setdefault(gene_name, []).append(tx_name)
 
-    df_path = f'../output/alignment-analysis-{chr}.tsv'
+    df_path = output_dir/f'alignment-analysis-{chr}.tsv'
     try:
         df = pd.read_csv(df_path, sep='\t')
     except:
@@ -180,10 +184,10 @@ pblocks['internal'] = pblocks['nterm'].isna() & pblocks['cterm'].isna()
 pblocks['cblocks'] = pblock_groups['cblock'].apply(tuple)
 pblocks['tblocks'] = pblock_groups['tblock'].unique().apply(lambda x: tuple(filter(None, x)))
 pblocks['tblock_events'] = pblock_groups['events'].unique().apply(lambda x: tuple(filter(None, x)))
-pblocks['events'] = pblocks['tblock_events'].apply(lambda x: set(chain.from_iterable(x)))
+pblocks['events'] = pblocks['tblock_events'].apply(lambda x: frozenset(chain.from_iterable(x)))
 
 pblocks['compound_splicing'] = pblock_groups['compound_splicing'].agg(any)
-pblocks['complex_effect'] = (pblocks['category'] == 'S') & (pblocks['cblocks'].apply(lambda cblocks: len({cblock[0] for cblock in cblocks if cblock[0] not in 'ex'})) > 1)
+# pblocks['complex_effect'] = (pblocks['category'] == 'S') & (pblocks['cblocks'].apply(lambda cblocks: len({cblock[0] for cblock in cblocks if cblock[0] not in 'ex'})) > 1)
 pblocks['frameshift'] = pblock_groups['cblock'].apply(lambda cblocks: any(cblock[0] in 'ab' for cblock in cblocks))
 
 # %%
@@ -208,67 +212,128 @@ display(pblocks)
 # %%
 nterm_pblocks = pblocks[~pblocks['nterm'].isna() & (pblocks['nterm'] != NTerminalChange.ALTERNATIVE_ORF) & (pblocks['cterm'] != CTerminalChange.ALTERNATIVE_ORF)].copy()
 nterm_pblocks['nterm'] = nterm_pblocks['nterm'].cat.remove_unused_categories()
+nterm_pblocks['altTSS'] = nterm_pblocks['events'].apply(lambda x: x.intersection('BbPp')).astype(bool)
 display(pd.crosstab(nterm_pblocks['upstream_start'], nterm_pblocks['downstream_start'], margins=True))
 
-nterm_fig, nterm_axes = plt.subplots(1, 2, figsize=(15, 5))
-nterm_frequencies = nterm_pblocks['nterm'].value_counts() / len(df[['anchor', 'other']].drop_duplicates())
-g0 = sns.barplot(
-    data = nterm_frequencies.reset_index(),
-    x = 'nterm',
-    y = 'index',
-    palette = 'viridis_r',
-    ax = nterm_axes[0]
+nterm_palette = sns.color_palette('viridis_r', n_colors=4)
+
+nterm_fig = plt.figure(figsize=(3, 4))
+ax = sns.countplot(
+    data = nterm_pblocks,
+    y = 'nterm',
+    order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED, NTerminalChange.UPSTREAM_SHARED, NTerminalChange.MUTUALLY_SHARED),
+    palette = nterm_palette
 )
-g1 = sns.stripplot(
+ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=[])
+plt.savefig(output_dir/'nterm-class-counts.png', dpi=200, facecolor=None)
+
+# %%
+nterm_length_fig = plt.figure(figsize=(6, 4))
+ax = sns.stripplot(
     data = nterm_pblocks,
     x = 'anchor_relative_length_change',
     y = 'nterm',
-    jitter = 0.4,
+    order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED),
+    jitter = 0.25,
     size = 2,
-    palette = 'viridis_r',
-    ax = nterm_axes[1]
+    palette = nterm_palette[:2]
 )
-xmax = max(nterm_axes[1].get_xlim())
-ymin, ymax = sorted(nterm_axes[1].get_ylim())
-nterm_axes[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle='dashed')
-nterm_axes[1].set(xlim=(-1, ceil(xmax)), ylabel=None, yticklabels=[])
+xmax = max(ax.get_xlim())
+ymin, ymax = sorted(ax.get_ylim())
+ax.vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
+ax.set(xlim=(-1, ceil(xmax)), xlabel='change in N-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['MXS', 'SDS'])
+plt.savefig(output_dir/'nterm-length-change-dist.png', dpi=200, facecolor=None)
 
 # %%
-display(
-    pd.crosstab(
-        index = nterm_pblocks['nterm'],
-        columns = nterm_pblocks['events'].apply(lambda x: x.intersection('Bb')).astype(bool).rename('altTSS'),
-        margins = True
-    )
+tss_fig = plt.figure(figsize=(6, 4))
+ax = sns.countplot(
+    data = nterm_pblocks,
+    y = 'nterm',
+    palette = nterm_palette,
+    order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED)
 )
+sns.countplot(
+    ax = ax,
+    data = nterm_pblocks[nterm_pblocks['altTSS']],
+    y = 'nterm',
+    order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED),
+    fill = False,
+    edgecolor = 'w',
+    hatch = '//',
+)
+ax.legend(handles=[Patch(facecolor='gray', edgecolor='w', hatch='///'), Patch(facecolor='gray')], labels=['driven by alternate TSS', 'driven by 5\' UTR splicing'])
+ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=['MXS', 'SDS'])
+plt.savefig(output_dir/'nterm-altTSS-counts.png', dpi=200, facecolor=None)
 
 # %%
 cterm_pblocks = pblocks[~pblocks['cterm'].isna() & (pblocks['nterm'] != NTerminalChange.ALTERNATIVE_ORF) & (pblocks['cterm'] != CTerminalChange.ALTERNATIVE_ORF) & (pblocks['cterm'] != CTerminalChange.UNKNOWN)].copy()
 cterm_pblocks['cterm'] = cterm_pblocks['cterm'].cat.remove_unused_categories()
+cterm_pblocks['APA'] = cterm_pblocks['altTSS'] = cterm_pblocks['events'].apply(lambda x: x.intersection('BbPp')).astype(bool)
+# cterm_pblocks['ATE'] = cterm_pblocks['events'] == {'b', 'B'}
+cterm_pblocks['ATE'] = cterm_pblocks.tblock_events.isin([('B', 'b'), ('b', 'B')])
+cterm_pblocks['EXIT'] = cterm_pblocks['events'] == {'b', 'P'}  # TODO: this doesn't cover all kinds of EXIT, but it seems to be the most common
+cterm_pblocks['exon'] = (cterm_pblocks['events'] == {'E'}) | (cterm_pblocks['events'] == {'e'})
+cterm_pblocks['intron'] = (cterm_pblocks['events'] == {'I'}) | (cterm_pblocks['events'] == {'i'})
 display(pd.crosstab(cterm_pblocks['upstream_stop'], cterm_pblocks['downstream_stop'], margins=True))
 
-cterm_fig, cterm_axes = plt.subplots(1, 2, figsize=(15, 3))
-cterm_frequencies = cterm_pblocks['cterm'].value_counts() / len(df[['anchor', 'other']].drop_duplicates())
-g0 = sns.barplot(
-    data = cterm_frequencies.reset_index(),
-    x = 'cterm',
-    y = 'index',
-    palette = 'magma',
-    ax = cterm_axes[0]
+cterm_palette = sns.color_palette('rocket', n_colors=2)
+
+cterm_fig = plt.figure(figsize=(3, 4))
+ax = sns.countplot(
+    data = cterm_pblocks,
+    y = 'cterm',
+    order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT),
+    palette = cterm_palette
 )
-g1 = sns.stripplot(
+ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=[])
+plt.savefig(output_dir/'cterm-class-counts.png', dpi=200, facecolor=None)
+
+# %%
+cterm_length_fig = plt.figure(figsize=(6, 4))
+ax = sns.stripplot(
     data = cterm_pblocks,
     x = 'anchor_relative_length_change',
     y = 'cterm',
-    jitter = 0.3,
+    order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT),
+    jitter = 0.25,
     size = 2,
-    palette = 'magma',
-    ax = cterm_axes[1]
+    palette = cterm_palette
 )
-xmax = max(cterm_axes[1].get_xlim())
-ymin, ymax = sorted(cterm_axes[1].get_ylim())
-cterm_axes[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle='dashed')
-cterm_axes[1].set(xlim=(-1, ceil(xmax)), ylabel=None, yticklabels=[])
+xmax = max(ax.get_xlim())
+ymin, ymax = sorted(ax.get_ylim())
+ax.vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
+ax.set(xlim=(-1, ceil(xmax)), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['splice', 'frame'])
+plt.savefig(output_dir/'cterm-length-change-dist.png', dpi=200, facecolor=None)
+
+# %%
+cterm_event_fig = plt.figure(figsize=(6, 4))
+ax = sns.countplot(
+    data = cterm_pblocks,
+    y = 'cterm',
+    palette = cterm_palette,
+    order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT)
+)
+subcats = ['ATE', 'EXIT', 'exon', 'intron']
+hatches = ['o.', '..', 'xx', '//']
+for i in reversed(range(len(subcats))):
+    sns.countplot(
+        ax = ax,
+        data = cterm_pblocks[reduce(or_, (cterm_pblocks[subcat] for subcat in subcats[:i+1]))],
+        y = 'cterm',
+        order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT),
+        palette = cterm_palette,
+        edgecolor = 'w',
+        hatch = hatches[i],
+        label = subcats[i]
+    )
+ax.legend(ncol=2)
+# ax.legend(handles=[Patch(facecolor='gray', edgecolor='w', hatch='///'), Patch(facecolor='gray')], labels=['driven by alternate TSS', 'driven by 5\' UTR splicing'])
+ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=['splice', 'frame'])
+plt.savefig(output_dir/'cterm-event-counts.png', dpi=200, facecolor=None)
+
+# %%
+cterm_event_counts = cterm_pblocks.groupby('cterm').events.value_counts().rename('count')
+cterm_examples = cterm_pblocks.groupby(['cterm', 'events']).sample(1, random_state=329).join(cterm_event_counts, on=['cterm', 'events']).sort_values(['cterm', 'count'], ascending=False).set_index(['cterm', 'events'])
 
 # %%
 # internal_pblocks = pblocks[pblocks['nterm'].isna() & pblocks['cterm'].isna()]
