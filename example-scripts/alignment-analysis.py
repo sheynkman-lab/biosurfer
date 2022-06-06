@@ -18,11 +18,11 @@ from biosurfer.core.database import Database
 from biosurfer.core.helpers import ExceptionLogger
 from biosurfer.core.models.biomolecules import (ORF, GencodeTranscript, Gene,
                                                 Protein, Transcript)
-from biosurfer.core.splice_events import SpliceEvent, get_event_code
+from biosurfer.core.splice_events import BasicTranscriptEvent, CompoundTranscriptEvent, SpliceEvent, get_event_code
 from biosurfer.plots.plotting import IsoformPlot
 from IPython.display import display
 from matplotlib.patches import Patch
-from more_itertools import first, one
+from more_itertools import one, only
 from sqlalchemy import select, func
 from tqdm import tqdm
 
@@ -38,6 +38,8 @@ def process_gene(gene_name: str):
         transcripts: list['GencodeTranscript'] = list(GencodeTranscript.from_names(session, gene_to_transcripts[gene_name]).values())
         transcripts.sort(key=attrgetter('appris'), reverse=True)
         principal = transcripts[0]
+        if not principal.protein:
+            return out
         principal_length = principal.protein.length
         if principal.appris is APPRIS.PRINCIPAL and principal.sequence:
             anchor_start_codon = principal.get_genome_coord_from_transcript_coord(principal.primary_orf.transcript_start - 1)
@@ -65,7 +67,7 @@ def process_gene(gene_name: str):
                     for cblock in pr_aln.pblock_to_cblocks[pblock]:
                         tblock = cd_aln.cblock_to_tblock.get(cblock)
                         events = tx_aln.block_to_events.get(tblock, ())
-                        out.append({
+                        row = {
                             'anchor': principal.name,
                             'other': alternative.name,
                             'pblock': str(pblock),
@@ -73,11 +75,46 @@ def process_gene(gene_name: str):
                             'tblock': str(tblock),
                             'events': get_event_code(events),
                             'compound_splicing': any(set(events).intersection(compound_event.members) for compound_event in tx_aln.events if isinstance(compound_event, SpliceEvent) and len(compound_event.members) > 1),
-                            'affects_upstream_start': anchor_starts_upstream and cblock is anchor_start_cblock or not anchor_starts_upstream and cblock is other_start_cblock,
-                            'affects_downstream_start': anchor_starts_upstream and cblock is other_start_cblock or not anchor_starts_upstream and cblock is anchor_start_cblock,
-                            'affects_upstream_stop': anchor_stops_upstream and cblock is anchor_stop_cblock or not anchor_stops_upstream and cblock is other_stop_cblock,
-                            'affects_downstream_stop': anchor_stops_upstream and cblock is other_stop_cblock or not anchor_stops_upstream and cblock is anchor_stop_cblock
-                        })
+                            'affects_up_start': anchor_starts_upstream and cblock is anchor_start_cblock or not anchor_starts_upstream and cblock is other_start_cblock,
+                            'affects_down_start': anchor_starts_upstream and cblock is other_start_cblock or not anchor_starts_upstream and cblock is anchor_start_cblock,
+                            'affects_up_stop': anchor_stops_upstream and cblock is anchor_stop_cblock or not anchor_stops_upstream and cblock is other_stop_cblock,
+                            'affects_down_stop': anchor_stops_upstream and cblock is other_stop_cblock or not anchor_stops_upstream and cblock is anchor_stop_cblock,
+                            'up_start_events': '',
+                            'down_start_events': '',
+                            'up_stop_events': '',
+                            'down_stop_events': '',
+                        }
+                        if cblock is anchor_start_cblock:
+                            start_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(principal.primary_orf.transcript_start - 1, principal.primary_orf.transcript_start + 2) if isinstance(i.data, BasicTranscriptEvent))
+                            if anchor_starts_upstream:
+                                row['up_start_events'] = start_events
+                            else:
+                                row['down_start_events'] = start_events
+                        elif cblock is other_start_cblock:
+                            start_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(principal.primary_orf.transcript_start - 1, principal.primary_orf.transcript_start + 2) if isinstance(i.data, BasicTranscriptEvent))
+                            if anchor_starts_upstream:
+                                row['down_start_events'] = start_events
+                            else:
+                                row['up_start_events'] = start_events
+                        else:
+                            row['up_start_events'] = ''
+                            row['down_start_events'] = ''
+                        if cblock is anchor_stop_cblock:
+                            stop_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(principal.primary_orf.transcript_stop - 3, principal.primary_orf.transcript_stop) if isinstance(i.data, BasicTranscriptEvent))
+                            if anchor_stops_upstream:
+                                row['up_stop_events'] = stop_events
+                            else:
+                                row['down_stop_events'] = stop_events
+                        elif cblock is other_stop_cblock:
+                            stop_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(principal.primary_orf.transcript_stop - 3, principal.primary_orf.transcript_stop) if isinstance(i.data, BasicTranscriptEvent))
+                            if anchor_stops_upstream:
+                                row['down_stop_events'] = stop_events
+                            else:
+                                row['up_stop_events'] = stop_events
+                        else:
+                            row['up_stop_events'] = ''
+                            row['down_stop_events'] = ''
+                        out.append(row)
             # fig_path = output_dir/f'chr19/{gene_name}.png'
             # if not fig_path.isfile() and len(transcripts) > 1:
             #     isoplot = IsoformPlot(transcripts)
@@ -118,8 +155,15 @@ def process_chr(chr: str):
         df.to_csv(df_path, sep='\t', index=False)
     return df
 
-df = pd.concat((process_chr(f'chr{i}') for i in list(range(19, 20))), ignore_index=True).fillna(value='')
+chrs = [f'chr{i}' for i in list(range(1, 23)) + ['X']]
+df = pd.concat(
+    (process_chr(chr) for chr in chrs),
+    keys = chrs,
+    names = ['chr', 'row']
+).fillna(value='').reset_index().drop(columns='row')
 display(df)
+
+# sys.exit()
 
 with db.get_session() as session:
     protein_lengths = {
@@ -132,11 +176,9 @@ with db.get_session() as session:
         ).all()
     }
 
-# sys.exit()
-
 # %%
-pblock_groups = df.groupby(['anchor', 'other', 'pblock'])
-pblocks = pd.DataFrame(index=pd.Index(data=pblock_groups.indices.keys(), name=('anchor', 'other', 'pblock')))
+pblock_groups = df.groupby(['chr', 'anchor', 'other', 'pblock'])
+pblocks = pd.DataFrame(index=pd.Index(data=pblock_groups.indices.keys(), name=('chr', 'anchor', 'other', 'pblock')))
 
 pblock_attrs = pblocks.index.to_frame()['pblock'].str.extract(r'\w\((\d+):(\d+)\|(\d+):(\d+)\)').astype(int)
 
@@ -146,10 +188,12 @@ pblocks['anchor_length'] = [protein_lengths[anchor] for anchor in pblocks.reset_
 pblocks['anchor_relative_length_change'] = pblocks['length_change'] / pblocks['anchor_length']
 
 # %%
-cols = ('affects_upstream_start', 'affects_downstream_start', 'affects_upstream_stop', 'affects_downstream_stop')
 cblock_cat = pd.CategoricalDtype(['d', 'i', 'u', 't', 'a', 'b', '-'], ordered=True)
-for col in cols:
-    pblocks[col[8:]] = df['cblock'][pblock_groups[col].idxmax()].str.get(0).where(pblock_groups[col].any().array, other='-').astype(cblock_cat).array
+for col in ('affects_up_start', 'affects_down_start', 'affects_up_stop', 'affects_down_stop'):
+    pblocks[col[8:] + '_cblock'] = df['cblock'][pblock_groups[col].idxmax()].str.get(0).where(pblock_groups[col].any().array, other='-').astype(cblock_cat).array
+
+for col in ('up_start_events', 'down_start_events', 'up_stop_events', 'down_stop_events'):
+    pblocks[col] = pblock_groups[col].max()
 
 nterm_cat = pd.CategoricalDtype(list(NTerminalChange), ordered=True)
 cterm_cat = pd.CategoricalDtype(list(CTerminalChange), ordered=True)
@@ -174,8 +218,8 @@ def classify_cterm(upcat, downcat):
     else:
         return None if downcat == '-' else CTerminalChange.UNKNOWN
 
-pblocks['nterm'] = list(starmap(classify_nterm, zip(pblocks['upstream_start'], pblocks['downstream_start'])))
-pblocks['cterm'] = list(starmap(classify_cterm, zip(pblocks['upstream_stop'], pblocks['downstream_stop'])))
+pblocks['nterm'] = list(starmap(classify_nterm, zip(pblocks['up_start_cblock'], pblocks['down_start_cblock'])))
+pblocks['cterm'] = list(starmap(classify_cterm, zip(pblocks['up_stop_cblock'], pblocks['down_stop_cblock'])))
 pblocks['nterm'] = pblocks['nterm'].astype(nterm_cat)
 pblocks['cterm'] = pblocks['cterm'].astype(cterm_cat)
 pblocks['internal'] = pblocks['nterm'].isna() & pblocks['cterm'].isna()
@@ -213,7 +257,7 @@ display(pblocks)
 nterm_pblocks = pblocks[~pblocks['nterm'].isna() & (pblocks['nterm'] != NTerminalChange.ALTERNATIVE_ORF) & (pblocks['cterm'] != CTerminalChange.ALTERNATIVE_ORF)].copy()
 nterm_pblocks['nterm'] = nterm_pblocks['nterm'].cat.remove_unused_categories()
 nterm_pblocks['altTSS'] = nterm_pblocks['events'].apply(lambda x: x.intersection('BbPp')).astype(bool)
-display(pd.crosstab(nterm_pblocks['upstream_start'], nterm_pblocks['downstream_start'], margins=True))
+display(pd.crosstab(nterm_pblocks['up_start_cblock'], nterm_pblocks['down_start_cblock'], margins=True))
 
 nterm_palette = sns.color_palette('viridis_r', n_colors=4)
 
@@ -229,19 +273,18 @@ plt.savefig(output_dir/'nterm-class-counts.png', dpi=200, facecolor=None)
 
 # %%
 nterm_length_fig = plt.figure(figsize=(6, 4))
-ax = sns.stripplot(
+ax = sns.violinplot(
     data = nterm_pblocks,
     x = 'anchor_relative_length_change',
     y = 'nterm',
     order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED),
-    jitter = 0.25,
-    size = 2,
-    palette = nterm_palette[:2]
+    palette = nterm_palette[:2],
+    scale = 'count'
 )
 xmax = max(ax.get_xlim())
 ymin, ymax = sorted(ax.get_ylim())
 ax.vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
-ax.set(xlim=(-1, ceil(xmax)), xlabel='change in N-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['MXS', 'SDS'])
+ax.set(xlim=(-1, 1), xlabel='change in N-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['MXS', 'SDS'])
 plt.savefig(output_dir/'nterm-length-change-dist.png', dpi=200, facecolor=None)
 
 # %%
@@ -268,13 +311,9 @@ plt.savefig(output_dir/'nterm-altTSS-counts.png', dpi=200, facecolor=None)
 # %%
 cterm_pblocks = pblocks[~pblocks['cterm'].isna() & (pblocks['nterm'] != NTerminalChange.ALTERNATIVE_ORF) & (pblocks['cterm'] != CTerminalChange.ALTERNATIVE_ORF) & (pblocks['cterm'] != CTerminalChange.UNKNOWN)].copy()
 cterm_pblocks['cterm'] = cterm_pblocks['cterm'].cat.remove_unused_categories()
-cterm_pblocks['APA'] = cterm_pblocks['altTSS'] = cterm_pblocks['events'].apply(lambda x: x.intersection('BbPp')).astype(bool)
-# cterm_pblocks['ATE'] = cterm_pblocks['events'] == {'b', 'B'}
-cterm_pblocks['ATE'] = cterm_pblocks.tblock_events.isin([('B', 'b'), ('b', 'B')])
-cterm_pblocks['EXIT'] = cterm_pblocks['events'] == {'b', 'P'}  # TODO: this doesn't cover all kinds of EXIT, but it seems to be the most common
-cterm_pblocks['exon'] = (cterm_pblocks['events'] == {'E'}) | (cterm_pblocks['events'] == {'e'})
-cterm_pblocks['intron'] = (cterm_pblocks['events'] == {'I'}) | (cterm_pblocks['events'] == {'i'})
-display(pd.crosstab(cterm_pblocks['upstream_stop'], cterm_pblocks['downstream_stop'], margins=True))
+cterm_pblocks['APA'] = cterm_pblocks['events'].apply(lambda x: x.intersection('BbPp')).astype(bool)
+
+display(pd.crosstab(cterm_pblocks['up_stop_cblock'], cterm_pblocks['down_stop_cblock'], margins=True))
 
 cterm_palette = sns.color_palette('rocket', n_colors=2)
 
@@ -290,70 +329,71 @@ plt.savefig(output_dir/'cterm-class-counts.png', dpi=200, facecolor=None)
 
 # %%
 cterm_length_fig = plt.figure(figsize=(6, 4))
-ax = sns.stripplot(
+ax = sns.violinplot(
     data = cterm_pblocks,
     x = 'anchor_relative_length_change',
     y = 'cterm',
     order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT),
-    jitter = 0.25,
-    size = 2,
-    palette = cterm_palette
+    palette = cterm_palette,
+    scale = 'count'
 )
 xmax = max(ax.get_xlim())
 ymin, ymax = sorted(ax.get_ylim())
 ax.vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
-ax.set(xlim=(-1, ceil(xmax)), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['splice', 'frame'])
+ax.set(xlim=(-1, 1), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['splice', 'frame'])
 plt.savefig(output_dir/'cterm-length-change-dist.png', dpi=200, facecolor=None)
 
 # %%
-cterm_event_fig = plt.figure(figsize=(6, 4))
-ax = sns.countplot(
-    data = cterm_pblocks,
-    y = 'cterm',
-    palette = cterm_palette,
-    order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT)
+cterm_pblock_events = cterm_pblocks['up_stop_events'].combine(cterm_pblocks['down_stop_events'], lambda x, y: (x, y))
+cterm_pblock_subcats = pd.DataFrame(
+    {
+        'ATE': cterm_pblock_events.isin({('B', 'b'), ('b', 'B')}),
+        'EXIT_P': cterm_pblock_events == ('P', 'b'),  # TODO: this doesn't cover all kinds of EXIT, but it seems to be the most common
+        'EXIT_D': cterm_pblocks['up_stop_events'] == 'D',
+        'EXIT_I': cterm_pblocks['up_stop_events'] == 'I',
+        'poison_exon': cterm_pblocks['up_stop_events'] == 'E',
+    }
 )
-subcats = ['ATE', 'EXIT', 'exon', 'intron']
-hatches = ['o.', '..', 'xx', '//']
-for i in reversed(range(len(subcats))):
-    sns.countplot(
-        ax = ax,
-        data = cterm_pblocks[reduce(or_, (cterm_pblocks[subcat] for subcat in subcats[:i+1]))],
-        y = 'cterm',
-        order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT),
-        palette = cterm_palette,
-        edgecolor = 'w',
-        hatch = hatches[i],
-        label = subcats[i]
-    )
-ax.legend(ncol=2)
-# ax.legend(handles=[Patch(facecolor='gray', edgecolor='w', hatch='///'), Patch(facecolor='gray')], labels=['driven by alternate TSS', 'driven by 5\' UTR splicing'])
-ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=['splice', 'frame'])
-plt.savefig(output_dir/'cterm-event-counts.png', dpi=200, facecolor=None)
+
+# cterm_event_fig = plt.figure(figsize=(6, 4))
+# ax = sns.countplot(
+#     data = cterm_pblocks,
+#     y = 'cterm',
+#     palette = cterm_palette,
+#     order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT)
+# )
+# subcats = ['ATE', 'EXIT', 'exon', 'intron']
+# hatches = ['o.', '..', 'xx', '//']
+# for i in reversed(range(len(subcats))):
+#     sns.countplot(
+#         ax = ax,
+#         data = cterm_pblocks[reduce(or_, (cterm_pblocks[subcat] for subcat in subcats[:i+1]))],
+#         y = 'cterm',
+#         order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT),
+#         palette = cterm_palette,
+#         edgecolor = 'w',
+#         hatch = hatches[i],
+#         label = subcats[i]
+#     )
+# ax.legend(ncol=2)
+# # ax.legend(handles=[Patch(facecolor='gray', edgecolor='w', hatch='///'), Patch(facecolor='gray')], labels=['driven by alternate TSS', 'driven by 5\' UTR splicing'])
+# ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=['splice', 'frame'])
+# plt.savefig(output_dir/'cterm-event-counts.png', dpi=200, facecolor=None)
 
 # %%
 cterm_event_counts = cterm_pblocks.groupby('cterm').events.value_counts().rename('count')
 cterm_examples = cterm_pblocks.groupby(['cterm', 'events']).sample(1, random_state=329).join(cterm_event_counts, on=['cterm', 'events']).sort_values(['cterm', 'count'], ascending=False).set_index(['cterm', 'events'])
 
 # %%
-# internal_pblocks = pblocks[pblocks['nterm'].isna() & pblocks['cterm'].isna()]
-# display(
-#     pd.crosstab(
-#         index = pblocks['complex_splicing'],
-#         columns = [~pblocks['nterm'].isna(), ~pblocks['cterm'].isna()],
-#         margins = True
-#     )
-# )
+internal_pblocks = pblocks[pblocks['nterm'].isna() & pblocks['cterm'].isna()]
+internal_pblock_counts = internal_pblocks.reset_index(level=2).groupby(['anchor', 'other']).agg(pblocks=('pblock', 'count'))
 
-# display(
-#     pd.crosstab(
-#         index = pblocks['complex_effect'],
-#         columns = [~pblocks['nterm'].isna(), ~pblocks['cterm'].isna()],
-#         margins = True
-#     )
-# )
+internal_pblock_counts_fig = plt.figure(figsize=(6, 4))
+ax = sns.countplot(data=internal_pblock_counts, x='pblocks', palette='Blues_r')
+ax.set(xlabel='# of non-matching internal p-blocks', ylabel='# of alternative isoforms')
+plt.savefig(output_dir/'internal-pblock-counts.png')
 
-# display(pd.crosstab(index=pblocks['complex_splicing'], columns=pblocks['complex_effect'], margins=True))
-# display(pd.crosstab(index=pblocks['complex_splicing'], columns=[pblocks['complex_effect'], ~pblocks['nterm'].isna(), ~pblocks['cterm'].isna()], margins=True))
+# %%
+
 
 # %%
