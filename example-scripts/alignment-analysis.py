@@ -149,7 +149,7 @@ def process_chr(chr: str):
         df.to_csv(df_path, sep='\t', index=False)
     return df
 
-chrs = [f'chr{i}' for i in list(range(19, 20)) + ['X']]
+chrs = [f'chr{i}' for i in list(range(1, 23)) + ['X']]
 df = pd.concat(
     (process_chr(chr) for chr in chrs),
     keys = chrs,
@@ -277,7 +277,7 @@ ax = sns.violinplot(
     y = 'nterm',
     order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED),
     palette = nterm_palette[:2],
-    scale = 'count'
+    scale = 'area'
 )
 xmax = max(ax.get_xlim())
 ymin, ymax = sorted(ax.get_ylim())
@@ -359,7 +359,7 @@ sns.violinplot(
     x = 'anchor_relative_length_change',
     y = 'splice_subcat',
     palette = cterm_splice_palette + ['#bbbbbb'],
-    scale = 'count'
+    scale = 'area'
 )
 xmax = max(axs[1].get_xlim())
 ymin, ymax = axs[1].get_ylim()
@@ -395,7 +395,7 @@ sns.violinplot(
     x = 'anchor_relative_length_change',
     y = 'frame_subcat',
     palette = cterm_frameshift_palette + ['#bbbbbb'],
-    scale = 'count'
+    scale = 'area'
 )
 xmax = max(axs[1].get_xlim())
 ymin, ymax = axs[1].get_ylim()
@@ -436,7 +436,7 @@ internal_event_palette = {
     'acceptor': '#8a4ea7',
     'single exon': '#3d85c6',
     'mutually exclusive exons': '#255179',
-    'compound': '#999999'
+    'compound': '#888888'
 }
 
 internal_subcats = pd.DataFrame(
