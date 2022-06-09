@@ -176,7 +176,9 @@ pblocks = pd.DataFrame(index=pd.Index(data=pblock_groups.indices.keys(), name=('
 
 pblock_attrs = pblocks.index.to_frame()['pblock'].str.extract(r'\w\((\d+):(\d+)\|(\d+):(\d+)\)').astype(int)
 
-pblocks['category'] = pblocks.index.to_frame()['pblock'].str.get(0)
+pblock_cat = pd.CategoricalDtype(['I', 'D', 'S'], ordered=True)
+
+pblocks['category'] = pblocks.index.to_frame()['pblock'].str.get(0).astype(pblock_cat)
 pblocks['length_change'] = (pblock_attrs[3] - pblock_attrs[2]) - (pblock_attrs[1] - pblock_attrs[0])
 pblocks['anchor_length'] = [protein_lengths[anchor] for anchor in pblocks.reset_index()['anchor']]
 pblocks['anchor_relative_length_change'] = pblocks['length_change'] / pblocks['anchor_length']
@@ -228,6 +230,7 @@ pblocks['events'] = pblocks['tblock_events'].apply(lambda x: frozenset(chain.fro
 
 pblocks['compound_splicing'] = pblock_groups['compound_splicing'].agg(any)
 pblocks['frameshift'] = pblock_groups['cblock'].apply(lambda cblocks: any(cblock[0] in 'ab' for cblock in cblocks))
+pblocks['split_ends'] = pblock_groups['cblock'].apply(lambda cblocks: any(cblock[0] in 'ex' for cblock in cblocks))
 
 # %%
 def get_genes(pblocks_slice: 'pd.DataFrame'):
@@ -356,13 +359,12 @@ sns.violinplot(
     x = 'anchor_relative_length_change',
     y = 'splice_subcat',
     palette = cterm_splice_palette + ['#bbbbbb'],
-    dodge = True,
-    scale = 'area'
+    scale = 'count'
 )
 xmax = max(axs[1].get_xlim())
-ymin, ymax = sorted(axs[1].get_ylim())
+ymin, ymax = axs[1].get_ylim()
 axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
-axs[1].set(xlim=(-1, 1), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
+axs[1].set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
 
 plt.savefig(output_dir/'cterm-splicing-subcats.png', dpi=200, facecolor=None)
 
@@ -393,13 +395,12 @@ sns.violinplot(
     x = 'anchor_relative_length_change',
     y = 'frame_subcat',
     palette = cterm_frameshift_palette + ['#bbbbbb'],
-    dodge = True,
-    scale = 'area'
+    scale = 'count'
 )
 xmax = max(axs[1].get_xlim())
-ymin, ymax = sorted(axs[1].get_ylim())
+ymin, ymax = axs[1].get_ylim()
 axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
-axs[1].set(xlim=(-1, 1), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
+axs[1].set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
 
 plt.savefig(output_dir/'cterm-frameshift-subcats.png', dpi=200, facecolor=None)
 
@@ -408,15 +409,69 @@ cterm_event_counts = cterm_pblocks.groupby('cterm').events.value_counts().rename
 cterm_examples = cterm_pblocks.groupby(['cterm', 'events']).sample(1, random_state=329).join(cterm_event_counts, on=['cterm', 'events']).sort_values(['cterm', 'count'], ascending=False).set_index(['cterm', 'events'])
 
 # %%
-internal_pblocks = pblocks[pblocks['nterm'].isna() & pblocks['cterm'].isna()]
-internal_pblock_counts = internal_pblocks.reset_index(level=2).groupby(['anchor', 'other']).agg(pblocks=('pblock', 'count'))
+internal_pblocks = (
+    pblocks[pblocks['nterm'].isna() & pblocks['cterm'].isna()].
+    drop(columns=[col for col in pblocks.columns if 'start' in col or 'stop' in col]).
+    copy()
+)
+internal_pblocks['category'] = (
+    internal_pblocks['cblocks'].
+    apply(lambda cblocks: ''.join(cblock[0] for cblock in cblocks)).
+    str.replace(r'[ex]', '', regex=True).
+    map({'d': 'D', 'i': 'I'}).
+    fillna('S')
+)
+internal_pblock_counts = internal_pblocks.reset_index(level=3).groupby(['anchor', 'other']).agg(pblocks=('pblock', 'count'))
 
 internal_pblock_counts_fig = plt.figure(figsize=(6, 4))
 ax = sns.countplot(data=internal_pblock_counts, x='pblocks', palette='Blues_r')
 ax.set(xlabel='# of non-matching internal p-blocks', ylabel='# of alternative isoforms')
-plt.savefig(output_dir/'internal-pblock-counts.png')
+plt.savefig(output_dir/'internal-pblock-counts.png', dpi=200, facecolor=None)
 
 # %%
+# internal_cat_palette = {'D': '#f022f0', 'I': '#22f0f0', 'S': '#f0f022'}
+internal_event_palette = {
+    'intron': '#e69138',
+    'donor': '#6aa84f',
+    'acceptor': '#8a4ea7',
+    'single exon': '#3d85c6',
+    'mutually exclusive exons': '#255179',
+    'compound': '#999999'
+}
 
+internal_subcats = pd.DataFrame(
+    {
+        'intron': internal_pblocks['tblock_events'].isin({('I',), ('i',)}),
+        'donor': internal_pblocks['tblock_events'].isin({('D',), ('d',)}),
+        'acceptor': internal_pblocks['tblock_events'].isin({('A',), ('a',)}),
+        'single exon': internal_pblocks['tblock_events'].isin({('E',), ('e',)}),
+        'mutually exclusive exons': internal_pblocks['tblock_events'].isin({('E', 'e'), ('e', 'E')}),
+        'compound': [True for _ in internal_pblocks.index]
+    }
+)
+internal_pblocks['splice event'] = internal_subcats.idxmax(axis=1).astype(pd.CategoricalDtype(internal_subcats.columns, ordered=True))
+
+internal_pblocks_fig = plt.figure(figsize=(6, 4))
+ax = sns.countplot(
+    data = internal_pblocks.sort_values('category', ascending=True),
+    y = 'category',
+    hue = 'splice event',
+    palette = internal_event_palette,
+    dodge = True
+)
+sns.countplot(
+    ax = ax,
+    data = internal_pblocks[internal_pblocks.split_ends].sort_values('category', ascending=True),
+    y = 'category',
+    hue = 'splice event',
+    facecolor = 'None',
+    edgecolor = 'w',
+    hatch = '///',
+    dodge = True
+)
+sns.move_legend(ax, 'lower right')
+plt.legend(labels=list(internal_subcats.columns))
+ax.set(xlabel='# of p-blocks', ylabel=None)
+plt.savefig(output_dir/'internal-pblock-events.png', dpi=200, facecolor=None)
 
 # %%
