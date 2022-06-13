@@ -26,8 +26,9 @@ from more_itertools import one, only
 from sqlalchemy import select, func
 from tqdm import tqdm
 
-db = Database('gencode')
-output_dir = Path('../output/alignment-analysis')
+db_name = 'gencode'
+db = Database(db_name)
+output_dir = Path(f'../output/alignment-analysis/{db_name}')
 
 # %%
 gene_to_transcripts: dict[str, list[str]] = dict()
