@@ -24,11 +24,13 @@ from biosurfer.core.splice_events import (BasicTranscriptEvent,
                                           get_event_code)
 from biosurfer.plots.plotting import IsoformPlot
 from IPython.display import display
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, PathPatch
 from more_itertools import first, one, only
 from scipy.sparse import coo_matrix
 from sqlalchemy import func, select
 from tqdm import tqdm
+
+sns.set_style('whitegrid')
 
 db_name = 'wtc11'
 db = Database(db_name)
@@ -62,7 +64,9 @@ except FileNotFoundError:
     expression = expression.filter(items=all_pb_ids, axis=0)
     expression.to_csv(f'{data_dir}/corrected_expression.tsv', sep='\t')
 
-abundant = expression[expression.cpm >= 3]
+thresh_low = 3
+thresh_high = 12
+abundant = expression[expression.cpm >= thresh_low]
 display(abundant)
 
 # %%
@@ -204,6 +208,8 @@ df = pd.concat(
     keys = chrs,
     names = ['chr', 'row']
 ).fillna(value='').reset_index().drop(columns='row')
+df['other_accession'] = df['other'].str.split('|').str.get(1)
+df = df.merge(abundant, left_on='other_accession', right_index=True, how='left')
 display(df)
 
 # sys.exit()
@@ -231,6 +237,13 @@ pblocks['category'] = pblocks.index.to_frame()['pblock'].str.get(0).astype(pbloc
 pblocks['length_change'] = (pblock_attrs[3] - pblock_attrs[2]) - (pblock_attrs[1] - pblock_attrs[0])
 pblocks['anchor_length'] = [protein_lengths[anchor] for anchor in pblocks.reset_index()['anchor']]
 pblocks['anchor_relative_length_change'] = pblocks['length_change'] / pblocks['anchor_length']
+pblocks['cpm'] = pblock_groups.agg(cpm=('cpm', first))
+pblocks['cpm_bin'] = pd.cut(
+    pblocks['cpm'],
+    bins = [thresh_low, thresh_high, df['cpm'].max()],
+    include_lowest = True,
+    labels = [f'{thresh_low}-{thresh_high}', f'{thresh_high}+']
+)
 
 # %%
 cblock_cat = pd.CategoricalDtype(['d', 'i', 'u', 't', 'a', 'b', '-'], ordered=True)
@@ -306,33 +319,111 @@ nterm_pblocks['nterm'] = nterm_pblocks['nterm'].cat.remove_unused_categories()
 nterm_pblocks['altTSS'] = nterm_pblocks['events'].apply(lambda x: x.intersection('BbPp')).astype(bool)
 display(pd.crosstab(nterm_pblocks['up_start_cblock'], nterm_pblocks['down_start_cblock'], margins=True))
 
-nterm_palette = sns.color_palette('viridis_r', n_colors=4)
+nterm_palette = dict(zip(NTerminalChange, sns.color_palette('viridis_r', n_colors=5)[:-1]))
 
 nterm_fig = plt.figure(figsize=(3, 4))
 ax = sns.countplot(
     data = nterm_pblocks,
     y = 'nterm',
     order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED, NTerminalChange.UPSTREAM_SHARED, NTerminalChange.MUTUALLY_SHARED),
-    palette = nterm_palette
+    palette = nterm_palette,
+    linewidth = 0,
+    saturation = 1,
 )
 ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=[])
 plt.savefig(output_dir/'nterm-class-counts.png', dpi=200, facecolor=None)
 
 # %%
+nterm_cpm_fig = plt.figure(figsize=(6, 4))
+ax = sns.countplot(
+    data = nterm_pblocks,
+    y = 'nterm',
+    palette = nterm_palette,
+    linewidth = 0,
+    saturation = 1,
+    alpha = 0.5,
+)
+sns.countplot(
+    ax = ax,
+    data = nterm_pblocks[nterm_pblocks['cpm'] >= thresh_high],
+    y = 'nterm',
+    palette = nterm_palette,
+    linewidth = 0,
+    saturation = 1,
+)
+ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=['MXS', 'SDS', 'SUS', 'MSS'])
+plt.savefig(output_dir/'nterm-class-counts-cpm.png', dpi=200, facecolor=None)
+
+# %%
+nterm_length_order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED, NTerminalChange.MUTUALLY_SHARED)
+
 nterm_length_fig = plt.figure(figsize=(6, 4))
 ax = sns.violinplot(
     data = nterm_pblocks,
     x = 'anchor_relative_length_change',
     y = 'nterm',
-    order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED),
-    palette = nterm_palette[:2],
-    scale = 'area'
+    order = nterm_length_order,
+    gridsize = 200,
+    palette = nterm_palette,
+    saturation = 1,
+    scale = 'area',
 )
+
 xmax = max(ax.get_xlim())
-ymin, ymax = sorted(ax.get_ylim())
-ax.vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
-ax.set(xlim=(-1, 1), xlabel='change in N-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['MXS', 'SDS'])
+ymin, ymax = ax.get_ylim()
+ax.vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
+ax.set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in N-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['MXS', 'SDS', 'MSS'])
 plt.savefig(output_dir/'nterm-length-change-dist.png', dpi=200, facecolor=None)
+
+# %%
+nterm_length_cpm_fig = plt.figure(figsize=(8, 6))
+ax = sns.violinplot(
+    data = nterm_pblocks,
+    x = 'anchor_relative_length_change',
+    y = 'nterm',
+    order = nterm_length_order,
+    gridsize = 200,
+    hue = 'cpm_bin',
+    split = True,
+    scale_hue = False,
+    inner = None,
+)
+sns.boxplot(
+    ax = ax,
+    data = nterm_pblocks,
+    x = 'anchor_relative_length_change',
+    y = 'nterm',
+    order = nterm_length_order,
+    hue = 'cpm_bin',
+    color = '#444444',
+    width = 0.15,
+    sym = '',
+    showcaps = False,
+    whiskerprops = {'color': '#6f6f6f00'},
+    medianprops = {'color': '#ffffff'},
+)
+for i, curve in enumerate(ax.collections):
+    curve.set_facecolor(nterm_palette[nterm_length_order[i//2]])
+    if i % 2 == 0:
+        curve.set_alpha(0.5)
+for box in ax.patches:
+    if isinstance(box, PathPatch):
+        box.set_facecolor('#3f3f3f')
+        box.set_edgecolor('#6f6f6f')
+        box.set_linewidth(0.5)
+        box.set_zorder(2)
+xmax = max(ax.get_xlim())
+ymin, ymax = ax.get_ylim()
+ax.vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
+ax.set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in N-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['MXS', 'SDS', 'MSS'])
+ax.legend(
+    title = 'transcript abundance',
+    loc = 'best',
+    ncol = 2,
+    handles = [Patch(facecolor='#88888880'), Patch(facecolor='#888888ff')],
+    labels = nterm_pblocks['cpm_bin'].cat.categories.to_list(),
+)
+plt.savefig(output_dir/'nterm-length-change-dist-cpm.png', dpi=200, facecolor=None)
 
 # %%
 tss_fig = plt.figure(figsize=(6, 4))
@@ -340,7 +431,8 @@ ax = sns.countplot(
     data = nterm_pblocks,
     y = 'nterm',
     palette = nterm_palette,
-    order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED)
+    saturation = 1,
+    order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED),
 )
 sns.countplot(
     ax = ax,
@@ -363,7 +455,6 @@ cterm_pblocks['APA'] = cterm_pblocks['events'].apply(lambda x: x.intersection('B
 display(pd.crosstab(cterm_pblocks['up_stop_cblock'], cterm_pblocks['down_stop_cblock'], margins=True))
 
 cterm_splice_palette = sns.color_palette('RdPu_r', n_colors=3)
-cterm_splice_palette = cterm_splice_palette[0:1]*2 + cterm_splice_palette[1:2]*3 + cterm_splice_palette[2:3]
 cterm_frameshift_palette = sns.color_palette('YlOrRd_r', n_colors=4)
 cterm_palette = [cterm_splice_palette[0], cterm_frameshift_palette[0]]
 
@@ -372,33 +463,65 @@ ax = sns.countplot(
     data = cterm_pblocks,
     y = 'cterm',
     order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT),
-    palette = cterm_palette
+    palette = cterm_palette,
+    saturation = 1,
+    linewidth = 0,
 )
 ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=[])
 plt.savefig(output_dir/'cterm-class-counts.png', dpi=200, facecolor=None)
+
+# %%
+cterm_cpm_fig = plt.figure(figsize=(6, 4))
+ax = sns.countplot(
+    data = cterm_pblocks,
+    y = 'cterm',
+    palette = cterm_palette,
+    saturation = 1,
+    linewidth = 0,
+    alpha = 0.5,
+)
+sns.countplot(
+    ax = ax,
+    data = cterm_pblocks[cterm_pblocks['cpm'] >= thresh_high],
+    y = 'cterm',
+    palette = cterm_palette,
+    saturation = 1,
+    linewidth = 0,
+)
+ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=['splice-driven', 'frameshift-driven'])
+plt.savefig(output_dir/'cterm-class-counts-cpm.png', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
 cterm_pblock_events = cterm_pblocks['up_stop_events'].combine(cterm_pblocks['down_stop_events'], lambda x, y: (x, y))
 single_ATE = (cterm_pblocks['cterm'] == CTerminalChange.SPLICING) & cterm_pblocks['tblock_events'].isin({('B', 'b'), ('b', 'B')})
 cterm_splice_subcats = pd.DataFrame(
     {
-        'ATE': single_ATE,
-        'ATE (multiple)': cterm_pblock_events.isin({('B', 'b'), ('b', 'B')}) & ~single_ATE,
         'EXIT (APA)': cterm_pblocks['up_stop_events'] == 'P',
-        'EXIT (donor)': cterm_pblocks['up_stop_events'] == 'D',
         'EXIT (intron)': cterm_pblocks['up_stop_events'] == 'I',
+        'EXIT (donor)': cterm_pblocks['up_stop_events'] == 'D',
+        'ATE (multiple)': cterm_pblock_events.isin({('B', 'b'), ('b', 'B')}) & ~single_ATE,
+        'ATE (single)': single_ATE,
         'poison exon': cterm_pblocks['up_stop_events'] == 'E',
         'other': [True for _ in cterm_pblocks.index]
     }
 )
 cterm_pblocks['splice_subcat'] = cterm_splice_subcats.idxmax(axis=1).astype(pd.CategoricalDtype(cterm_splice_subcats.columns, ordered=True))
 
-cterm_splice_fig, axs = plt.subplots(1, 2, figsize=(8, 6))
+cterm_splice_palette_dict = dict(zip(
+    cterm_splice_subcats.columns,
+    cterm_splice_palette[0:1]*3 + cterm_splice_palette[1:2]*2 + cterm_splice_palette[2:3] + ['#bbbbbb']
+))
+
+splice_subcat_order = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING]['splice_subcat'].value_counts().index
+
+cterm_splice_fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 sns.countplot(
     ax = axs[0],
-    data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING].sort_values('splice_subcat'),
+    data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING],
     y = 'splice_subcat',
-    palette = cterm_splice_palette + ['#bbbbbb']
+    order = splice_subcat_order,
+    palette = cterm_splice_palette_dict,
+    saturation = 1.0,
 )
 axs[0].set(xlabel='# of alternative isoforms', ylabel=None)
 
@@ -407,34 +530,123 @@ sns.violinplot(
     data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING],
     x = 'anchor_relative_length_change',
     y = 'splice_subcat',
-    palette = cterm_splice_palette + ['#bbbbbb'],
-    scale = 'area'
+    order = splice_subcat_order,
+    palette = cterm_splice_palette_dict,
+    saturation = 1,
+    gridsize = 200,
+    scale = 'area',
 )
 xmax = max(axs[1].get_xlim())
 ymin, ymax = axs[1].get_ylim()
-axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
+axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
 axs[1].set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
 
-plt.savefig(output_dir/'cterm-splicing-subcats.png', dpi=200, facecolor=None)
+plt.savefig(output_dir/'cterm-splicing-subcats.png', dpi=200, facecolor=None, bbox_inches='tight')
+
+# %%
+cterm_splice_cpm_fig, axs = plt.subplots(1, 2, figsize=(10, 6))
+sns.countplot(
+    ax = axs[0],
+    data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING],
+    y = 'splice_subcat',
+    order = splice_subcat_order,
+    palette = cterm_splice_palette_dict,
+    saturation = 1,
+    linewidth = 0,
+    alpha = 0.5,
+)
+sns.countplot(
+    ax = axs[0],
+    data = cterm_pblocks[(cterm_pblocks['cterm'] == CTerminalChange.SPLICING) & (cterm_pblocks['cpm'] >= thresh_high)],
+    y = 'splice_subcat',
+    order = splice_subcat_order,
+    palette = cterm_splice_palette_dict,
+    saturation = 1,
+    linewidth = 0,
+)
+
+axs[0].set(xlabel='# of alternative isoforms', ylabel=None)
+axs[0].legend(
+    title = 'transcript abundance\n(CPM)',
+    loc = 'best',
+    ncol = 2,
+    handles = [Patch(facecolor='#bbbbbb80'), Patch(facecolor='#bbbbbbff')],
+    labels = cterm_pblocks['cpm_bin'].cat.categories.to_list(),
+)
+
+sns.violinplot(
+    ax = axs[1],
+    data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING],
+    x = 'anchor_relative_length_change',
+    y = 'splice_subcat',
+    order = splice_subcat_order,
+    hue = 'cpm_bin',
+    gridsize = 200,
+    split = True,
+    scale_hue = False,
+    scale = 'width',
+    inner = None,
+)
+sns.boxplot(
+    ax = axs[1],
+    data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING],
+    x = 'anchor_relative_length_change',
+    y = 'splice_subcat',
+    order = splice_subcat_order,
+    hue = 'cpm_bin',
+    color = '#444444',
+    width = 0.15,
+    sym = '',
+    showcaps = False,
+    whiskerprops = {'color': '#6f6f6f00'},
+    medianprops = {'color': '#ffffff'},
+)
+for i, curve in enumerate(axs[1].collections):
+    color = cterm_splice_palette_dict[splice_subcat_order[i//2]]
+    curve.set_facecolor(cterm_splice_palette_dict[splice_subcat_order[i//2]])
+    if i % 2 == 0:
+        curve.set_alpha(0.5)
+for box in axs[1].patches:
+    if isinstance(box, PathPatch):
+        box.set_facecolor('#3f3f3f')
+        box.set_edgecolor('#6f6f6f')
+        box.set_linewidth(0.5)
+        box.set_zorder(2)
+xmax = max(axs[1].get_xlim())
+ymin, ymax = axs[1].get_ylim()
+axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
+axs[1].set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
+axs[1].get_legend().remove()
+plt.savefig(output_dir/'cterm-splicing-subcats-cpm.png', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
 cterm_frame_subcats = pd.DataFrame(
     {
         'exon': cterm_pblocks['up_stop_cblock_events'].isin({'E', 'e'}),
-        'donor': cterm_pblocks['up_stop_cblock_events'].isin({'D', 'd'}),
         'acceptor': cterm_pblocks['up_stop_cblock_events'].isin({'A', 'a'}),
+        'donor': cterm_pblocks['up_stop_cblock_events'].isin({'D', 'd'}),
         'intron': cterm_pblocks['up_stop_cblock_events'].isin({'I', 'i'}),
         'other': [True for _ in cterm_pblocks.index]
     }
 )
 cterm_pblocks['frame_subcat'] = cterm_frame_subcats.idxmax(axis=1).astype(pd.CategoricalDtype(cterm_frame_subcats.columns, ordered=True))
 
-cterm_frameshift_fig, axs = plt.subplots(1, 2, figsize=(8, 6))
+cterm_frameshift_palette_dict = dict(zip(
+    cterm_frame_subcats.columns,
+    cterm_frameshift_palette + ['#bbbbbb']
+))
+
+frame_subcat_order = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.FRAMESHIFT]['frame_subcat'].value_counts().index
+
+cterm_frameshift_fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 sns.countplot(
     ax = axs[0],
     data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.FRAMESHIFT],
     y = 'frame_subcat',
-    palette = cterm_frameshift_palette + ['#bbbbbb']
+    order = frame_subcat_order,
+    palette = cterm_frameshift_palette_dict,
+    saturation = 1,
+    linewidth = 0,
 )
 axs[0].set(xlabel='# of alternative isoforms', ylabel=None)
 
@@ -443,15 +655,92 @@ sns.violinplot(
     data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.FRAMESHIFT],
     x = 'anchor_relative_length_change',
     y = 'frame_subcat',
-    palette = cterm_frameshift_palette + ['#bbbbbb'],
+    order = frame_subcat_order,
+    palette = cterm_frameshift_palette_dict,
+    saturation = 1,
     scale = 'area'
 )
 xmax = max(axs[1].get_xlim())
 ymin, ymax = axs[1].get_ylim()
-axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
+axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
 axs[1].set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
 
-plt.savefig(output_dir/'cterm-frameshift-subcats.png', dpi=200, facecolor=None)
+plt.savefig(output_dir/'cterm-frameshift-subcats.png', dpi=200, facecolor=None, bbox_inches='tight')
+
+# %%
+cterm_frameshift_cpm_fig, axs = plt.subplots(1, 2, figsize=(10, 6))
+sns.countplot(
+    ax = axs[0],
+    data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.FRAMESHIFT].sort_values('frame_subcat'),
+    y = 'frame_subcat',
+    order = frame_subcat_order,
+    palette = cterm_frameshift_palette_dict,
+    saturation = 1,
+    linewidth = 0,
+    alpha = 0.5,
+)
+sns.countplot(
+    ax = axs[0],
+    data = cterm_pblocks[(cterm_pblocks['cterm'] == CTerminalChange.FRAMESHIFT) & (cterm_pblocks['cpm'] >= thresh_high)].sort_values('frame_subcat'),
+    y = 'frame_subcat',
+    order = frame_subcat_order,
+    palette = cterm_frameshift_palette_dict,
+    saturation = 1,
+    linewidth = 0,
+)
+axs[0].set(xlabel='# of alternative isoforms', ylabel=None)
+axs[0].legend(
+    title = 'transcript abundance\n(CPM)',
+    loc = 'best',
+    ncol = 2,
+    handles = [Patch(facecolor='#bbbbbb80'), Patch(facecolor='#bbbbbbff')],
+    labels = cterm_pblocks['cpm_bin'].cat.categories.to_list(),
+)
+
+sns.violinplot(
+    ax = axs[1],
+    data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.FRAMESHIFT],
+    x = 'anchor_relative_length_change',
+    y = 'frame_subcat',
+    order = frame_subcat_order,
+    hue = 'cpm_bin',
+    gridsize = 200,
+    split = True,
+    scale_hue = False,
+    scale = 'width',
+    inner = None,
+)
+sns.boxplot(
+    ax = axs[1],
+    data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.FRAMESHIFT],
+    x = 'anchor_relative_length_change',
+    y = 'frame_subcat',
+    order = frame_subcat_order,
+    hue = 'cpm_bin',
+    color = '#444444',
+    width = 0.15,
+    sym = '',
+    showcaps = False,
+    whiskerprops = {'color': '#6f6f6f00'},
+    medianprops = {'color': '#ffffff'},
+)
+for i, curve in enumerate(axs[1].collections):
+    color = cterm_frameshift_palette_dict[frame_subcat_order[i//2]]
+    curve.set_facecolor(cterm_frameshift_palette_dict[frame_subcat_order[i//2]])
+    if i % 2 == 0:
+        curve.set_alpha(0.5)
+for box in axs[1].patches:
+    if isinstance(box, PathPatch):
+        box.set_facecolor('#3f3f3f')
+        box.set_edgecolor('#6f6f6f')
+        box.set_linewidth(0.5)
+        box.set_zorder(2)
+xmax = max(axs[1].get_xlim())
+ymin, ymax = axs[1].get_ylim()
+axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
+axs[1].set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
+axs[1].get_legend().remove()
+plt.savefig(output_dir/'cterm-frameshift-subcats-cpm.png', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
 cterm_event_counts = cterm_pblocks.groupby('cterm').events.value_counts().rename('count')
