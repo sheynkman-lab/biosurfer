@@ -521,7 +521,8 @@ sns.countplot(
     y = 'splice_subcat',
     order = splice_subcat_order,
     palette = cterm_splice_palette_dict,
-    saturation = 1.0,
+    saturation = 1,
+    linewidth = 0,
 )
 axs[0].set(xlabel='# of alternative isoforms', ylabel=None)
 
@@ -743,10 +744,6 @@ axs[1].get_legend().remove()
 plt.savefig(output_dir/'cterm-frameshift-subcats-cpm.png', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
-cterm_event_counts = cterm_pblocks.groupby('cterm').events.value_counts().rename('count')
-cterm_examples = cterm_pblocks.groupby(['cterm', 'events']).sample(1, random_state=329).join(cterm_event_counts, on=['cterm', 'events']).sort_values(['cterm', 'count'], ascending=False).set_index(['cterm', 'events'])
-
-# %%
 internal_pblocks = (
     pblocks[pblocks['nterm'].isna() & pblocks['cterm'].isna()].
     drop(columns=[col for col in pblocks.columns if 'start' in col or 'stop' in col]).
@@ -767,7 +764,7 @@ ax.set(xlabel='# of non-matching internal p-blocks', ylabel='# of alternative is
 plt.savefig(output_dir/'internal-pblock-counts.png', dpi=200, facecolor=None)
 
 # %%
-# internal_cat_palette = {'D': '#f022f0', 'I': '#22f0f0', 'S': '#f0f022'}
+internal_cat_palette = {'D': '#f800c0', 'I': '#00c0f8', 'S': '#f8c000'}
 internal_event_palette = {
     'intron': '#e69138',
     'donor': '#6aa84f',
@@ -792,24 +789,94 @@ internal_pblocks['splice event'] = internal_subcats.idxmax(axis=1).astype(pd.Cat
 internal_pblocks_fig = plt.figure(figsize=(6, 4))
 ax = sns.countplot(
     data = internal_pblocks.sort_values('category', ascending=True),
-    y = 'category',
-    hue = 'splice event',
-    palette = internal_event_palette,
-    dodge = True
+    y = 'splice event',
+    hue = 'category',
+    palette = internal_cat_palette,
+    saturation = 1,
+    dodge = True,
+)
+plt.legend(loc='lower right', labels=['deletion', 'insertion', 'substitution'])
+ax.set(xlabel='# of p-blocks', ylabel=None)
+plt.savefig(output_dir/'internal-pblock-events.png', dpi=200, facecolor=None, bbox_inches='tight')
+
+# %%
+internal_pblocks_cpm_fig = plt.figure(figsize=(6, 4))
+ax = sns.countplot(
+    data = internal_pblocks[internal_pblocks['cpm'] >= thresh_high].sort_values('category', ascending=True),
+    y = 'splice event',
+    hue = 'category',
+    palette = internal_cat_palette,
+    saturation = 1,
+    dodge = True,
+)
+ax = sns.countplot(
+    data = internal_pblocks.sort_values('category', ascending=True),
+    y = 'splice event',
+    hue = 'category',
+    palette = internal_cat_palette,
+    saturation = 1,
+    dodge = True,
+    alpha = 0.5,
+)
+plt.legend(loc='lower right', labels=['deletion', 'insertion', 'substitution'])
+ax.set(xlabel='# of p-blocks', ylabel=None)
+plt.savefig(output_dir/'internal-pblock-events-cpm.png', dpi=200, facecolor=None, bbox_inches='tight')
+
+# %%
+internal_pblocks_split_fig = plt.figure(figsize=(6, 4))
+ax = sns.countplot(
+    data = internal_pblocks.sort_values('category', ascending=True),
+    y = 'splice event',
+    hue = 'category',
+    palette = internal_cat_palette,
+    saturation = 1,
+    dodge = True,
 )
 sns.countplot(
     ax = ax,
     data = internal_pblocks[internal_pblocks.split_ends].sort_values('category', ascending=True),
-    y = 'category',
-    hue = 'splice event',
-    facecolor = 'None',
+    y = 'splice event',
+    hue = 'category',
+    palette = internal_cat_palette,
+    saturation = 1,
+    dodge = True,
     edgecolor = 'w',
     hatch = '///',
-    dodge = True
 )
-sns.move_legend(ax, 'lower right')
-plt.legend(labels=list(internal_subcats.columns))
+plt.legend(loc='lower right', labels=['deletion', 'insertion', 'substitution'])
 ax.set(xlabel='# of p-blocks', ylabel=None)
-plt.savefig(output_dir/'internal-pblock-events.png', dpi=200, facecolor=None)
+plt.savefig(output_dir/'internal-pblock-events-split.png', dpi=200, facecolor=None, bbox_inches='tight')
+
+# %%
+internal_compound_pblocks = internal_pblocks[internal_pblocks['splice event'] == 'compound'].copy()
+
+internal_compound_subcats = pd.DataFrame(
+    {
+        'multi-exon skip': internal_compound_pblocks['events'] == {'e'},
+        'exon skipping + alt donor/acceptor': internal_compound_pblocks['events'].isin({
+            frozenset('de'),
+            frozenset('De'),
+            frozenset('ea'),
+            frozenset('eA'),
+            frozenset('dea'),
+            frozenset('Dea'),
+            frozenset('deA'),
+            frozenset('DeA'),
+        }),
+        'other': [True for _ in internal_compound_pblocks.index]
+    }
+)
+internal_compound_pblocks['compound_subcat'] = internal_compound_subcats.idxmax(axis=1).astype(pd.CategoricalDtype(internal_compound_subcats.columns, ordered=True))
+
+internal_pblocks_compound_fig = plt.figure(figsize=(6, 3))
+ax = sns.countplot(
+        data = internal_compound_pblocks,
+        y = 'compound_subcat',
+        palette = 'Blues_r',
+        saturation = 1,
+        linewidth = 0,
+)
+ax.set(xlabel='# of alternative isoforms', ylabel=None)
+plt.savefig(output_dir/'internal-pblock-compound-events.png', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%

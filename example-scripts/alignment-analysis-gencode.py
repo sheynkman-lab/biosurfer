@@ -1,140 +1,152 @@
 # %%
-from functools import reduce
-from math import ceil
+import csv
 import multiprocessing as mp
 import os
-from pathlib import Path
+from re import M
 import sys
-from itertools import chain, groupby, starmap
-from operator import attrgetter, or_
+from itertools import chain, starmap
+from operator import attrgetter
+from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from biosurfer.core.alignments import (CodonAlignment, ProteinAlignment,
                                        SeqAlignCat, TranscriptAlignment)
 from biosurfer.core.constants import APPRIS, CTerminalChange, NTerminalChange
 from biosurfer.core.database import Database
-from biosurfer.core.helpers import ExceptionLogger
+from biosurfer.core.helpers import T, ExceptionLogger
 from biosurfer.core.models.biomolecules import (ORF, GencodeTranscript, Gene,
-                                                Protein, Transcript)
-from biosurfer.core.splice_events import BasicTranscriptEvent, CompoundTranscriptEvent, SpliceEvent, get_event_code
+                                                Protein,
+                                                Transcript)
+from biosurfer.core.splice_events import (BasicTranscriptEvent,
+                                          CompoundTranscriptEvent, SpliceEvent,
+                                          get_event_code)
 from biosurfer.plots.plotting import IsoformPlot
 from IPython.display import display
-from matplotlib.patches import Patch
-from more_itertools import one, only
-from sqlalchemy import select, func
+from matplotlib.patches import Patch, PathPatch
+from more_itertools import first, one, only
+from scipy.sparse import coo_matrix
+from sqlalchemy import func, select
 from tqdm import tqdm
+
+sns.set_style('whitegrid')
 
 db_name = 'gencode'
 db = Database(db_name)
+data_dir = Path(f'../data/gencode')
 output_dir = Path(f'../output/alignment-analysis/{db_name}')
 
 # %%
-gene_to_transcripts: dict[str, list[str]] = dict()
+gene_to_gc_transcripts: dict[str, list[str]] = dict()
 
 def process_gene(gene_name: str):
     out = []
     with db.get_session() as session:
-        transcripts: list['GencodeTranscript'] = list(GencodeTranscript.from_names(session, gene_to_transcripts[gene_name]).values())
-        transcripts.sort(key=attrgetter('appris'), reverse=True)
-        principal = transcripts[0]
-        if not principal.protein:
+        gc_transcripts: list['GencodeTranscript'] = list(GencodeTranscript.from_names(session, gene_to_gc_transcripts[gene_name]).values())
+        gc_transcripts.sort(key=attrgetter('appris'), reverse=True)
+        principal = first(gc_transcripts, None)
+        if not principal or not principal.protein or principal.appris is not APPRIS.PRINCIPAL or not principal.sequence:
             return out
         principal_length = principal.protein.length
-        if principal.appris is APPRIS.PRINCIPAL and principal.sequence:
-            anchor_start_codon = principal.get_genome_coord_from_transcript_coord(principal.primary_orf.transcript_start - 1)
-            anchor_stop_codon = principal.get_genome_coord_from_transcript_coord(principal.primary_orf.transcript_stop - 1)
-            for alternative in transcripts[1:]:
-                pblocks = ()
-                with ExceptionLogger(info=f'{principal}, {alternative}', callback=lambda x, y, z: transcripts.remove(alternative)):
-                    other_start_codon = alternative.get_genome_coord_from_transcript_coord(alternative.primary_orf.transcript_start - 1)
-                    other_stop_codon = alternative.get_genome_coord_from_transcript_coord(alternative.primary_orf.transcript_stop - 1)
-                    anchor_starts_upstream = anchor_start_codon <= other_start_codon
-                    anchor_stops_upstream = anchor_stop_codon <= other_stop_codon
 
-                    alternative_length = alternative.protein.length
-                    tx_aln = TranscriptAlignment.from_transcripts(principal, alternative)
-                    cd_aln = CodonAlignment.from_proteins(principal.protein, alternative.protein)
-                    pr_aln = ProteinAlignment.from_proteins(principal.protein, alternative.protein)
-                    pblocks = pr_aln.blocks
-                    anchor_start_cblock = one(cd_aln.anchor_blocks.at(0)).data
-                    other_start_cblock = one(cd_aln.other_blocks.at(0)).data
-                    anchor_stop_cblock = one(cd_aln.anchor_blocks.at(principal_length - 1)).data
-                    other_stop_cblock = one(cd_aln.other_blocks.at(alternative_length - 1)).data
-                for pblock in pblocks:
-                    if pblock.category is SeqAlignCat.MATCH:
-                        continue
-                    for cblock in pr_aln.pblock_to_cblocks[pblock]:
-                        tblock = cd_aln.cblock_to_tblock.get(cblock)
-                        events = tx_aln.block_to_events.get(tblock, ())
-                        row = {
-                            'anchor': principal.name,
-                            'other': alternative.name,
-                            'pblock': str(pblock),
-                            'cblock': str(cblock),
-                            'tblock': str(tblock),
-                            'events': get_event_code(events),
-                            'compound_splicing': any(set(events).intersection(compound_event.members) for compound_event in tx_aln.events if isinstance(compound_event, SpliceEvent) and len(compound_event.members) > 1),
-                            'affects_up_start': anchor_starts_upstream and cblock is anchor_start_cblock or not anchor_starts_upstream and cblock is other_start_cblock,
-                            'affects_down_start': anchor_starts_upstream and cblock is other_start_cblock or not anchor_starts_upstream and cblock is anchor_start_cblock,
-                            'affects_up_stop': anchor_stops_upstream and cblock is anchor_stop_cblock or not anchor_stops_upstream and cblock is other_stop_cblock,
-                            'affects_down_stop': anchor_stops_upstream and cblock is other_stop_cblock or not anchor_stops_upstream and cblock is anchor_stop_cblock,
-                            'up_start_events': '',
-                            'down_start_events': '',
-                            'up_stop_events': '',
-                            'down_stop_events': '',
-                        }
-                        if cblock is anchor_start_cblock:
-                            start_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(principal.primary_orf.transcript_start - 1, principal.primary_orf.transcript_start + 2) if isinstance(i.data, BasicTranscriptEvent))
-                            if anchor_starts_upstream:
-                                row['up_start_events'] = start_events
-                            else:
-                                row['down_start_events'] = start_events
-                        elif cblock is other_start_cblock:
-                            start_events = get_event_code(i.data for i in tx_aln.other_events.overlap(alternative.primary_orf.transcript_start - 1, alternative.primary_orf.transcript_start + 2) if isinstance(i.data, BasicTranscriptEvent))
-                            if anchor_starts_upstream:
-                                row['down_start_events'] = start_events
-                            else:
-                                row['up_start_events'] = start_events
-                        if cblock is anchor_stop_cblock:
-                            stop_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(principal.primary_orf.transcript_stop - 3, principal.primary_orf.transcript_stop) if isinstance(i.data, BasicTranscriptEvent))
-                            if anchor_stops_upstream:
-                                row['up_stop_events'] = stop_events
-                            else:
-                                row['down_stop_events'] = stop_events
-                        elif cblock is other_stop_cblock:
-                            stop_events = get_event_code(i.data for i in tx_aln.other_events.overlap(alternative.primary_orf.transcript_stop - 3, alternative.primary_orf.transcript_stop) if isinstance(i.data, BasicTranscriptEvent))
-                            if anchor_stops_upstream:
-                                row['down_stop_events'] = stop_events
-                            else:
-                                row['up_stop_events'] = stop_events
-                        out.append(row)
-            # fig_path = output_dir/f'chr19/{gene_name}.png'
-            # if not fig_path.isfile() and len(transcripts) > 1:
-            #     isoplot = IsoformPlot(transcripts)
-            #     isoplot.draw_all_isoforms()
-            #     isoplot.draw_frameshifts()
-            #     isoplot.savefig(fig_path)
-            #     plt.close(isoplot.fig)
-            # elif fig_path.isfile() and len(transcripts) <= 1:
-            #     os.remove(fig_path)
+        alt_transcripts: list['Transcript'] = gc_transcripts[1:]
+
+        anchor_start_codon = principal.get_genome_coord_from_transcript_coord(principal.primary_orf.transcript_start - 1)
+        anchor_stop_codon = principal.get_genome_coord_from_transcript_coord(principal.primary_orf.transcript_stop - 1)
+        for alternative in alt_transcripts:
+            pblocks = ()
+            with ExceptionLogger(info=f'{principal}, {alternative}', callback=lambda x, y, z: alt_transcripts.remove(alternative)):
+                other_start_codon = alternative.get_genome_coord_from_transcript_coord(alternative.primary_orf.transcript_start - 1)
+                other_stop_codon = alternative.get_genome_coord_from_transcript_coord(alternative.primary_orf.transcript_stop - 1)
+                anchor_starts_upstream = anchor_start_codon <= other_start_codon
+                anchor_stops_upstream = anchor_stop_codon <= other_stop_codon
+
+                alternative_length = alternative.protein.length
+                tx_aln = TranscriptAlignment.from_transcripts(principal, alternative)
+                cd_aln = CodonAlignment.from_proteins(principal.protein, alternative.protein)
+                pr_aln = ProteinAlignment.from_proteins(principal.protein, alternative.protein)
+                pblocks = pr_aln.blocks
+                anchor_start_cblock = one(cd_aln.anchor_blocks.at(0)).data
+                other_start_cblock = one(cd_aln.other_blocks.at(0)).data
+                anchor_stop_cblock = one(cd_aln.anchor_blocks.at(principal_length - 1)).data
+                other_stop_cblock = one(cd_aln.other_blocks.at(alternative_length - 1)).data
+            for pblock in pblocks:
+                if pblock.category is SeqAlignCat.MATCH:
+                    continue
+                for cblock in pr_aln.pblock_to_cblocks[pblock]:
+                    tblock = cd_aln.cblock_to_tblock.get(cblock)
+                    events = tx_aln.block_to_events.get(tblock, ())
+                    row = {
+                        'anchor': principal.name,
+                        'other': alternative.name,
+                        'pblock': str(pblock),
+                        'cblock': str(cblock),
+                        'tblock': str(tblock),
+                        'events': get_event_code(events),
+                        'compound_splicing': any(set(events).intersection(compound_event.members) for compound_event in tx_aln.events if isinstance(compound_event, SpliceEvent) and len(compound_event.members) > 1),
+                        'affects_up_start': anchor_starts_upstream and cblock is anchor_start_cblock or not anchor_starts_upstream and cblock is other_start_cblock,
+                        'affects_down_start': anchor_starts_upstream and cblock is other_start_cblock or not anchor_starts_upstream and cblock is anchor_start_cblock,
+                        'affects_up_stop': anchor_stops_upstream and cblock is anchor_stop_cblock or not anchor_stops_upstream and cblock is other_stop_cblock,
+                        'affects_down_stop': anchor_stops_upstream and cblock is other_stop_cblock or not anchor_stops_upstream and cblock is anchor_stop_cblock,
+                        'up_start_events': '',
+                        'down_start_events': '',
+                        'up_stop_events': '',
+                        'down_stop_events': '',
+                    }
+                    if cblock is anchor_start_cblock:
+                        start_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(principal.primary_orf.transcript_start - 1, principal.primary_orf.transcript_start + 2) if isinstance(i.data, BasicTranscriptEvent))
+                        if anchor_starts_upstream:
+                            row['up_start_events'] = start_events
+                        else:
+                            row['down_start_events'] = start_events
+                    elif cblock is other_start_cblock:
+                        start_events = get_event_code(i.data for i in tx_aln.other_events.overlap(alternative.primary_orf.transcript_start - 1, alternative.primary_orf.transcript_start + 2) if isinstance(i.data, BasicTranscriptEvent))
+                        if anchor_starts_upstream:
+                            row['down_start_events'] = start_events
+                        else:
+                            row['up_start_events'] = start_events
+                    if cblock is anchor_stop_cblock:
+                        stop_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(principal.primary_orf.transcript_stop - 3, principal.primary_orf.transcript_stop) if isinstance(i.data, BasicTranscriptEvent))
+                        if anchor_stops_upstream:
+                            row['up_stop_events'] = stop_events
+                        else:
+                            row['down_stop_events'] = stop_events
+                    elif cblock is other_stop_cblock:
+                        stop_events = get_event_code(i.data for i in tx_aln.other_events.overlap(alternative.primary_orf.transcript_stop - 3, alternative.primary_orf.transcript_stop) if isinstance(i.data, BasicTranscriptEvent))
+                        if anchor_stops_upstream:
+                            row['down_stop_events'] = stop_events
+                        else:
+                            row['up_stop_events'] = stop_events
+                    out.append(row)
+        # fig_path = output_dir/f'chr19/{gene_name}.png'
+        # if not fig_path.isfile() and len(transcripts) > 1:
+        #     isoplot = IsoformPlot(transcripts)
+        #     isoplot.draw_all_isoforms()
+        #     isoplot.draw_frameshifts()
+        #     isoplot.savefig(fig_path)
+        #     plt.close(isoplot.fig)
+        # elif fig_path.isfile() and len(transcripts) <= 1:
+        #     os.remove(fig_path)
     return out
 
 def process_chr(chr: str):
     print(f'Loading gene and transcript names for {chr}...')
-    gene_to_transcripts.clear()
+    gene_to_gc_transcripts.clear()
     with db.get_session() as session:
         rows = session.execute(
-                select(Gene.name, Transcript.name).
+                select(Gene.name, Transcript.name, Transcript.accession, Transcript.type).
                 select_from(Protein).
                 join(Protein.orf).
                 join(ORF.transcript).
                 join(Transcript.gene).
                 where(Gene.chromosome_id == chr)
         ).all()
-        for gene_name, tx_name in rows:
-            gene_to_transcripts.setdefault(gene_name, []).append(tx_name)
+        for gene_name, tx_name, tx_acc, tx_type in rows:
+            gc_txs = gene_to_gc_transcripts.setdefault(gene_name, [])
+            if tx_type == 'gencodetranscript':
+                gc_txs.append(tx_name)
 
     df_path = output_dir/f'alignment-analysis-{chr}.tsv'
     try:
@@ -142,8 +154,8 @@ def process_chr(chr: str):
     except:
         records = []
         with mp.Pool() as p:
-            t = tqdm(desc='Processing genes', total=len(gene_to_transcripts), unit='gene', file=sys.stdout)
-            for result in p.imap_unordered(process_gene, gene_to_transcripts.keys()):
+            t = tqdm(desc='Processing genes', total=len(gene_to_gc_transcripts), unit='gene', file=sys.stdout)
+            for result in p.imap_unordered(process_gene, gene_to_gc_transcripts.keys()):
                 records.extend(result)
                 t.update()
         df = pd.DataFrame.from_records(records)
@@ -258,32 +270,39 @@ nterm_pblocks['nterm'] = nterm_pblocks['nterm'].cat.remove_unused_categories()
 nterm_pblocks['altTSS'] = nterm_pblocks['events'].apply(lambda x: x.intersection('BbPp')).astype(bool)
 display(pd.crosstab(nterm_pblocks['up_start_cblock'], nterm_pblocks['down_start_cblock'], margins=True))
 
-nterm_palette = sns.color_palette('viridis_r', n_colors=4)
+nterm_palette = dict(zip(NTerminalChange, sns.color_palette('viridis_r', n_colors=5)[:-1]))
 
 nterm_fig = plt.figure(figsize=(3, 4))
 ax = sns.countplot(
     data = nterm_pblocks,
     y = 'nterm',
     order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED, NTerminalChange.UPSTREAM_SHARED, NTerminalChange.MUTUALLY_SHARED),
-    palette = nterm_palette
+    palette = nterm_palette,
+    linewidth = 0,
+    saturation = 1,
 )
 ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=[])
 plt.savefig(output_dir/'nterm-class-counts.png', dpi=200, facecolor=None)
 
 # %%
+nterm_length_order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED, NTerminalChange.MUTUALLY_SHARED)
+
 nterm_length_fig = plt.figure(figsize=(6, 4))
 ax = sns.violinplot(
     data = nterm_pblocks,
     x = 'anchor_relative_length_change',
     y = 'nterm',
-    order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED),
-    palette = nterm_palette[:2],
-    scale = 'area'
+    order = nterm_length_order,
+    gridsize = 200,
+    palette = nterm_palette,
+    saturation = 1,
+    scale = 'area',
 )
+
 xmax = max(ax.get_xlim())
-ymin, ymax = sorted(ax.get_ylim())
-ax.vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
-ax.set(xlim=(-1, 1), xlabel='change in N-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['MXS', 'SDS'])
+ymin, ymax = ax.get_ylim()
+ax.vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
+ax.set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in N-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['MXS', 'SDS', 'MSS'])
 plt.savefig(output_dir/'nterm-length-change-dist.png', dpi=200, facecolor=None)
 
 # %%
@@ -292,7 +311,8 @@ ax = sns.countplot(
     data = nterm_pblocks,
     y = 'nterm',
     palette = nterm_palette,
-    order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED)
+    saturation = 1,
+    order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED),
 )
 sns.countplot(
     ax = ax,
@@ -315,7 +335,6 @@ cterm_pblocks['APA'] = cterm_pblocks['events'].apply(lambda x: x.intersection('B
 display(pd.crosstab(cterm_pblocks['up_stop_cblock'], cterm_pblocks['down_stop_cblock'], margins=True))
 
 cterm_splice_palette = sns.color_palette('RdPu_r', n_colors=3)
-cterm_splice_palette = cterm_splice_palette[0:1]*2 + cterm_splice_palette[1:2]*3 + cterm_splice_palette[2:3]
 cterm_frameshift_palette = sns.color_palette('YlOrRd_r', n_colors=4)
 cterm_palette = [cterm_splice_palette[0], cterm_frameshift_palette[0]]
 
@@ -324,7 +343,9 @@ ax = sns.countplot(
     data = cterm_pblocks,
     y = 'cterm',
     order = (CTerminalChange.SPLICING, CTerminalChange.FRAMESHIFT),
-    palette = cterm_palette
+    palette = cterm_palette,
+    saturation = 1,
+    linewidth = 0,
 )
 ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=[])
 plt.savefig(output_dir/'cterm-class-counts.png', dpi=200, facecolor=None)
@@ -334,23 +355,33 @@ cterm_pblock_events = cterm_pblocks['up_stop_events'].combine(cterm_pblocks['dow
 single_ATE = (cterm_pblocks['cterm'] == CTerminalChange.SPLICING) & cterm_pblocks['tblock_events'].isin({('B', 'b'), ('b', 'B')})
 cterm_splice_subcats = pd.DataFrame(
     {
-        'ATE': single_ATE,
-        'ATE (multiple)': cterm_pblock_events.isin({('B', 'b'), ('b', 'B')}) & ~single_ATE,
         'EXIT (APA)': cterm_pblocks['up_stop_events'] == 'P',
-        'EXIT (donor)': cterm_pblocks['up_stop_events'] == 'D',
         'EXIT (intron)': cterm_pblocks['up_stop_events'] == 'I',
+        'EXIT (donor)': cterm_pblocks['up_stop_events'] == 'D',
+        'ATE (multiple)': cterm_pblock_events.isin({('B', 'b'), ('b', 'B')}) & ~single_ATE,
+        'ATE (single)': single_ATE,
         'poison exon': cterm_pblocks['up_stop_events'] == 'E',
         'other': [True for _ in cterm_pblocks.index]
     }
 )
 cterm_pblocks['splice_subcat'] = cterm_splice_subcats.idxmax(axis=1).astype(pd.CategoricalDtype(cterm_splice_subcats.columns, ordered=True))
 
-cterm_splice_fig, axs = plt.subplots(1, 2, figsize=(8, 6))
+cterm_splice_palette_dict = dict(zip(
+    cterm_splice_subcats.columns,
+    cterm_splice_palette[0:1]*3 + cterm_splice_palette[1:2]*2 + cterm_splice_palette[2:3] + ['#bbbbbb']
+))
+
+splice_subcat_order = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING]['splice_subcat'].value_counts().index
+
+cterm_splice_fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 sns.countplot(
     ax = axs[0],
-    data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING].sort_values('splice_subcat'),
+    data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING],
     y = 'splice_subcat',
-    palette = cterm_splice_palette + ['#bbbbbb']
+    order = splice_subcat_order,
+    palette = cterm_splice_palette_dict,
+    saturation = 1,
+    linewidth = 0,
 )
 axs[0].set(xlabel='# of alternative isoforms', ylabel=None)
 
@@ -359,34 +390,47 @@ sns.violinplot(
     data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING],
     x = 'anchor_relative_length_change',
     y = 'splice_subcat',
-    palette = cterm_splice_palette + ['#bbbbbb'],
-    scale = 'area'
+    order = splice_subcat_order,
+    palette = cterm_splice_palette_dict,
+    saturation = 1,
+    gridsize = 200,
+    scale = 'area',
 )
 xmax = max(axs[1].get_xlim())
 ymin, ymax = axs[1].get_ylim()
-axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
+axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
 axs[1].set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
 
-plt.savefig(output_dir/'cterm-splicing-subcats.png', dpi=200, facecolor=None)
+plt.savefig(output_dir/'cterm-splicing-subcats.png', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
 cterm_frame_subcats = pd.DataFrame(
     {
         'exon': cterm_pblocks['up_stop_cblock_events'].isin({'E', 'e'}),
-        'donor': cterm_pblocks['up_stop_cblock_events'].isin({'D', 'd'}),
         'acceptor': cterm_pblocks['up_stop_cblock_events'].isin({'A', 'a'}),
+        'donor': cterm_pblocks['up_stop_cblock_events'].isin({'D', 'd'}),
         'intron': cterm_pblocks['up_stop_cblock_events'].isin({'I', 'i'}),
         'other': [True for _ in cterm_pblocks.index]
     }
 )
 cterm_pblocks['frame_subcat'] = cterm_frame_subcats.idxmax(axis=1).astype(pd.CategoricalDtype(cterm_frame_subcats.columns, ordered=True))
 
-cterm_frameshift_fig, axs = plt.subplots(1, 2, figsize=(8, 6))
+cterm_frameshift_palette_dict = dict(zip(
+    cterm_frame_subcats.columns,
+    cterm_frameshift_palette + ['#bbbbbb']
+))
+
+frame_subcat_order = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.FRAMESHIFT]['frame_subcat'].value_counts().index
+
+cterm_frameshift_fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 sns.countplot(
     ax = axs[0],
     data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.FRAMESHIFT],
     y = 'frame_subcat',
-    palette = cterm_frameshift_palette + ['#bbbbbb']
+    order = frame_subcat_order,
+    palette = cterm_frameshift_palette_dict,
+    saturation = 1,
+    linewidth = 0,
 )
 axs[0].set(xlabel='# of alternative isoforms', ylabel=None)
 
@@ -395,15 +439,17 @@ sns.violinplot(
     data = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.FRAMESHIFT],
     x = 'anchor_relative_length_change',
     y = 'frame_subcat',
-    palette = cterm_frameshift_palette + ['#bbbbbb'],
+    order = frame_subcat_order,
+    palette = cterm_frameshift_palette_dict,
+    saturation = 1,
     scale = 'area'
 )
 xmax = max(axs[1].get_xlim())
 ymin, ymax = axs[1].get_ylim()
-axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linestyle=':')
+axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
 axs[1].set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
 
-plt.savefig(output_dir/'cterm-frameshift-subcats.png', dpi=200, facecolor=None)
+plt.savefig(output_dir/'cterm-frameshift-subcats.png', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
 cterm_event_counts = cterm_pblocks.groupby('cterm').events.value_counts().rename('count')
@@ -430,7 +476,7 @@ ax.set(xlabel='# of non-matching internal p-blocks', ylabel='# of alternative is
 plt.savefig(output_dir/'internal-pblock-counts.png', dpi=200, facecolor=None)
 
 # %%
-# internal_cat_palette = {'D': '#f022f0', 'I': '#22f0f0', 'S': '#f0f022'}
+internal_cat_palette = {'D': '#f800c0', 'I': '#00c0f8', 'S': '#f8c000'}
 internal_event_palette = {
     'intron': '#e69138',
     'donor': '#6aa84f',
@@ -455,24 +501,71 @@ internal_pblocks['splice event'] = internal_subcats.idxmax(axis=1).astype(pd.Cat
 internal_pblocks_fig = plt.figure(figsize=(6, 4))
 ax = sns.countplot(
     data = internal_pblocks.sort_values('category', ascending=True),
-    y = 'category',
-    hue = 'splice event',
-    palette = internal_event_palette,
-    dodge = True
+    y = 'splice event',
+    hue = 'category',
+    palette = internal_cat_palette,
+    saturation = 1,
+    dodge = True,
+)
+plt.legend(loc='lower right', labels=['deletion', 'insertion', 'substitution'])
+ax.set(xlabel='# of p-blocks', ylabel=None)
+plt.savefig(output_dir/'internal-pblock-events.png', dpi=200, facecolor=None, bbox_inches='tight')
+
+# %%
+internal_pblocks_split_fig = plt.figure(figsize=(6, 4))
+ax = sns.countplot(
+    data = internal_pblocks.sort_values('category', ascending=True),
+    y = 'splice event',
+    hue = 'category',
+    palette = internal_cat_palette,
+    saturation = 1,
+    dodge = True,
 )
 sns.countplot(
     ax = ax,
     data = internal_pblocks[internal_pblocks.split_ends].sort_values('category', ascending=True),
-    y = 'category',
-    hue = 'splice event',
-    facecolor = 'None',
+    y = 'splice event',
+    hue = 'category',
+    palette = internal_cat_palette,
+    saturation = 1,
+    dodge = True,
     edgecolor = 'w',
     hatch = '///',
-    dodge = True
 )
-sns.move_legend(ax, 'lower right')
-plt.legend(labels=list(internal_subcats.columns))
+plt.legend(loc='lower right', labels=['deletion', 'insertion', 'substitution'])
 ax.set(xlabel='# of p-blocks', ylabel=None)
-plt.savefig(output_dir/'internal-pblock-events.png', dpi=200, facecolor=None)
+plt.savefig(output_dir/'internal-pblock-events-split.png', dpi=200, facecolor=None, bbox_inches='tight')
+
+# %%
+internal_compound_pblocks = internal_pblocks[internal_pblocks['splice event'] == 'compound'].copy()
+
+internal_compound_subcats = pd.DataFrame(
+    {
+        'multi-exon skip': internal_compound_pblocks['events'] == {'e'},
+        'exon skipping + alt donor/acceptor': internal_compound_pblocks['events'].isin({
+            frozenset('de'),
+            frozenset('De'),
+            frozenset('ea'),
+            frozenset('eA'),
+            frozenset('dea'),
+            frozenset('Dea'),
+            frozenset('deA'),
+            frozenset('DeA'),
+        }),
+        'other': [True for _ in internal_compound_pblocks.index]
+    }
+)
+internal_compound_pblocks['compound_subcat'] = internal_compound_subcats.idxmax(axis=1).astype(pd.CategoricalDtype(internal_compound_subcats.columns, ordered=True))
+
+internal_pblocks_compound_fig = plt.figure(figsize=(6, 3))
+ax = sns.countplot(
+        data = internal_compound_pblocks,
+        y = 'compound_subcat',
+        palette = 'Blues_r',
+        saturation = 1,
+        linewidth = 0,
+)
+ax.set(xlabel='# of alternative isoforms', ylabel=None)
+plt.savefig(output_dir/'internal-pblock-compound-events.png', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
