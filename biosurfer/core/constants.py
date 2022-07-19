@@ -159,6 +159,22 @@ class ProteinRegion(OrderedEnum):
             return 'Cterm'
 
 
+class NTerminalChange(OrderedEnum):
+    MUTUALLY_EXCLUSIVE = auto()
+    DOWNSTREAM_SHARED = auto()
+    UPSTREAM_SHARED = auto()
+    MUTUALLY_SHARED = auto()
+    ALTERNATIVE_ORF = auto()
+    UNKNOWN = auto()
+
+
+class CTerminalChange(OrderedEnum):
+    SPLICING = auto()
+    FRAMESHIFT = auto()
+    ALTERNATIVE_ORF = auto()
+    UNKNOWN = auto()
+
+
 class FeatureType(Enum):
     DOMAIN = auto()
     IDR = auto()

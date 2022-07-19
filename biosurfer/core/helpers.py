@@ -78,8 +78,9 @@ def frozendataclass(cls):
 
 
 class ExceptionLogger(AbstractContextManager):
-    def __init__(self, info=None):
+    def __init__(self, info=None, callback=None):
         self.info = info
+        self.callback = callback
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
@@ -88,6 +89,8 @@ class ExceptionLogger(AbstractContextManager):
                 sys.stderr.write(str(self.info) + '\n')
             traceback.print_exc()
             sys.stderr.write('---------\n')
+            if callable(self.callback):
+                self.callback(exc_type, exc_val, exc_tb)
             return True
 
 
