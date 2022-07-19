@@ -88,8 +88,14 @@ class Transcript(Base, TablenameMixin, NameMixin, AccessionMixin):
             up_exon = self.exons[i-1]
             down_exon = self.exons[i]
             chr = self.gene.chromosome_id
-            donor = Position(chr, self.strand, up_exon.nucleotides[-1].coordinate) + 1
-            acceptor = Position(chr, self.strand, down_exon.nucleotides[0].coordinate) - 1
+            if self.strand is Strand.MINUS:
+                up_exon_stop = up_exon.start
+                down_exon_start = down_exon.stop
+            else:
+                up_exon_stop = up_exon.stop
+                down_exon_start = down_exon.start
+            donor = Position(chr, self.strand, up_exon_stop) + 1
+            acceptor = Position(chr, self.strand, down_exon_start) - 1
             junction = Junction.from_splice_sites(donor, acceptor)
             mapping[junction] = (up_exon, down_exon)
         return mapping
