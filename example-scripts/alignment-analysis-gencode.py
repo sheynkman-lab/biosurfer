@@ -1,8 +1,5 @@
 # %%
-import csv
 import multiprocessing as mp
-import os
-from re import M
 import sys
 from itertools import chain, starmap
 from operator import attrgetter
@@ -16,7 +13,7 @@ from biosurfer.core.alignments import (CodonAlignment, ProteinAlignment,
                                        SeqAlignCat, TranscriptAlignment)
 from biosurfer.core.constants import APPRIS, CTerminalChange, NTerminalChange
 from biosurfer.core.database import Database
-from biosurfer.core.helpers import T, ExceptionLogger
+from biosurfer.core.helpers import ExceptionLogger
 from biosurfer.core.models.biomolecules import (ORF, GencodeTranscript, Gene,
                                                 Protein,
                                                 Transcript)
@@ -31,6 +28,7 @@ from scipy.sparse import coo_matrix
 from sqlalchemy import func, select
 from tqdm import tqdm
 
+plt.rcParams['svg.fonttype'] = 'none'
 sns.set_style('whitegrid')
 
 db_name = 'gencode'
@@ -86,6 +84,8 @@ def process_gene(gene_name: str):
                         'tblock': str(tblock),
                         'events': get_event_code(events),
                         'compound_splicing': any(set(events).intersection(compound_event.members) for compound_event in tx_aln.events if isinstance(compound_event, SpliceEvent) and len(compound_event.members) > 1),
+                        'anchor_aa': principal.protein.sequence[cblock.anchor_range.start:cblock.anchor_range.stop],
+                        'other_aa': alternative.protein.sequence[cblock.other_range.start:cblock.other_range.stop],
                         'affects_up_start': anchor_starts_upstream and cblock is anchor_start_cblock or not anchor_starts_upstream and cblock is other_start_cblock,
                         'affects_down_start': anchor_starts_upstream and cblock is other_start_cblock or not anchor_starts_upstream and cblock is anchor_start_cblock,
                         'affects_up_stop': anchor_stops_upstream and cblock is anchor_stop_cblock or not anchor_stops_upstream and cblock is other_stop_cblock,
@@ -120,7 +120,7 @@ def process_gene(gene_name: str):
                         else:
                             row['up_stop_events'] = stop_events
                     out.append(row)
-        # fig_path = output_dir/f'chr19/{gene_name}.png'
+        # fig_path = output_dir/f'chr19/{gene_name}.svg'
         # if not fig_path.isfile() and len(transcripts) > 1:
         #     isoplot = IsoformPlot(transcripts)
         #     isoplot.draw_all_isoforms()
@@ -281,8 +281,8 @@ ax = sns.countplot(
     linewidth = 0,
     saturation = 1,
 )
-ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=[])
-plt.savefig(output_dir/'nterm-class-counts.png', dpi=200, facecolor=None)
+ax.set(xlabel='Number of alternative isoforms', ylabel=None, yticklabels=[])
+plt.savefig(output_dir/'nterm-class-counts.svg', dpi=200, facecolor=None)
 
 # %%
 nterm_length_order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED, NTerminalChange.MUTUALLY_SHARED)
@@ -302,14 +302,14 @@ ax = sns.violinplot(
 xmax = max(ax.get_xlim())
 ymin, ymax = ax.get_ylim()
 ax.vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
-ax.set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in N-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['MXS', 'SDS', 'MSS'])
-plt.savefig(output_dir/'nterm-length-change-dist.png', dpi=200, facecolor=None)
+ax.set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='Change in N-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=['MXS', 'SDS', 'MSS'])
+plt.savefig(output_dir/'nterm-length-change-dist.svg', dpi=200, facecolor=None)
 
 # %%
-tss_fig = plt.figure(figsize=(6, 4))
+tss_fig = plt.figure(figsize=(3, 4))
 ax = sns.countplot(
     data = nterm_pblocks,
-    y = 'nterm',
+    x = 'nterm',
     palette = nterm_palette,
     saturation = 1,
     order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED),
@@ -317,15 +317,15 @@ ax = sns.countplot(
 sns.countplot(
     ax = ax,
     data = nterm_pblocks[nterm_pblocks['altTSS']],
-    y = 'nterm',
+    x = 'nterm',
     order = (NTerminalChange.MUTUALLY_EXCLUSIVE, NTerminalChange.DOWNSTREAM_SHARED),
     fill = False,
     edgecolor = 'w',
     hatch = '//',
 )
-ax.legend(handles=[Patch(facecolor='gray', edgecolor='w', hatch='///'), Patch(facecolor='gray')], labels=['driven by alternate TSS', 'driven by 5\' UTR splicing'])
-ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=['MXS', 'SDS'])
-plt.savefig(output_dir/'nterm-altTSS-counts.png', dpi=200, facecolor=None)
+ax.legend(loc=(0, 1), frameon=False, handles=[Patch(facecolor='k', edgecolor='w', hatch='///'), Patch(facecolor='k')], labels=['driven by alternate TSS', 'driven by 5\' UTR splicing'])
+ax.set(ylabel='Number of alternative isoforms', xlabel=None, xticklabels=['MXS', 'SDS'])
+plt.savefig(output_dir/'nterm-altTSS-counts.svg', dpi=200, facecolor=None)
 
 # %%
 cterm_pblocks = pblocks[~pblocks['cterm'].isna() & (pblocks['nterm'] != NTerminalChange.ALTERNATIVE_ORF) & (pblocks['cterm'] != CTerminalChange.ALTERNATIVE_ORF) & (pblocks['cterm'] != CTerminalChange.UNKNOWN)].copy()
@@ -338,7 +338,7 @@ cterm_splice_palette = sns.color_palette('RdPu_r', n_colors=3)
 cterm_frameshift_palette = sns.color_palette('YlOrRd_r', n_colors=4)
 cterm_palette = [cterm_splice_palette[0], cterm_frameshift_palette[0]]
 
-cterm_fig = plt.figure(figsize=(3, 4))
+cterm_fig = plt.figure(figsize=(3, 2))
 ax = sns.countplot(
     data = cterm_pblocks,
     y = 'cterm',
@@ -347,31 +347,40 @@ ax = sns.countplot(
     saturation = 1,
     linewidth = 0,
 )
-ax.set(xlabel='# of alternative isoforms', ylabel=None, yticklabels=[])
-plt.savefig(output_dir/'cterm-class-counts.png', dpi=200, facecolor=None)
+ax.set(xlabel='Number of alternative isoforms', ylabel=None, yticklabels=[])
+plt.savefig(output_dir/'cterm-class-counts.svg', dpi=200, facecolor=None)
 
 # %%
 cterm_pblock_events = cterm_pblocks['up_stop_events'].combine(cterm_pblocks['down_stop_events'], lambda x, y: (x, y))
 single_ATE = (cterm_pblocks['cterm'] == CTerminalChange.SPLICING) & cterm_pblocks['tblock_events'].isin({('B', 'b'), ('b', 'B')})
 cterm_splice_subcats = pd.DataFrame(
     {
-        'EXIT (APA)': cterm_pblocks['up_stop_events'] == 'P',
-        'EXIT (intron)': cterm_pblocks['up_stop_events'] == 'I',
-        'EXIT (donor)': cterm_pblocks['up_stop_events'] == 'D',
-        'ATE (multiple)': cterm_pblock_events.isin({('B', 'b'), ('b', 'B')}) & ~single_ATE,
-        'ATE (single)': single_ATE,
+        'exon extension introduces termination': cterm_pblocks['up_stop_events'].isin({'P', 'I', 'D'}),
+        'alternative terminal exon(s)': cterm_pblock_events.isin({('B', 'b'), ('b', 'B')}),
         'poison exon': cterm_pblocks['up_stop_events'] == 'E',
         'other': [True for _ in cterm_pblocks.index]
     }
 )
+# cterm_splice_subcats = pd.DataFrame(
+#     {
+#         'EXIT (APA)': cterm_pblocks['up_stop_events'] == 'P',
+#         'EXIT (intron)': cterm_pblocks['up_stop_events'] == 'I',
+#         'EXIT (donor)': cterm_pblocks['up_stop_events'] == 'D',
+#         'ATE (multiple)': cterm_pblock_events.isin({('B', 'b'), ('b', 'B')}) & ~single_ATE,
+#         'ATE (single)': single_ATE,
+#         'poison exon': cterm_pblocks['up_stop_events'] == 'E',
+#         'other': [True for _ in cterm_pblocks.index]
+#     }
+# )
 cterm_pblocks['splice_subcat'] = cterm_splice_subcats.idxmax(axis=1).astype(pd.CategoricalDtype(cterm_splice_subcats.columns, ordered=True))
 
 cterm_splice_palette_dict = dict(zip(
     cterm_splice_subcats.columns,
-    cterm_splice_palette[0:1]*3 + cterm_splice_palette[1:2]*2 + cterm_splice_palette[2:3] + ['#bbbbbb']
+    cterm_splice_palette[0:1] + cterm_splice_palette[1:2] + cterm_splice_palette[2:3] + ['#bbbbbb']
 ))
 
-splice_subcat_order = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING]['splice_subcat'].value_counts().index
+# splice_subcat_order = cterm_pblocks[cterm_pblocks['cterm'] == CTerminalChange.SPLICING]['splice_subcat'].value_counts().index
+splice_subcat_order = tuple(cterm_splice_subcats.keys())
 
 cterm_splice_fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 sns.countplot(
@@ -383,7 +392,7 @@ sns.countplot(
     saturation = 1,
     linewidth = 0,
 )
-axs[0].set(xlabel='# of alternative isoforms', ylabel=None)
+axs[0].set(xlabel='Number of alternative isoforms', ylabel=None)
 
 sns.violinplot(
     ax = axs[1],
@@ -401,7 +410,7 @@ ymin, ymax = axs[1].get_ylim()
 axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
 axs[1].set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
 
-plt.savefig(output_dir/'cterm-splicing-subcats.png', dpi=200, facecolor=None, bbox_inches='tight')
+plt.savefig(output_dir/'cterm-splicing-subcats.svg', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
 cterm_frame_subcats = pd.DataFrame(
@@ -432,7 +441,7 @@ sns.countplot(
     saturation = 1,
     linewidth = 0,
 )
-axs[0].set(xlabel='# of alternative isoforms', ylabel=None)
+axs[0].set(xlabel='Number of alternative isoforms', ylabel=None)
 
 sns.violinplot(
     ax = axs[1],
@@ -449,7 +458,7 @@ ymin, ymax = axs[1].get_ylim()
 axs[1].vlines(x=0, ymin=ymin, ymax=ymax, color='#444444', linewidth=1, linestyle=':')
 axs[1].set(xlim=(-1, 1), ylim=(ymin, ymax), xlabel='change in C-terminal length (fraction of anchor isoform length)', ylabel=None, yticklabels=[])
 
-plt.savefig(output_dir/'cterm-frameshift-subcats.png', dpi=200, facecolor=None, bbox_inches='tight')
+plt.savefig(output_dir/'cterm-frameshift-subcats.svg', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
 cterm_event_counts = cterm_pblocks.groupby('cterm').events.value_counts().rename('count')
@@ -472,33 +481,33 @@ internal_pblock_counts = internal_pblocks.reset_index(level=3).groupby(['anchor'
 
 internal_pblock_counts_fig = plt.figure(figsize=(6, 4))
 ax = sns.countplot(data=internal_pblock_counts, x='pblocks', palette='Blues_r')
-ax.set(xlabel='# of non-matching internal p-blocks', ylabel='# of alternative isoforms')
-plt.savefig(output_dir/'internal-pblock-counts.png', dpi=200, facecolor=None)
+ax.set(xlabel='Number of alternative internal regions', ylabel='Number of alternative isoforms')
+plt.savefig(output_dir/'internal-pblock-counts.svg', dpi=200, facecolor=None)
 
 # %%
 internal_cat_palette = {'D': '#f800c0', 'I': '#00c0f8', 'S': '#f8c000'}
 internal_event_palette = {
-    'intron': '#e69138',
-    'donor': '#6aa84f',
-    'acceptor': '#8a4ea7',
-    'single exon': '#3d85c6',
-    'mutually exclusive exons': '#255179',
-    'compound': '#888888'
+    'Intron': '#e69138',
+    'Alt. donor': '#6aa84f',
+    'Alt. acceptor': '#8a4ea7',
+    'Single exon': '#3d85c6',
+    'Mutually exclusive exons': '#255179',
+    'Compound': '#888888'
 }
 
 internal_subcats = pd.DataFrame(
     {
-        'intron': internal_pblocks['tblock_events'].isin({('I',), ('i',)}),
-        'donor': internal_pblocks['tblock_events'].isin({('D',), ('d',)}),
-        'acceptor': internal_pblocks['tblock_events'].isin({('A',), ('a',)}),
-        'single exon': internal_pblocks['tblock_events'].isin({('E',), ('e',)}),
-        'mutually exclusive exons': internal_pblocks['tblock_events'].isin({('E', 'e'), ('e', 'E')}),
-        'compound': [True for _ in internal_pblocks.index]
+        'Intron': internal_pblocks['tblock_events'].isin({('I',), ('i',)}),
+        'Alt. donor': internal_pblocks['tblock_events'].isin({('D',), ('d',)}),
+        'Alt. acceptor': internal_pblocks['tblock_events'].isin({('A',), ('a',)}),
+        'Single exon': internal_pblocks['tblock_events'].isin({('E',), ('e',)}),
+        'Mutually exclusive exons': internal_pblocks['tblock_events'].isin({('E', 'e'), ('e', 'E')}),
+        'Compound': [True for _ in internal_pblocks.index]
     }
 )
 internal_pblocks['splice event'] = internal_subcats.idxmax(axis=1).astype(pd.CategoricalDtype(internal_subcats.columns, ordered=True))
 
-internal_pblocks_fig = plt.figure(figsize=(6, 4))
+internal_pblocks_fig = plt.figure(figsize=(4, 4))
 ax = sns.countplot(
     data = internal_pblocks.sort_values('category', ascending=True),
     y = 'splice event',
@@ -507,42 +516,37 @@ ax = sns.countplot(
     saturation = 1,
     dodge = True,
 )
-plt.legend(loc='lower right', labels=['deletion', 'insertion', 'substitution'])
-ax.set(xlabel='# of p-blocks', ylabel=None)
-plt.savefig(output_dir/'internal-pblock-events.png', dpi=200, facecolor=None, bbox_inches='tight')
+plt.legend(loc='lower right', labels=['Deletion', 'Insertion', 'Substitution'])
+ax.set(xlabel='Number of alternative internal regions', ylabel=None)
+plt.savefig(output_dir/'internal-pblock-events.svg', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
-internal_pblocks_split_fig = plt.figure(figsize=(6, 4))
+internal_pblocks_split_fig = plt.figure(figsize=(4, 4))
 ax = sns.countplot(
     data = internal_pblocks.sort_values('category', ascending=True),
     y = 'splice event',
-    hue = 'category',
-    palette = internal_cat_palette,
+    palette = internal_event_palette,
     saturation = 1,
-    dodge = True,
 )
 sns.countplot(
     ax = ax,
     data = internal_pblocks[internal_pblocks.split_ends].sort_values('category', ascending=True),
     y = 'splice event',
-    hue = 'category',
-    palette = internal_cat_palette,
-    saturation = 1,
-    dodge = True,
+    fill = False,
     edgecolor = 'w',
     hatch = '///',
 )
-plt.legend(loc='lower right', labels=['deletion', 'insertion', 'substitution'])
-ax.set(xlabel='# of p-blocks', ylabel=None)
-plt.savefig(output_dir/'internal-pblock-events-split.png', dpi=200, facecolor=None, bbox_inches='tight')
+plt.legend(loc='lower right', handles=[Patch(facecolor='k', edgecolor='w', hatch='///'), Patch(facecolor='k', edgecolor='w')], labels=['split codons', 'no split codons'])
+ax.set(xlabel='Number of alternative internal regions', ylabel=None)
+plt.savefig(output_dir/'internal-pblock-events-split.svg', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
-internal_compound_pblocks = internal_pblocks[internal_pblocks['splice event'] == 'compound'].copy()
+internal_compound_pblocks = internal_pblocks[internal_pblocks['splice event'] == 'Compound'].copy()
 
 internal_compound_subcats = pd.DataFrame(
     {
-        'multi-exon skip': internal_compound_pblocks['events'] == {'e'},
-        'exon skipping + alt donor/acceptor': internal_compound_pblocks['events'].isin({
+        'Multi-exon skip': internal_compound_pblocks['events'] == {'e'},
+        'Exon skipping + alt donor/acceptor': internal_compound_pblocks['events'].isin({
             frozenset('de'),
             frozenset('De'),
             frozenset('ea'),
@@ -552,12 +556,12 @@ internal_compound_subcats = pd.DataFrame(
             frozenset('deA'),
             frozenset('DeA'),
         }),
-        'other': [True for _ in internal_compound_pblocks.index]
+        'Other': [True for _ in internal_compound_pblocks.index]
     }
 )
 internal_compound_pblocks['compound_subcat'] = internal_compound_subcats.idxmax(axis=1).astype(pd.CategoricalDtype(internal_compound_subcats.columns, ordered=True))
 
-internal_pblocks_compound_fig = plt.figure(figsize=(6, 3))
+internal_pblocks_compound_fig = plt.figure(figsize=(6, 1.5))
 ax = sns.countplot(
         data = internal_compound_pblocks,
         y = 'compound_subcat',
@@ -565,7 +569,7 @@ ax = sns.countplot(
         saturation = 1,
         linewidth = 0,
 )
-ax.set(xlabel='# of alternative isoforms', ylabel=None)
-plt.savefig(output_dir/'internal-pblock-compound-events.png', dpi=200, facecolor=None, bbox_inches='tight')
+ax.set(xlabel='Number of alternative internal regions', ylabel=None)
+plt.savefig(output_dir/'internal-pblock-compound-events.svg', dpi=200, facecolor=None, bbox_inches='tight')
 
 # %%
