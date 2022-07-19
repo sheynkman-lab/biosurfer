@@ -49,7 +49,7 @@ df = pd.DataFrame.from_records(
     columns = ['anchor', 'other']
 )
 
-db = Database('gencode')
+db = Database('gencode-comp')
 session = db.get_session()
 txs = Transcript.from_names(session, pd.concat([df['anchor'], df['other']]).unique())
 
