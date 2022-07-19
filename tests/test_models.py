@@ -217,6 +217,16 @@ def test_orf_utr_sequences_correct(data, coding_transcript_getter):
         assert utr5_sequence + orf.sequence + utr3_sequence == transcript.sequence
 
 @given(data=st.data())
+def test_orf_junctions_correct(data, coding_transcript_getter):
+    transcript: 'Transcript' = coding_transcript_getter(data)
+    for orf in transcript.orfs:
+        tx_start = orf.transcript_start - 1
+        tx_stop = orf.transcript_stop
+        for junction in orf.junctions:
+            assert tx_start <= transcript.get_transcript_coord_from_genome_coord(junction.donor - 1) <= tx_stop
+            assert tx_start <= transcript.get_transcript_coord_from_genome_coord(junction.acceptor + 1) <= tx_stop
+
+@given(data=st.data())
 def test_nucleotide_has_exon(data, transcript_getter):
     transcript: 'Transcript' = transcript_getter(data)
     for exon in transcript.exons:
