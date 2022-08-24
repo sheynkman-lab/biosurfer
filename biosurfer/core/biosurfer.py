@@ -6,27 +6,16 @@ from example_scripts.alignment_analysis_gencode import run_hybrid_alignment
 @click.command()
 
 @click.option('--verbose', is_flag=True, help="Will print verbose messages.")
-#@click.argument('db_name', nargs=1, required=True, type=click.STRING)
-@click.argument('filename', nargs=6, type=click.Path(exists=True), required=False)
+@click.argument('filename', nargs=6, type=click.Path(exists=True))
 @click.option('--db', is_flag=True, help="Creates database for the provided genocode files.")
 @click.option('--alignment', is_flag=True, help="Run hybrid alignment script.")
 @click.argument('db_name')
-@click.option('--o', is_flag=True, help="Directory to write output to")
+@click.option('--o', is_flag=True, help="Directory to write output to.")
 @click.argument('output')
 
 
-def cli(verbose, filename, db, alignment, db_name, o , output):
-    """ Command line interface function to retrieve user inputs
-    Args:
-        verbose: Option to show more details on terminal
-        filename: List to store all input file names
-        db: Option to input data files
-        alignment: Option to run hybrid alignment
-        db_name: User input database name
+def cli(verbose, filename, db, alignment, db_name, o, output):
 
-    Returns:
-      Nothing
-    """
     if verbose:
         click.echo("We are in the verbose mode.")
     click.echo("""
@@ -36,7 +25,6 @@ def cli(verbose, filename, db, alignment, db_name, o , output):
 """, err=True)
     click.echo()
     # TODO: Sanity check for Gencode file - from Gloria @Liz : subflags for all files
-    # TODO: Break down creating database - Check Kalisto tool for example  
     if db:
         click.echo('----- Input files:', err=True)
         click.echo(click.format_filename(filename[0]))
@@ -49,7 +37,7 @@ def cli(verbose, filename, db, alignment, db_name, o , output):
         click.echo('----- Creating database: ', err=True)
         check_database(click.format_filename(filename[0]),click.format_filename(filename[1]),click.format_filename(filename[2]),click.format_filename(filename[3]), click.format_filename(filename[4]),click.format_filename(filename[5]), db_name)
 
-    if alignment and o:
+    if alignment and o and db_name:
         click.echo('')
         click.echo('----- Running hybrid alignment: ', err=True)
         click.echo('')

@@ -1,8 +1,9 @@
 
-# Biosurfer: Modeling connections between genomic, transcriptomic, and proteomic layers to characterize isoform function
+# Biosurfer
+
+[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)  [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7004071.svg)](https://doi.org/10.5281/zenodo.7004071)
 
 "Surf" the biological network, from genome to transcriptome to proteome and back to gain insights into human disease biology.
-
 
 **Contents**
 
@@ -20,40 +21,55 @@
 * Database (sqlalchemy >=1.4)
 * Vizualization (matplotlib, brokenaxes)
 
-
-#### Toy dataset
-
 #### Local building (without installation)
 
-Clone the project repository and create a new conda environment if needed.
 
-    git clone https://github.com/sheynkman-lab/biosurfer
-    cd biosurfer
-    pip install --editable .
+Clone the project repository and create a [new conda environment](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-with-commands) if needed.
+
+```
+# Clone the repository
+git clone https://github.com/sheynkman-lab/biosurfer
     
-The dependency on [`graph-tool`](https://graph-tool.skewed.de/) currently requires a separate installation step. Run `conda install -c conda-forge graph-tool`.
+# Move to the folder
+cd biosurfer
+    
+# Run setup 
+pip install --editable .
+``` 
 
-#### Usage
-Download dataset from Zenodo 
+## Usage
+* Download the [toy gencode data](https://zenodo.org/record/7004071) from Zenodo into the project directory.
 
-## 2. Features
+* Run the following command to create a database and run hybrid alignment
 
-#### Data sources and preprocessing
-- External reference databases
-    - GENCODE -- genes, transcripts, ORFs, proteins
-    - Ensembl Pfam mappings (via BioMart) -- protein features
- 
+```
+biosurfer \
+    --db data/gencode/gencode.v41.annotation.gtf data/gencode/gencode.v41.pc_transcripts.fa data/gencode/gencode.v41.pc_translations.fa data/gencode/grch38-protein-features.tsv data/gencode/pfamA.tsv data/gencode/prosite.dat gencode_v41 \
+    --alignment \
+    --o output/alignment-analysis/gencode_v41 
+```
+```
+Usage: biosurfer [OPTIONS] [FILENAME]... DB_NAME OUTPUT
 
-#### Software implementation details
+Options:
+  --verbose    Will print verbose messages.
+  --db         Creates database for the provided genocode files.
+  --alignment  Run hybrid alignment script.
+  --o          Directory to write output to.
+  --help       Show this message and exit. 
+```
 
-- SQLAlchemy ORM creates an internal database using the input files and associates related Python objects with one another.
-- describing the hybrid alignment algorithm?
-- briefly describe implementation of plotting package?
+### Input
 
-#### Analysis-specific methods
-- describe pblock similarity metrics
-- sQTL functional analysis -- describe metrics?... (it doesn’t feel like we really used them much)
-- describe statistical methodology for proteome-wide analysis of frameshift regions
+Biosurfer takes the following gencode files as input. The data from these files are loaded into a local database to run scripts.
+NOTE: The files must be in the same order as provided below.
+1. Gene annotation file (GTF)
+2. Transcript reference sequence file (FASTA)
+3. Translation reference sequence file (FASTA)
+4. grch38 protein feature file (TSV)
+5. Protein Family mapping file (TSV)
+6. PROSITE pattern data file    
+
 
     
 ## 3. References

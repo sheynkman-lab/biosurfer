@@ -14,7 +14,7 @@ def check_database(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_i
         gencode_tl: Translation reference sequence file (FASTA)
         gencode_doms: grch38 protein feature file (TSV)
         pfam_dom_info: Protein Family mapping file (TSV)
-        prosite_patterns: PROSITE patter data file 
+        prosite_patterns: PROSITE pattern data file 
         db_name: User input database name
 
     Returns:
@@ -40,7 +40,7 @@ def create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_i
         gencode_tl: Translation reference sequence file (FASTA)
         gencode_doms: grch38 protein feature file (TSV)
         pfam_dom_info: Protein Family mapping file (TSV)
-        prosite_patterns: PROSITE patter data file 
+        prosite_patterns: PROSITE pattern data file 
         db_name: User input database name
 
     Returns:
