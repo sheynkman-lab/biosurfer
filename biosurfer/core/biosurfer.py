@@ -13,6 +13,17 @@ from example_scripts.alignment_analysis_gencode import run_hybrid_alignment
 @click.argument('db_name')
 
 def cli(verbose, filename, db, alignment, db_name):
+    """ Command line interface function to retrieve user inputs
+    Args:
+        verbose: Option to show more details on terminal
+        filename: List to store all input file names
+        db: Option to input data files
+        alignment: Option to run hybrid alignment
+        db_name: User input database name
+
+    Returns:
+      Nothing
+    """
     if verbose:
         click.echo("We are in the verbose mode.")
     click.echo("""
@@ -39,7 +50,7 @@ def cli(verbose, filename, db, alignment, db_name):
         click.echo('')
         click.echo('----- Running hybrid alignment: ', err=True)
         click.echo('')
-        run_hybrid_alignment(click.format_filename(filename[0]),click.format_filename(filename[1]),click.format_filename(filename[2]),click.format_filename(filename[3]), click.format_filename(filename[4]),click.format_filename(filename[5]), db_name)
+        run_hybrid_alignment(db_name)
 
     # parser = argparse.ArgumentParser(description='Import gencode files.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # #parser.add_argument('filepath', type=argparse.FileType('r'), nargs='+', help='Path of a file or a folder of files.')

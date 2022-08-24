@@ -7,23 +7,45 @@ import os
 
 #%%
 def check_database(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name):    
+    """Sanity check for SQLite3 database whether it already exists.
+    Args:
+        gencode_gtf: Gene annotation file (GTF)
+        gencode_tx: Transcript reference sequence file (FASTA)
+        gencode_tl: Translation reference sequence file (FASTA)
+        gencode_doms: grch38 protein feature file (TSV)
+        pfam_dom_info: Protein Family mapping file (TSV)
+        prosite_patterns: PROSITE patter data file 
+        db_name: User input database name
 
-    #check if database already exits
+    Returns:
+      Nothing
+    """
     path = os.getcwd() +'/'
     db_path = path + 'databases'
     db_path_list = os.listdir(db_path)
-    print(db_path_list)
 
     if (db_name + '.sqlite3') in db_path_list:
-        print('\n Database already exists. Loading ' + db_name + ' ...')
-        load_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name, path)
+        print('\n Database already exists. Loading ' + db_name + ' ... \n')
+        load_gencode(db_name)
     else:
-        print('\n Creating a new database ' + db_name + ' ...')
-        load_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name, path)    
+        print('\n Creating a new database ' + db_name + ' ...\n')
+        create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name, path)    
 
 #%%
-def load_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name, path):
-    
+def create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name, path):
+    """ Creating new SQLite3 gencode database 
+    Args:
+        gencode_gtf: Gene annotation file (GTF)
+        gencode_tx: Transcript reference sequence file (FASTA)
+        gencode_tl: Translation reference sequence file (FASTA)
+        gencode_doms: grch38 protein feature file (TSV)
+        pfam_dom_info: Protein Family mapping file (TSV)
+        prosite_patterns: PROSITE patter data file 
+        db_name: User input database name
+
+    Returns:
+      Nothing
+    """
     db = Database(db_name)
     gencode_gtf = 'data/gencode/' + os.path.basename(gencode_gtf)
     gencode_tx = 'data/gencode/' + os.path.basename(gencode_tx)
@@ -33,7 +55,7 @@ def load_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_inf
     prosite_patterns = 'data/gencode/' + os.path.basename(prosite_patterns)
 
     start = time()
-    # db.recreate_tables()
+    db.recreate_tables()
     #TODO: Join paths using pathlib :  os.path.join()
     #TODO: Script doesnt read gtf file to create database
     db.load_gencode_gtf(path + gencode_gtf, overwrite=True)
@@ -46,5 +68,17 @@ def load_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_inf
     print(f'Total time: {end - start:.3g} s')
 
 #%%
+def load_gencode(db_name):
+    """ Loading existing SQLite3 gencode database
+    Args: 
+        db_name: User input database name
+
+    Returns:
+      Nothing
+    """
+    db = Database(db_name)
+
+#%%
 if __name__ == '__main__':
     check_database(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name)
+
