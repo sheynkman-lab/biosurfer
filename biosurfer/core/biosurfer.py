@@ -11,8 +11,11 @@ from example_scripts.alignment_analysis_gencode import run_hybrid_alignment
 @click.option('--db', is_flag=True, help="Creates database for the provided genocode files.")
 @click.option('--alignment', is_flag=True, help="Run hybrid alignment script.")
 @click.argument('db_name')
+@click.option('--o', is_flag=True, help="Directory to write output to")
+@click.argument('output')
 
-def cli(verbose, filename, db, alignment, db_name):
+
+def cli(verbose, filename, db, alignment, db_name, o , output):
     """ Command line interface function to retrieve user inputs
     Args:
         verbose: Option to show more details on terminal
@@ -46,11 +49,11 @@ def cli(verbose, filename, db, alignment, db_name):
         click.echo('----- Creating database: ', err=True)
         check_database(click.format_filename(filename[0]),click.format_filename(filename[1]),click.format_filename(filename[2]),click.format_filename(filename[3]), click.format_filename(filename[4]),click.format_filename(filename[5]), db_name)
 
-    if alignment:
+    if alignment and o:
         click.echo('')
         click.echo('----- Running hybrid alignment: ', err=True)
         click.echo('')
-        run_hybrid_alignment(db_name)
+        run_hybrid_alignment(db_name, output)
 
     # parser = argparse.ArgumentParser(description='Import gencode files.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # #parser.add_argument('filepath', type=argparse.FileType('r'), nargs='+', help='Path of a file or a folder of files.')

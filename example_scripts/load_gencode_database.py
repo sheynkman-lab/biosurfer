@@ -20,8 +20,8 @@ def check_database(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_i
     Returns:
       Nothing
     """
-    path = os.getcwd() +'/'
-    db_path = path + 'databases'
+    path = os.getcwd() 
+    db_path = os.path.join(path, "databases")
     db_path_list = os.listdir(db_path)
 
     if (db_name + '.sqlite3') in db_path_list:
@@ -29,10 +29,10 @@ def check_database(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_i
         load_gencode(db_name)
     else:
         print('\n Creating a new database ' + db_name + ' ...\n')
-        create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name, path)    
+        create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name)    
 
 #%%
-def create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name, path):
+def create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name):
     """ Creating new SQLite3 gencode database 
     Args:
         gencode_gtf: Gene annotation file (GTF)
@@ -47,23 +47,14 @@ def create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_i
       Nothing
     """
     db = Database(db_name)
-    gencode_gtf = 'data/gencode/' + os.path.basename(gencode_gtf)
-    gencode_tx = 'data/gencode/' + os.path.basename(gencode_tx)
-    gencode_tl = 'data/gencode/' + os.path.basename(gencode_tl)
-    gencode_doms = 'data/gencode/' + os.path.basename(gencode_doms)
-    pfam_dom_info = 'data/gencode/' + os.path.basename(pfam_dom_info)
-    prosite_patterns = 'data/gencode/' + os.path.basename(prosite_patterns)
-
     start = time()
     db.recreate_tables()
-    #TODO: Join paths using pathlib :  os.path.join()
-    #TODO: Script doesnt read gtf file to create database
-    db.load_gencode_gtf(path + gencode_gtf, overwrite=True)
-    db.load_transcript_fasta(path + gencode_tx, get_ids_from_gencode_fasta, skip_par_y)
-    db.load_translation_fasta(path + gencode_tl, get_ids_from_gencode_fasta, skip_par_y, overwrite=True)
-    db.load_domains(path + pfam_dom_info)
-    db.load_patterns(path + prosite_patterns)
-    db.load_feature_mappings(path + gencode_doms, overwrite=False)
+    db.load_gencode_gtf(os.path.abspath(gencode_gtf), overwrite=True)
+    db.load_transcript_fasta(os.path.abspath(gencode_tx), get_ids_from_gencode_fasta, skip_par_y)
+    db.load_translation_fasta(os.path.abspath(gencode_tl), get_ids_from_gencode_fasta, skip_par_y, overwrite=True)
+    db.load_domains(os.path.abspath(pfam_dom_info))
+    db.load_patterns(os.path.abspath(prosite_patterns))
+    db.load_feature_mappings(os.path.abspath(gencode_doms), overwrite=False)
     end = time()
     print(f'Total time: {end - start:.3g} s')
 

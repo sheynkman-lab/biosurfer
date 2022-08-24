@@ -29,19 +29,15 @@ from sqlalchemy import func, select
 from tqdm import tqdm
 import os
 
-def run_hybrid_alignment(db_name):
+def run_hybrid_alignment(db_name, output_path):
     plt.rcParams['svg.fonttype'] = 'none'
     sns.set_style('whitegrid')
 
     db_name = db_name
     db = Database(db_name)
-    path = os.getcwd()
- 
-    # TODO: Set a global path variable for directories
-    data_dir = Path(f'/Users/mayankmurali/Desktop/biosurfer/data/gencode_v41')
 
-    # TODO: Output directory to be mentioned by the user? and default
-    output_dir = Path('/Users/mayankmurali/Desktop/biosurfer/output/alignment-analysis/gencode_v41')
+    output_dir = Path(output_path)
+    output_dir = output_dir.resolve()
 
     # %%
     gene_to_gc_transcripts: dict[str, list[str]] = dict()
@@ -282,17 +278,18 @@ def run_hybrid_alignment(db_name):
     # changed s type to string to print in text files.
     def get_genes(pblocks_slice: 'pd.DataFrame'):
         return pblocks_slice.reset_index()['anchor'].str.extract(r'(\w+)-\d+', expand=False).unique()
-
-    with open('/Users/mayankmurali/Desktop/biosurfer/output/alignment-analysis/gencode_v41/genes-mxs.txt.rtf', 'w') as f:
+                 
+    
+    with open(output_dir/f'genes-mxs.txt', 'w') as f:
         f.writelines(str(s)+'\n' for s in get_genes(pblocks[pblocks['nterm'] == NTerminalChange.MUTUALLY_EXCLUSIVE]))
 
-    with open('/Users/mayankmurali/Desktop/biosurfer/output/alignment-analysis/gencode_v41/genes-sds.txt.rtf', 'w') as f:
+    with open(output_dir/f'genes-sds.txt', 'w') as f:
         f.writelines(str(s)+'\n' for s in get_genes(pblocks[pblocks['nterm'] == NTerminalChange.DOWNSTREAM_SHARED]))
 
-    with open('/Users/mayankmurali/Desktop/biosurfer/output/alignment-analysis/gencode_v41/genes-sus.txt.rtf', 'w') as f:
+    with open(output_dir/f'genes-sus.txt', 'w') as f:
         f.writelines(str(s)+'\n' for s in get_genes(pblocks[pblocks['nterm'] == NTerminalChange.UPSTREAM_SHARED]))
 
-    with open('/Users/mayankmurali/Desktop/biosurfer/output/alignment-analysis/gencode_v41/genes-mss.txt.rtf', 'w') as f:
+    with open(output_dir/f'genes-mss.txt', 'w') as f:
         f.writelines(str(s)+'\n' for s in get_genes(pblocks[pblocks['nterm'] == NTerminalChange.MUTUALLY_SHARED]))
 
     # %%
