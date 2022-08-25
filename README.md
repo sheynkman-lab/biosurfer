@@ -38,27 +38,51 @@ pip install --editable .
 ``` 
 
 ## Usage
+
+### Biosurfer command line:
+```
+Usage: biosurfer [OPTIONS] COMMAND1 [ARGS]... [COMMAND2 [ARGS]...]...
+          
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  create_database   This script creates a database for the provided...
+  hybrid_alignment  This script runs hybrid alignment on the provided...
+```
 * Download the [toy gencode data](https://zenodo.org/record/7004071) from Zenodo into the project directory.
 
-* Run the following command to create a database and run hybrid alignment
+### Creating database:
+* Create new database for the gencode input files.
+
+```bash
+biosurfer create_database --db data/gencode/gencode.v38.toy.gtf data/gencode/gencode.v38.toy.transcripts.fa data/gencode/gencode.v38.toy.translations.fa data/gencode/grch38-protein-features.tsv data/gencode/pfamA.tsv data/gencode/prosite.dat gencode_toy
+``` 
 
 ```
-biosurfer \
-    --db data/gencode/gencode.v41.annotation.gtf data/gencode/gencode.v41.pc_transcripts.fa data/gencode/gencode.v41.pc_translations.fa data/gencode/grch38-protein-features.tsv data/gencode/pfamA.tsv data/gencode/prosite.dat gencode_v41 \
-    --alignment \
-    --o output/alignment-analysis/gencode_v41 
-```
-```
-Usage: biosurfer [OPTIONS] [FILENAME]... DB_NAME OUTPUT
+Usage: biosurfer create_database [OPTIONS] FILENAME... DB_NAME
 
 Options:
-  --verbose    Will print verbose messages.
-  --db         Creates database for the provided genocode files.
-  --alignment  Run hybrid alignment script.
-  --o          Directory to write output to.
-  --help       Show this message and exit. 
+  --verbose  Will print verbose messages.
+  --db       Creates database for the provided genocode files.
+  --help     Show this message and exit. 
 ```
 
+### Hybrid alignment
+* Run hybdrid alignment script on the created database.
+
+```shell
+biosurfer hybrid_alignment gencode_toy --o output/alignment-analysis/gencode_toy 
+```
+
+```
+Usage: biosurfer hybrid_alignment [OPTIONS] DB_NAME OUTPUT
+
+Options:
+  --verbose  Will print verbose messages.
+  --o        Directory to write output to.
+  --help     Show this message and exit.
+```
 ### Input
 
 Biosurfer takes the following gencode files as input. The data from these files are loaded into a local database to run scripts.
