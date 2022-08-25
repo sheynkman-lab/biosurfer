@@ -41,9 +41,9 @@ setup(
         ],
     entry_points = {
         'console_scripts':[
-            'biosurfer = biosurfer.core.biosurfer:cli',
-            'load_gencode_database = example_scripts.load_gencode_database:cli',
-            'alignment_analysis_gencode = example_scripts.alignment_analysis_gencode:cli',
+            'biosurfer = biosurfer.biosurfer:cli',
+            #'create_database = biosurfer.create_database:cli',
+            #'alignment_analysis_gencode = example_scripts.alignment_analysis_gencode:cli',
         ],
     },
 )
