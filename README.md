@@ -72,7 +72,7 @@ Options:
 * Run hybdrid alignment script on the created database.
 
 ```shell
-biosurfer hybrid_alignment gencode_toy --o output/alignment-analysis/gencode_toy 
+biosurfer hybrid_alignment --o gencode_toy output/alignment-analysis/gencode_toy 
 ```
 
 ```

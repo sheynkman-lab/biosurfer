@@ -38,6 +38,9 @@ setup(
         'sqlalchemy >= 1.4',
         'tqdm',
         'Click',
+        'seaborn',
+        'ipython',
+        'pandas',
         ],
     entry_points = {
         'console_scripts':[

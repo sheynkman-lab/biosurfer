@@ -48,4 +48,3 @@ def run_hybrid_al(verbose, db_name, o, output):
         click.echo('----- Running hybrid alignment: ', err=True)
         click.echo('')
         run_hybrid_alignment(db_name, output)
-
