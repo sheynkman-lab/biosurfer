@@ -1,6 +1,7 @@
 import click
 from example_scripts.load_gencode_database import check_database
 from example_scripts.alignment_analysis_gencode import run_hybrid_alignment
+from example_scripts.plot_biosurfer import run_plot
 
 
 
@@ -18,7 +19,7 @@ def cli():
 
 @click.option('--verbose', is_flag=True, help="Will print verbose messages.")
 @click.argument('filename', nargs=6, type=click.Path(exists=True))
-@click.option('--db', is_flag=True, help="Creates database for the provided genocode files.")
+@click.option('--db', is_flag=True, required=True, help="Creates database for the provided genocode files.")
 @click.argument('db_name')
 
 def run_populate_database(verbose, filename, db, db_name):
@@ -37,14 +38,27 @@ def run_populate_database(verbose, filename, db, db_name):
 
 @cli.command("hybrid_alignment")
 @click.option('--verbose', is_flag=True, help="Will print verbose messages.")
-@click.argument('db_name')
 @click.option('--o', is_flag=True, help="Directory to write output to.")
-@click.argument('output')
+@click.argument('output_path', type=click.Path(exists=True))
+@click.argument('db_name')
 
-def run_hybrid_al(verbose, db_name, o, output):
+def run_hybrid_al(verbose, db_name, o, output_path):
     """ This script runs hybrid alignment on the provided database. """
     if o and db_name:
         click.echo('')
         click.echo('----- Running hybrid alignment: ', err=True)
         click.echo('')
-        run_hybrid_alignment(db_name, output)
+        run_hybrid_alignment(db_name, output_path)
+
+
+@cli.command("plot")
+@click.option('--verbose', is_flag=True, help="Will print verbose messages.")
+@click.option('--hal', is_flag=True, help="Plot hybrid alignment result.")
+
+def plot_hal(verbose, hal):
+    """ This script enables plotting functionality. """
+    if hal:
+        click.echo('')
+        click.echo('----- Plotting hybrid alignment result: ', err=True)
+        click.echo('')
+        run_plot()

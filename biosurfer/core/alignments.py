@@ -4,7 +4,7 @@ from functools import cached_property, lru_cache
 from itertools import chain, groupby, tee
 from operator import attrgetter, itemgetter
 from typing import TYPE_CHECKING
-
+import os
 from attrs import define, evolve, field, frozen
 from biosurfer.core.constants import ANCHOR_EXCLUSIVE, FRAMESHIFT, CD_DEL_INS, OTHER_EXCLUSIVE, SEQ_DEL_INS, CodonAlignmentCategory as CodonAlignCat
 from biosurfer.core.constants import SequenceAlignmentCategory as SeqAlignCat
@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 
 
 CACHE_SIZE = 2**8
-
 
 def check_block_ranges(instance, attribute, value: 'IntervalTree'):
     starts = sorted(i.begin for i in value)

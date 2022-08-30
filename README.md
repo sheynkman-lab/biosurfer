@@ -60,7 +60,7 @@ biosurfer create_database --db data/gencode/gencode.v38.toy.gtf data/gencode/gen
 ``` 
 
 ```
-Usage: biosurfer create_database [OPTIONS] FILENAME... DB_NAME
+Usage: biosurfer hybrid_alignment [OPTIONS] OUTPUT DB_NAME
 
 Options:
   --verbose  Will print verbose messages.
@@ -69,10 +69,10 @@ Options:
 ```
 
 ### Hybrid alignment
-* Run hybdrid alignment script on the created database.
+* Run hybdrid alignment script on the created database. Create a directory to store the output files.
 
 ```shell
-biosurfer hybrid_alignment --o gencode_toy output/alignment-analysis/gencode_toy 
+biosurfer hybrid_alignment --o output/ gencode_toy
 ```
 
 ```
@@ -83,6 +83,25 @@ Options:
   --o        Directory to write output to.
   --help     Show this message and exit.
 ```
+
+### Plots
+* To plot the hybrid alignment result, run the following snippet.
+
+```shell
+biosurfer plot --hal
+```
+
+```
+Usage: biosurfer plot [OPTIONS]
+
+  This script enables plotting functionality.
+
+Options:
+  --verbose  Will print verbose messages.
+  --hal      Plot hybrid alignment result.
+  --help     Show this message and exit.
+```
+
 ### Input
 
 Biosurfer takes the following gencode files as input. The data from these files are loaded into a local database to run scripts.

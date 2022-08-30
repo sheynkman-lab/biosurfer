@@ -29,7 +29,7 @@ def check_database(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_i
         load_gencode(db_name)
     else:
         print('\n Creating a new database ' + db_name + ' ...\n')
-        create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name)    
+        create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name)            
 
 #%%
 def create_gencode(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name):
