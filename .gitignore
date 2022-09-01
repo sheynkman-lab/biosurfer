@@ -157,3 +157,6 @@ tests/temp
 
 # Temporary test scripts
 toy-scripts
+
+# Pickle file
+.pickle

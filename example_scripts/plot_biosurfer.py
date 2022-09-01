@@ -1,5 +1,4 @@
 # %%
-
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
@@ -12,19 +11,41 @@ import pickle
 
 #%%
 def run_plot():
+    """ Main plot function to invoke plotting for different pipelines/scripts.
+    Args:
+      Nothing
+    Returns:
+      Nothing
+    """
+
     pblocks, output_dir = run_pickle()
+
+    # Function call to plot hybrid alignment results
     plot_hal(pblocks, output_dir)
+
+
 #%%
 def plot_hal(pblocks, output_dir):
+    """ Runs  plotting for hybrid alignment results.
+    Args:
+        db_name: User input database name
+        output_path: Directory to write output to.
 
+    Returns:
+      Nothing
+    """
+    # Plotting 
     nterm_pblocks = pblocks[~pblocks['nterm'].isna() & (pblocks['nterm'] != NTerminalChange.ALTERNATIVE_ORF) & (pblocks['cterm'] != CTerminalChange.ALTERNATIVE_ORF)].copy()
     nterm_pblocks['nterm'] = nterm_pblocks['nterm'].cat.remove_unused_categories()
     nterm_pblocks['altTSS'] = nterm_pblocks['events'].apply(lambda x: x.intersection('BbPp')).astype(bool)
+
+    print("\n ------------------------------------ \n")
     display(pd.crosstab(nterm_pblocks['up_start_cblock'], nterm_pblocks['down_start_cblock'], margins=True))
+    print("\n ------------------------------------ \n")
 
     nterm_palette = dict(zip(NTerminalChange, sns.color_palette('viridis_r', n_colors=5)[:-1]))
 
-    nterm_fig = plt.figure(figsize=(3, 4))
+    nterm_fig = plt.figure(figsize=(3, 5))
     ax = sns.countplot(
         data = nterm_pblocks,
         y = 'nterm',
@@ -33,7 +54,8 @@ def plot_hal(pblocks, output_dir):
         linewidth = 0,
         saturation = 1,
     )
-    ax.set(xlabel='Number of alternative isoforms', ylabel=None, yticklabels=[])
+    ax.set(xlabel='Number of alternative isoforms', ylabel='Alternate N-termini classifications', yticklabels=['MXS', 'SDS', 'SUS', 'MSS']) 
+
     plt.savefig(output_dir + '/nterm-class-counts.svg', dpi=200, facecolor=None)
 
     # %%
@@ -84,7 +106,9 @@ def plot_hal(pblocks, output_dir):
     cterm_pblocks['cterm'] = cterm_pblocks['cterm'].cat.remove_unused_categories()
     cterm_pblocks['APA'] = cterm_pblocks['events'].apply(lambda x: x.intersection('BbPp')).astype(bool)
 
+    print("\n ------------------------------------ \n")
     display(pd.crosstab(cterm_pblocks['up_stop_cblock'], cterm_pblocks['down_stop_cblock'], margins=True))
+    print("\n ------------------------------------ \n")
 
     cterm_splice_palette = sns.color_palette('RdPu_r', n_colors=3)
     cterm_frameshift_palette = sns.color_palette('YlOrRd_r', n_colors=4)
@@ -325,6 +349,13 @@ def plot_hal(pblocks, output_dir):
     plt.savefig(output_dir + '/internal-pblock-compound-events.svg', dpi=200, facecolor=None, bbox_inches='tight')
 
 def run_pickle():
+    """ Unpickles dataframe for vis.
+    Args:   
+      Nothing
+
+    Returns:
+      Nothing
+    """
     pickle_in = open("biosurfer.pickle","rb")
     pblocks = pickle.load(pickle_in)
     output_dir = pickle.load(pickle_in)
