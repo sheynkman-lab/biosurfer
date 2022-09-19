@@ -95,7 +95,6 @@ def run_hybrid_alignment(db_name, output_path):
                     other_stop_codon = alternative.get_genome_coord_from_transcript_coord(alternative.primary_orf.transcript_stop - 1)
                     anchor_starts_upstream = anchor_start_codon <= other_start_codon
                     anchor_stops_upstream = anchor_stop_codon <= other_stop_codon
-
                     alternative_length = alternative.protein.length
                     tx_aln = TranscriptAlignment.from_transcripts(principal, alternative)
                     cd_aln = CodonAlignment.from_proteins(principal.protein, alternative.protein)
@@ -114,6 +113,12 @@ def run_hybrid_alignment(db_name, output_path):
                         row = {
                             'anchor': principal.name,
                             'other': alternative.name,
+                            'anchor_gene_id': principal.gene_id,
+                            'other_gene_id': alternative.gene_id,
+                            'anchor_transcript_id': principal.accession,
+                            'other_transcript_id': alternative.accession,
+                            'anchor_protein_id': principal.protein.accession,
+                            'other_protein_id': alternative.protein.accession,
                             'pblock': str(pblock),
                             #'pblock_anchor_start': pblock.anchor_range.start,
                             #'pblock_anchor_stop': pblock.anchor_range.stop,
@@ -177,6 +182,7 @@ def run_hybrid_alignment(db_name, output_path):
             #     plt.close(isoplot.fig)
             # elif fig_path.isfile() and len(transcripts) <= 1:
             #     os.remove(fig_path)
+    
         return out
 
     def process_chr(chr: str):
@@ -245,7 +251,13 @@ def run_hybrid_alignment(db_name, output_path):
         }
 
     # %%
+    print("\n Printing stats ---------------------- \n")
+     
     pblock_groups = df.groupby(['chr', 'anchor', 'other', 'pblock'])
+    pblock_stat = df.groupby(['pblock'])['pblock'].count()
+    p_s = set(pblock_stat)
+    print(" Stats 2 ------- ", len(p_s))
+
     pblocks = pd.DataFrame(index=pd.Index(data=pblock_groups.indices.keys(), name=('chr', 'anchor', 'other', 'pblock')))
 
     pblock_attrs = pblocks.index.to_frame()['pblock'].str.extract(r'\w\((\d+):(\d+)\|(\d+):(\d+)\)').astype(int)
@@ -253,6 +265,7 @@ def run_hybrid_alignment(db_name, output_path):
     pblock_cat = pd.CategoricalDtype(['I', 'D', 'S'], ordered=True)
 
     pblocks['category'] = pblocks.index.to_frame()['pblock'].str.get(0).astype(pblock_cat)
+
     pblocks['length_change'] = (pblock_attrs[3] - pblock_attrs[2]) - (pblock_attrs[1] - pblock_attrs[0])
     pblocks['anchor_length'] = [protein_lengths[anchor] for anchor in pblocks.reset_index()['anchor']]
     pblocks['anchor_relative_length_change'] = pblocks['length_change'] / pblocks['anchor_length']
@@ -269,6 +282,8 @@ def run_hybrid_alignment(db_name, output_path):
 
     nterm_cat = pd.CategoricalDtype(list(NTerminalChange), ordered=True)
     cterm_cat = pd.CategoricalDtype(list(CTerminalChange), ordered=True)
+
+    print("Stat her e------- ", )
 
     def classify_nterm(upcat, downcat):
         if downcat in set('ut'):
@@ -332,6 +347,9 @@ def run_hybrid_alignment(db_name, output_path):
     pickle.dump(pblocks, pickle_out)
     pickle.dump(output_path, pickle_out)
     pickle_out.close()
+
+ 
+
 
 
 if __name__ == '__main__':

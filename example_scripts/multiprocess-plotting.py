@@ -8,7 +8,7 @@ from biosurfer.core.models.biomolecules import Gene
 from biosurfer.plots.plotting import IsoformPlot
 from tqdm import tqdm
 
-db = Database('gencode')
+db = Database('gencode_toy')
 
 #region
 all_genes = (
