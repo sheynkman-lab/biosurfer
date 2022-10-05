@@ -72,4 +72,3 @@ def load_gencode(db_name):
 #%%
 if __name__ == '__main__':
     check_database(gencode_gtf, gencode_tx, gencode_tl, gencode_doms, pfam_dom_info, prosite_patterns, db_name)
-

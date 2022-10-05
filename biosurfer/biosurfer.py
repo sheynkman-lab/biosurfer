@@ -1,7 +1,7 @@
 import click
-from example_scripts.load_gencode_database import check_database
-from example_scripts.alignment_analysis_gencode import run_hybrid_alignment
-from example_scripts.plot_biosurfer import run_plot
+from biosurfer.analysis.load_gencode_database import check_database
+from biosurfer.analysis.alignment_analysis_gencode import run_hybrid_alignment
+from biosurfer.analysis.plot_biosurfer import run_plot
 
 
 
