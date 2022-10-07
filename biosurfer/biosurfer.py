@@ -5,6 +5,7 @@ from biosurfer.analysis.plot_biosurfer import run_plot
 
 
 
+
 @click.group(chain=True)
 
 def cli():
@@ -41,14 +42,20 @@ def run_populate_database(verbose, filename, db, db_name):
 @click.option('--o', is_flag=True, help="Directory to write output to.")
 @click.argument('output_path', type=click.Path(exists=True))
 @click.argument('db_name')
+@click.option('--summary', is_flag=True, help="Prints summary statistics and plots for hybrid alignmentßß.")
 
-def run_hybrid_al(verbose, db_name, o, output_path):
+def run_hybrid_al(verbose, db_name, o, output_path, summary):
     """ This script runs hybrid alignment on the provided database. """
     if o and db_name:
         click.echo('')
         click.echo('----- Running hybrid alignment: ', err=True)
         click.echo('')
-        run_hybrid_alignment(db_name, output_path)
+        if summary:
+            click.echo('----- with stats: ', err=True)
+            run_hybrid_alignment(db_name, output_path, True)
+        else: 
+            click.echo('----- without stats: ', err=True)
+            run_hybrid_alignment(db_name, output_path, False)
 
 
 @cli.command("plot")
