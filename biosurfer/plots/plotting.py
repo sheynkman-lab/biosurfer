@@ -28,7 +28,7 @@ from brokenaxes import BrokenAxes
 from graph_tool import Graph
 from graph_tool.topology import sequential_vertex_coloring
 from matplotlib._api.deprecation import MatplotlibDeprecationWarning
-from more_itertools import first, last
+from more_itertools import first, last, only
 
 if TYPE_CHECKING:
     from biosurfer.core.alignments import ProteinAlignmentBlock, CodonAlignmentBlock
@@ -40,8 +40,16 @@ StartStop = Tuple[int, int]
 
 filterwarnings("ignore", category=MatplotlibDeprecationWarning)
 
+TRANSCRIPT_SOURCE = {
+    'gencodetranscript': 'GENCODE',
+    'pacbiotranscript': 'PacBio'
+}
+def get_transcript_source(tx: 'Transcript'):
+    return TRANSCRIPT_SOURCE.get(tx.type, '')
+
 # colors for different transcript types
 TRANSCRIPT_COLORS = {
+    None: ('#404040', '#777777'),
     GencodeTranscript: ('#343553', '#5D5E7C'),
     PacBioTranscript: ('#61374D', '#91677D')
 }
@@ -90,7 +98,7 @@ FEATURE_COLORS = {
 class IsoformPlotOptions:
     """Bundles various options for adjusting plots made by IsoformPlot."""
     intron_spacing: int = 30  # number of bases to show in each intron
-    track_spacing: float = 1.5  # ratio of space between tracks to max track width
+    track_spacing: float = 2  # ratio of space between tracks to max track width
     subtle_splicing_threshold: int = 20  # maximum difference (in bases) between exon boundaries to display subtle splicing
 
     @property
@@ -110,14 +118,15 @@ class IsoformPlot:
         gene = {tx.gene for tx in filter(None, self.transcripts)}
         if len(gene) > 1:
             raise ValueError(f'Found isoforms from multiple genes: {", ".join(g.name for g in gene)}')
-        strand = {tx.strand for tx in filter(None, self.transcripts)}
-        if len(strand) > 1:
-            raise ValueError("Can't plot isoforms from different strands")
-        self.strand: Strand = list(strand)[0]
+        strand = only(
+            {tx.strand for tx in filter(None, self.transcripts)},
+            too_long = ValueError("Can't plot isoforms from different strands")
+        )
+        self.strand: Strand = strand
 
         self.fig: Optional['Figure'] = None
         self._bax: Optional['BrokenAxes'] = None
-        self._columns: Dict[str, TableColumn] = columns if columns else {'': lambda x: ''}
+        self._columns: Dict[str, TableColumn] = {'Source': get_transcript_source} | (columns if columns else dict())
         self.opts = IsoformPlotOptions(**kwargs)
         self.reset_xlims()
 
@@ -391,11 +400,11 @@ class IsoformPlot:
         C = len(self._columns)
         self.fig = plt.figure()
         self._bax = BrokenAxes(fig=self.fig, xlims=self.xlims, ylims=((R-0.5, -0.5),), wspace=0, d=0.008, subplot_spec=subplot_spec)
-        self._handles['intron'] = mlines.Line2D([], [], linewidth=1.5, color='gray')
-        self._handles['exon (GENCODE)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[GencodeTranscript][0], edgecolor='k')
-        self._handles['exon (PacBio)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[PacBioTranscript][0], edgecolor='k')
-        self._handles['start codon'] = mlines.Line2D([], [], linestyle='None', color='lime', marker='|', markersize=10, markeredgewidth=1)
-        self._handles['stop codon'] = mlines.Line2D([], [], linestyle='None', color='red', marker='|', markersize=10, markeredgewidth=1)
+        self._handles['Intron'] = mlines.Line2D([], [], linewidth=1.5, color='gray')
+        self._handles['Exon (translated)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[None][0], edgecolor='k')
+        self._handles['Exon (untranslated)'] = mpatches.Patch(facecolor=TRANSCRIPT_COLORS[None][1], edgecolor='k')
+        self._handles['Start codon'] = mlines.Line2D([], [], linestyle='None', color='lime', marker='|', markersize=10, markeredgewidth=1)
+        self._handles['Stop codon'] = mlines.Line2D([], [], linestyle='None', color='red', marker='|', markersize=10, markeredgewidth=1)
 
 
         # process orfs to get ready for plotting
@@ -439,8 +448,8 @@ class IsoformPlot:
     
     def draw_frameshifts(self, anchor: Optional['Transcript'] = None, hatch_color='white'):
         """Plot relative frameshifts on all isoforms. Uses first isoform as the anchor by default."""
-        self._handles['frame +1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_AHEAD])
-        self._handles['frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_BEHIND])
+        self._handles['Frame +1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_AHEAD])
+        self._handles['Frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_BEHIND])
         
         if anchor is None:
             anchor = next(filter(None, self.transcripts))
@@ -473,7 +482,7 @@ class IsoformPlot:
 
     def draw_codon_alignment_blocks(self, cd_aln: 'CodonAlignment', alpha: float = 0.5):
         for category, color in CBLOCK_COLORS.items():
-            label = category.name.lower().replace('_', ' ')
+            label = category.name.capitalize().replace('_', ' ')
             if label not in self._handles:
                 self._handles[label] = mpatches.Patch(facecolor=color)
         height = 0.25*self.opts.max_track_width
@@ -507,9 +516,9 @@ class IsoformPlot:
                     alpha = alpha
                 )
 
-    def draw_protein_alignment_blocks(self, pblocks: Iterable['ProteinAlignmentBlock'], anchor: 'Protein', other: 'Protein', alpha: float = 0.5):
+    def draw_protein_alignment_blocks(self, pblocks: Iterable['ProteinAlignmentBlock'], anchor: 'Protein', other: 'Protein', alpha: float = 1.0):
         for category, color in PBLOCK_COLORS.items():
-            label = category.name.lower().replace('_', ' ')
+            label = category.name.capitalize().replace('_', ' ')
             if label not in self._handles:
                 self._handles[label] = mpatches.Patch(facecolor=color)
 
@@ -521,27 +530,28 @@ class IsoformPlot:
             if pblock.other_range:
                 other_start = other.transcript.get_genome_coord_from_transcript_coord(other.get_transcript_coord_from_protein_coord(pblock.other_range[0]) + 1).coordinate
                 other_stop = other.transcript.get_genome_coord_from_transcript_coord(other.get_transcript_coord_from_protein_coord(pblock.other_range[-1]) + 1).coordinate
-            if anchor_start is None and anchor_stop is None:
-                anchor_start, anchor_stop = other_start, other_stop
-            elif other_start is None and other_stop is None:
-                other_start, other_stop = anchor_start, anchor_stop
-
+            # if anchor_start is None and anchor_stop is None:
+            #     anchor_start, anchor_stop = other_start, other_stop
+            # elif other_start is None and other_stop is None:
+            #     other_start, other_stop = anchor_start, anchor_stop
+            
+            other_track = self.transcripts.index(other.transcript)
             self.draw_region(
-                self.transcripts.index(anchor.transcript),
+                other_track,
                 start = anchor_start,
                 stop = anchor_stop,
-                y_offset = -0.9*self.opts.max_track_width,
-                height = 0.4*self.opts.max_track_width,
+                y_offset = -1.0*self.opts.max_track_width,
+                height = 0.5*self.opts.max_track_width,
                 edgecolor = 'none',
                 facecolor = PBLOCK_COLORS[pblock.category],
                 alpha = alpha
             )
             self.draw_region(
-                self.transcripts.index(other.transcript),
+                other_track,
                 start = other_start,
                 stop = other_stop,
                 y_offset = 0.5*self.opts.max_track_width,
-                height = 0.4*self.opts.max_track_width,
+                height = 0.5*self.opts.max_track_width,
                 edgecolor = 'none',
                 facecolor = PBLOCK_COLORS[pblock.category],
                 alpha = alpha
