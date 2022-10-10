@@ -6,7 +6,7 @@ from operator import attrgetter, itemgetter
 from typing import TYPE_CHECKING
 import os
 from attrs import define, evolve, field, frozen
-from biosurfer.core.constants import ANCHOR_EXCLUSIVE, FRAMESHIFT, CD_DEL_INS, OTHER_EXCLUSIVE, SEQ_DEL_INS, CodonAlignmentCategory as CodonAlignCat
+from biosurfer.core.constants import ANCHOR_EXCLUSIVE, FRAMESHIFT, CD_DEL_INS, OTHER_EXCLUSIVE, SEQ_DEL_INS, SPLIT_CODON, CodonAlignmentCategory as CodonAlignCat
 from biosurfer.core.constants import SequenceAlignmentCategory as SeqAlignCat
 from biosurfer.core.helpers import Interval, IntervalTree
 from biosurfer.core.models.biomolecules import Protein, Transcript
@@ -85,6 +85,17 @@ class CodonAlignmentBlock(AlignmentBlock):
 @frozen(order=True, repr=False)
 class ProteinAlignmentBlock(AlignmentBlock):
     category: 'SeqAlignCat' = field(kw_only=True)
+    ragged5: bool = field(default=False, order=False)
+    ragged3: bool = field(default=False, order=False)
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+        if self.ragged and self.category not in SEQ_DEL_INS:
+            raise ValueError(f'Only deletion and insertion protein alignment blocks may be ragged')
+    
+    @property
+    def ragged(self):
+        return self.ragged5 or self.ragged3
 
 
 class ProjectionMixin:
@@ -586,7 +597,7 @@ class CodonAlignment(ProjectionMixin):
                         stop_codon_pos = anchor.length - 1
                     stop_codon_cblock = one(interval.data for interval in mapper.at(stop_codon_pos))
                     tblock = cblock_to_tblock.get(stop_codon_cblock)
-            elif cblock.category in {CodonAlignCat.EDGE, CodonAlignCat.COMPLEX}:
+            elif cblock.category in SPLIT_CODON:
                 del_ins_cblock = cd_blocks[i-1] if cd_blocks[i-1].category in CD_DEL_INS else cd_blocks[i+1]
                 tblock = cblock_to_tblock.get(del_ins_cblock)
             if tblock:
@@ -628,20 +639,22 @@ class ProteinAlignment:
             cblocks = tuple(group)
             anchor_range = range(cblocks[0].anchor_range.start, cblocks[-1].anchor_range.stop)
             other_range = range(cblocks[0].other_range.start, cblocks[-1].other_range.stop)
-            if is_match:
+            cblock_categories = [cblock.category for cblock in cblocks]
+            reduced_cblock_categories = set(cblock_categories) - SPLIT_CODON
+            ragged5, ragged3 = False, False
+            if is_match or anchor.sequence[anchor_range.start:anchor_range.stop] == other.sequence[other_range.start:other_range.stop]:
                 category = SeqAlignCat.MATCH
-            elif anchor_range and other_range:
-                if len(anchor_range) == len(other_range) and anchor.sequence[anchor_range.start:anchor_range.stop] == other.sequence[other_range.start:other_range.stop]:
-                    category = SeqAlignCat.MATCH
-                else:
-                    category = SeqAlignCat.SUBSTITUTION
-            elif not other_range:
+            elif reduced_cblock_categories <= ANCHOR_EXCLUSIVE:
                 category = SeqAlignCat.DELETION
-            elif not anchor_range:
+                ragged5 = cblock_categories[0] in SPLIT_CODON
+                ragged3 = cblock_categories[-1] in SPLIT_CODON
+            elif reduced_cblock_categories <= OTHER_EXCLUSIVE:
                 category = SeqAlignCat.INSERTION
+                ragged5 = cblock_categories[0] in SPLIT_CODON
+                ragged3 = cblock_categories[-1] in SPLIT_CODON
             else:
-                raise RuntimeError
-            pblock = ProteinAlignmentBlock(anchor_range, other_range, category=category)
+                category = SeqAlignCat.SUBSTITUTION
+            pblock = ProteinAlignmentBlock(anchor_range, other_range, category=category, ragged5=ragged5, ragged3=ragged3)
             pblock_to_cblocks[pblock] = cblocks
             for cblock in cblocks:
                 cblock_to_pblock[cblock] = pblock

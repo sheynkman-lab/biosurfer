@@ -1,5 +1,6 @@
 import pytest
 from biosurfer.core.alignments import CodonAlignment, CodonAlignCat, ProteinAlignment, SeqAlignCat
+from biosurfer.core.constants import ANCHOR_EXCLUSIVE, OTHER_EXCLUSIVE, SEQ_DEL_INS, SPLIT_CODON
 from biosurfer.core.models.biomolecules import Transcript
 from biosurfer.core.models.nonpersistent import Position
 from hypothesis import given, note, strategies as st
@@ -25,7 +26,7 @@ def test_codon_alignment_blocks(session, alignment_case):
             else:
                 for a, o in pr_coords:
                     assert anchor.protein.residues[a].codon[-2:] == other.protein.residues[o].codon[:2]
-        elif block.category in {CodonAlignCat.EDGE, CodonAlignCat.COMPLEX}:
+        elif block.category in SPLIT_CODON:
             assert len(block.anchor_range) == len(block.other_range) == 1
             anchor_res = anchor.protein.residues[block.anchor_range[0]]
             other_res = other.protein.residues[block.other_range[0]]
@@ -60,10 +61,20 @@ def test_protein_alignment_blocks(session, alignment_case):
             assert anchor.protein.sequence[block.anchor_range.start:block.anchor_range.stop] == other.protein.sequence[block.other_range.start:block.other_range.stop]
         elif block.category is SeqAlignCat.SUBSTITUTION:
             assert anchor.protein.sequence[block.anchor_range.start:block.anchor_range.stop] != other.protein.sequence[block.other_range.start:block.other_range.stop]
-        elif block.category is SeqAlignCat.DELETION:
-            assert not block.other_range
-        elif block.category is SeqAlignCat.INSERTION:
-            assert not block.anchor_range
+        elif block.category in SEQ_DEL_INS:
+            if block.ragged:
+                cblock_categories = [cblock.category for cblock in aln.pblock_to_cblocks[block]]
+                assert not block.ragged5 ^ (cblock_categories[0] in SPLIT_CODON)
+                assert not block.ragged3 ^ (cblock_categories[-1] in SPLIT_CODON)
+                if block.category is SeqAlignCat.DELETION:
+                    assert len(block.anchor_range) > len(block.other_range)
+                elif block.category is SeqAlignCat.INSERTION:
+                    assert len(block.anchor_range) < len(block.other_range)
+            else:
+                if block.category is SeqAlignCat.DELETION:
+                    assert not block.other_range
+                elif block.category is SeqAlignCat.INSERTION:
+                    assert not block.anchor_range
         else:
             raise ValueError(block.category)
 

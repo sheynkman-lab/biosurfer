@@ -14,7 +14,7 @@ import numpy as np
 import seaborn as sns
 from Bio import Align
 from biosurfer.core.alignments import CodonAlignment, ProjectedFeature
-from biosurfer.core.constants import (FRAMESHIFT, AminoAcid,
+from biosurfer.core.constants import (FRAMESHIFT, SPLIT_CODON, AminoAcid,
                                       CodonAlignmentCategory, FeatureType,
                                       SequenceAlignmentCategory, Strand)
 from biosurfer.core.helpers import (ExceptionLogger, Interval, IntervalTree,
@@ -171,34 +171,19 @@ class IsoformPlot:
         return tuple(self._bax.axs[id] for id in subax_ids)
 
     def draw_point(self, track: int, pos: int,
-                    y_offset: float = 0.0,
-                    height: Optional[float] = None,
-                    type='line', marker='.', linewidth=1, **kwargs):
-        """Draw a feature at a specific point. Appearance types are 'line' and 'lollipop'."""
-        # TODO: make type an enum?
-        if type == 'line':
-            if height is None:
-                height = self.opts.max_track_width
-            center = track + y_offset
-            artist = mlines.Line2D(
-                xdata = (pos, pos),
-                ydata = (center - height/2, center + height/2),
-                linewidth = linewidth,
-                **kwargs
-            )
-        elif type == 'lollipop':
-            if height is None:
-                height = 0.3*self.opts.max_track_width
-            artist = mlines.Line2D(
-                xdata = (pos, pos),
-                ydata = (track - 0.25 - height, track - 0.25),
-                linewidth = linewidth,
-                marker = marker,
-                markevery = 2,
-                **kwargs
-            )
-        else:
-            raise ValueError(f'Point type "{type}" is not defined')
+                    ylims: tuple[float, float] = None,
+                    marker='', linewidth=1, **kwargs):
+        """Draw a feature at a specific point. Appears as a vertical line with an optional marker."""
+        if ylims is None:
+            ylims = -0.5*self.opts.max_track_width, 0.5*self.opts.max_track_width
+        artist = mlines.Line2D(
+            xdata = (pos, pos),
+            ydata = (track + ylims[0], track + ylims[1]),
+            linewidth = linewidth,
+            marker = marker,
+            markevery = 2,
+            **kwargs
+        )
         
         try:
             subaxes = self._get_subaxes(pos)[0]
@@ -384,10 +369,10 @@ class IsoformPlot:
             last_res = orf.protein.residues[-1]
             if first_res.amino_acid is AminoAcid.MET:
                 start_codon = first_res.codon[0].coordinate
-                self.draw_point(track, start_codon, type='line', color='lime')
+                self.draw_point(track, start_codon, color='lime')
             if last_res.amino_acid is AminoAcid.STOP:
                 stop_codon = last_res.codon[2].coordinate
-                self.draw_point(track, stop_codon, type='line', color='red')
+                self.draw_point(track, stop_codon, color='red')
 
         if hasattr(tx, 'start_nf') and tx.start_nf:
             self.draw_text(tx.start if self.strand is Strand.PLUS else tx.stop, track, '! ', ha='right', va='center', weight='bold', color='r')
@@ -494,8 +479,8 @@ class IsoformPlot:
             else:
                 start = cd_aln.anchor.residues[block.anchor_range[0]].codon[1].coordinate
                 stop = cd_aln.anchor.residues[block.anchor_range[-1]].codon[1].coordinate
-            if block.category in {CodonAlignmentCategory.EDGE, CodonAlignmentCategory.COMPLEX}:
-                self.draw_point(
+            if block.category in SPLIT_CODON:
+                self.draw_point(  # TODO: fix
                     track,
                     start,
                     height = height,
@@ -521,6 +506,8 @@ class IsoformPlot:
             label = category.name.capitalize().replace('_', ' ')
             if label not in self._handles:
                 self._handles[label] = mpatches.Patch(facecolor=color)
+        self._handles['Ragged 5\' end'] = mlines.Line2D([], [], linestyle='None', color='#999999', marker='<', markersize=8, markeredgewidth=1)
+        self._handles['Ragged 3\' end'] = mlines.Line2D([], [], linestyle='None', color='#999999', marker='>', markersize=8, markeredgewidth=1)
 
         for pblock in filter(lambda block: block.category is not SequenceAlignmentCategory.MATCH, pblocks):
             anchor_start, anchor_stop, other_start, other_stop = None, None, None, None
@@ -530,12 +517,32 @@ class IsoformPlot:
             if pblock.other_range:
                 other_start = other.transcript.get_genome_coord_from_transcript_coord(other.get_transcript_coord_from_protein_coord(pblock.other_range[0]) + 1).coordinate
                 other_stop = other.transcript.get_genome_coord_from_transcript_coord(other.get_transcript_coord_from_protein_coord(pblock.other_range[-1]) + 1).coordinate
-            # if anchor_start is None and anchor_stop is None:
-            #     anchor_start, anchor_stop = other_start, other_stop
-            # elif other_start is None and other_stop is None:
-            #     other_start, other_stop = anchor_start, anchor_stop
             
             other_track = self.transcripts.index(other.transcript)
+            lollipop_direction = 1 if pblock.category is SequenceAlignmentCategory.INSERTION else -1
+
+            if pblock.ragged5:
+                self.draw_point(
+                    other_track,
+                    pos = anchor_start,
+                    ylims = (lollipop_direction*0.75*self.opts.max_track_width, 0),
+                    linewidth = 0,
+                    marker = '<',
+                    markersize = 6,
+                    color = PBLOCK_COLORS[pblock.category],
+                    zorder = 1.9
+                )        
+            if pblock.ragged3:
+                self.draw_point(
+                    other_track,
+                    pos = anchor_stop,
+                    ylims = (lollipop_direction*0.75*self.opts.max_track_width, 0),
+                    linewidth = 0,
+                    marker = '>',
+                    markersize = 6,
+                    color = PBLOCK_COLORS[pblock.category],
+                    zorder = 1.9
+                )        
             self.draw_region(
                 other_track,
                 start = anchor_start,
