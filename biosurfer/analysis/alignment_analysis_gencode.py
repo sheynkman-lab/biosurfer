@@ -57,17 +57,13 @@ def run_hybrid_alignment(db_name, output_path, summary):
       Nothing
     """
 
-    # Sanity check for the directory name and database name
-    db_check(db_name)
-
     # plt.rcParams['svg.fonttype'] = 'none'
     # sns.set_style('whitegrid')
 
-    db_name = db_name
     db = Database(db_name)
 
-    output_dir = Path(output_path)
-    output_dir = output_dir.resolve()
+    output_dir = Path(output_path).resolve()
+    (output_dir/'cblock-tables').mkdir(exist_ok=True)
 
     # %%
     gene_to_gc_transcripts: dict[str, list[str]] = dict()
@@ -195,12 +191,12 @@ def run_hybrid_alignment(db_name, output_path, summary):
                 if tx_type == 'gencodetranscript':
                     gc_txs.append(tx_name)
 
-        df_path = output_dir/f'alignment-analysis-{chr}.tsv'
+        df_path = output_dir/'cblock-tables'/f'alignment-analysis-{chr}.tsv'
         try:
             df = pd.read_csv(df_path, sep='\t')
         except:
             records = []
-          # Pool()
+            # Pool()
             t = tqdm(desc='Processing genes', total=len(gene_to_gc_transcripts), unit='gene', file=sys.stdout)
             for result in map(process_gene, gene_to_gc_transcripts.keys()):
                 records.extend(result)
@@ -216,9 +212,6 @@ def run_hybrid_alignment(db_name, output_path, summary):
         names = ['chr', 'row']
     ).fillna(value='').reset_index().drop(columns='row')
 
-  
-
-
     with db.get_session() as session:
         protein_lengths = {
             tx_name: protein_length
@@ -231,10 +224,8 @@ def run_hybrid_alignment(db_name, output_path, summary):
         }
 
     # %%
-     
     pblock_groups = df.groupby(['chr', 'anchor', 'other', 'pblock'])
     pblock_stat = df.groupby(['pblock'])['pblock'].count()
-    p_s = set(pblock_stat)
 
     pblocks = pd.DataFrame(index=pd.Index(data=pblock_groups.indices.keys(), name=('chr', 'anchor', 'other', 'pblock')))
 
@@ -311,22 +302,6 @@ def run_hybrid_alignment(db_name, output_path, summary):
             os.makedirs(newpath)
 
         display(df)
-        # changed s type to string to print in text files.
-        def get_genes(pblocks_slice: 'pd.DataFrame'):
-            return pblocks_slice.reset_index()['anchor'].str.extract(r'(\w+)-\d+', expand=False).unique()
-                    
-        with open(output_dir/f'genes-mxs.txt', 'w') as f:
-            f.writelines(str(s)+'\n' for s in get_genes(pblocks[pblocks['nterm'] == NTerminalChange.MUTUALLY_EXCLUSIVE]))
-
-        with open(output_dir/f'genes-sds.txt', 'w') as f:
-            f.writelines(str(s)+'\n' for s in get_genes(pblocks[pblocks['nterm'] == NTerminalChange.DOWNSTREAM_SHARED]))
-
-        with open(output_dir/f'genes-sus.txt', 'w') as f:
-            f.writelines(str(s)+'\n' for s in get_genes(pblocks[pblocks['nterm'] == NTerminalChange.UPSTREAM_SHARED]))
-
-        with open(output_dir/f'genes-mss.txt', 'w') as f:
-            f.writelines(str(s)+'\n' for s in get_genes(pblocks[pblocks['nterm'] == NTerminalChange.MUTUALLY_SHARED]))
-
         display(pblocks)
 
         #%% 
@@ -644,11 +619,3 @@ def run_hybrid_alignment(db_name, output_path, summary):
     # pickle.dump(pblocks, pickle_out)
     # pickle.dump(output_path, pickle_out)
     # pickle_out.close()
-
-
-
-
-if __name__ == '__main__':
-    run_hybrid_alignment(db_name, output_path, summary)
-
-    

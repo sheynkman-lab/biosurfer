@@ -65,7 +65,7 @@ class Database:
             url = Database._get_db_url_from_name(name)
         self.url = url
         self._engine = create_engine(self.url)
-        # Base.metadata.create_all(self._engine)
+        Base.metadata.create_all(self._engine)
         if sessionfactory is None:
             self._sessionmaker = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=self.engine, future=True))
         else:

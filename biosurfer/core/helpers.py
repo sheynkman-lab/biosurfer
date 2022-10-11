@@ -211,6 +211,15 @@ def get_ids_from_gencode_fasta(header: str):
     protein_id = next((field for field in fields if field.startswith('ENSP')), None)
     return FastaHeaderFields(transcript_id, protein_id)
 
+def get_ids_from_pacbio_fasta(header: str):
+    return FastaHeaderFields(header, None)
+
+def get_ids_from_lrp_fasta(header: str):
+    fields = header.split('|')
+    return FastaHeaderFields(fields[1], fields[1] + ':PROT1')
 
 def skip_par_y(header: str):  # these have duplicate ENSEMBL accessions and that makes SQLAlchemy very sad
     return 'PAR_Y' in header
+
+def skip_gencode(header: str):
+    return header.startswith('gc')
