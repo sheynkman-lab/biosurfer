@@ -711,5 +711,3 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
         cursor.execute("PRAGMA foreign_keys=ON;")
         cursor.close()
 
-DB_MEMORY = Database(url='sqlite://')
-DB_GENCODE = Database('gencode')

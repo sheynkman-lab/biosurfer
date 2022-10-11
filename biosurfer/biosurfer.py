@@ -28,21 +28,24 @@ def cli():
 @cli.command("load_db")
 @click.option('-v', '--verbose', is_flag=True, help="Will print verbose messages")
 @click.option('-d', '--db_name', required=True, help="Database name")
-@click.option('--ref', is_flag=True, help='Load reference isoforms')
+# @click.option('--ref', is_flag=True, help='Load reference isoforms')
+@click.option('--source', type=click.Choice(['GENCODE', 'PacBio'], case_sensitive=False),  required=True, help="Source of input data")
 @click.option('--gtf', required=True, type=click.Path(exists=True), help='Path to gtf file')
 @click.option('--tx_fasta', required=True, type=click.Path(exists=True, path_type=Path), help='Path to transcript sequence fasta file')
 @click.option('--tl_fasta', required=True, type=click.Path(exists=True, path_type=Path), help='Path to protein sequence fasta file')
 @click.option('--sqanti', type=click.Path(exists=True, path_type=Path), help='Path to SQANTI classification tsv file')
-def run_populate_database(verbose: bool, db_name: str, ref: bool, gtf: Path, tx_fasta: Path, tl_fasta: Path, sqanti: Path):
+def run_populate_database(verbose: bool, db_name: str, source, gtf: Path, tx_fasta: Path, tl_fasta: Path, sqanti: Path):
     """Loads transcript and protein isoform information from provided files into a Biosurfer database.
     A new database is created if the target database does not exist."""
 
     db = Database(db_name)
-    if ref:
+    if source == "GENCODE":
+        click.echo('----- Loading database with reference ', err=True)
         db.load_gencode_gtf(gtf)
         db.load_transcript_fasta(tx_fasta, get_ids_from_gencode_fasta, skip_par_y)
         db.load_translation_fasta(tl_fasta, get_ids_from_gencode_fasta, skip_par_y)
-    else:
+    elif source == "PacBio":
+        click.echo('----- Loading database without reference ', err=True)
         db.load_pacbio_gtf(gtf)
         db.load_transcript_fasta(tx_fasta, get_ids_from_pacbio_fasta)
         db.load_translation_fasta(tl_fasta, get_ids_from_lrp_fasta, skip_gencode)
