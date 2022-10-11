@@ -57,24 +57,22 @@ def test_protein_alignment_blocks(session, alignment_case):
     for block in aln.blocks:
         print(block)
     for block in aln.blocks:
+        anchor_seq = anchor.protein.sequence[block.anchor_range.start:block.anchor_range.stop]
+        other_seq = other.protein.sequence[block.other_range.start:block.other_range.stop]
+        if block.ragged5:
+            assert anchor_seq[0] != other_seq[0]
+        if block.ragged3:
+            assert anchor_seq[-1] != other_seq[-1]
         if block.category is SeqAlignCat.MATCH:
-            assert anchor.protein.sequence[block.anchor_range.start:block.anchor_range.stop] == other.protein.sequence[block.other_range.start:block.other_range.stop]
+            assert anchor_seq == other_seq
         elif block.category is SeqAlignCat.SUBSTITUTION:
-            assert anchor.protein.sequence[block.anchor_range.start:block.anchor_range.stop] != other.protein.sequence[block.other_range.start:block.other_range.stop]
-        elif block.category in SEQ_DEL_INS:
-            if block.ragged:
-                cblock_categories = [cblock.category for cblock in aln.pblock_to_cblocks[block]]
-                assert not block.ragged5 ^ (cblock_categories[0] in SPLIT_CODON)
-                assert not block.ragged3 ^ (cblock_categories[-1] in SPLIT_CODON)
-                if block.category is SeqAlignCat.DELETION:
-                    assert len(block.anchor_range) > len(block.other_range)
-                elif block.category is SeqAlignCat.INSERTION:
-                    assert len(block.anchor_range) < len(block.other_range)
-            else:
-                if block.category is SeqAlignCat.DELETION:
-                    assert not block.other_range
-                elif block.category is SeqAlignCat.INSERTION:
-                    assert not block.anchor_range
+            assert anchor_seq != other_seq
+        elif block.category is SeqAlignCat.DELETION:
+            assert len(block.anchor_range) > len(block.other_range) <= 1
+            assert (not block.other_range) ^ block.ragged
+        elif block.category is SeqAlignCat.INSERTION:
+            assert len(block.other_range) > len(block.anchor_range) <= 1
+            assert (not block.anchor_range) ^ block.ragged
         else:
             raise ValueError(block.category)
 

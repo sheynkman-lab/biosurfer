@@ -13,7 +13,7 @@ from biosurfer.core.models.biomolecules import Protein, Transcript
 from biosurfer.core.models.features import ProjectedFeature, ProteinFeature
 from biosurfer.core.splice_events import (BasicTranscriptEvent, TranscriptEvent,
                                           call_transcript_events, sort_events)
-from more_itertools import first, last, one, only, partition
+from more_itertools import first, last, one, only, partition, windowed
 
 if TYPE_CHECKING:
     from biosurfer.core.constants import AlignmentCategory
@@ -90,8 +90,8 @@ class ProteinAlignmentBlock(AlignmentBlock):
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
-        if self.ragged and self.category not in SEQ_DEL_INS:
-            raise ValueError(f'Only deletion and insertion protein alignment blocks may be ragged')
+        if self.ragged and self.category is SeqAlignCat.MATCH:
+            raise ValueError(f'Match protein alignment blocks cannot be ragged')
     
     @property
     def ragged(self):
@@ -635,26 +635,62 @@ class ProteinAlignment:
 
         pblock_to_cblocks: dict['ProteinAlignmentBlock', tuple['CodonAlignmentBlock', ...]] = dict()
         cblock_to_pblock: dict['CodonAlignmentBlock', 'ProteinAlignmentBlock'] = dict()
-        for is_match, group in groupby(cd_aln.blocks, key=lambda block: block.category is CodonAlignCat.MATCH):
-            cblocks = tuple(group)
-            anchor_range = range(cblocks[0].anchor_range.start, cblocks[-1].anchor_range.stop)
-            other_range = range(cblocks[0].other_range.start, cblocks[-1].other_range.stop)
-            cblock_categories = [cblock.category for cblock in cblocks]
-            reduced_cblock_categories = set(cblock_categories) - SPLIT_CODON
-            ragged5, ragged3 = False, False
-            if is_match or anchor.sequence[anchor_range.start:anchor_range.stop] == other.sequence[other_range.start:other_range.stop]:
+        
+        pblock_bounds: list[int] = [
+            last(cblock_indices) + 1
+            for _, cblock_indices in groupby(
+                range(len(cd_aln.blocks)),
+                key = lambda i: cd_aln.blocks[i].category is CodonAlignCat.MATCH
+            )
+        ]
+        pblock_categories = []
+        pblock_split5 = [False for pblock in pblock_bounds]
+        pblock_split3 = [False for pblock in pblock_bounds]
+        pblock_ragged5 = [False for pblock in pblock_bounds]
+        pblock_ragged3 = [False for pblock in pblock_bounds]
+        for p, (c0, c1) in enumerate(windowed([0] + pblock_bounds, 2)):
+            cblocks = cd_aln.blocks[c0:c1]
+            anchor_start, anchor_stop = cblocks[0].anchor_range.start, cblocks[-1].anchor_range.stop
+            other_start, other_stop = cblocks[0].other_range.start, cblocks[-1].other_range.stop
+            reduced_cblock_categories = {cblock.category for cblock in cblocks} - SPLIT_CODON
+            anchor_sequence = anchor.sequence[anchor_start:anchor_stop]
+            other_sequence = other.sequence[other_start:other_stop]
+            if anchor_sequence == other_sequence:
                 category = SeqAlignCat.MATCH
             elif reduced_cblock_categories <= ANCHOR_EXCLUSIVE:
                 category = SeqAlignCat.DELETION
-                ragged5 = cblock_categories[0] in SPLIT_CODON
-                ragged3 = cblock_categories[-1] in SPLIT_CODON
+                pblock_split5[p] = cblocks[0].category in SPLIT_CODON
+                pblock_split3[p] = cblocks[-1].category in SPLIT_CODON
             elif reduced_cblock_categories <= OTHER_EXCLUSIVE:
                 category = SeqAlignCat.INSERTION
-                ragged5 = cblock_categories[0] in SPLIT_CODON
-                ragged3 = cblock_categories[-1] in SPLIT_CODON
+                pblock_split5[p] = cblocks[0].category in SPLIT_CODON
+                pblock_split3[p] = cblocks[-1].category in SPLIT_CODON
             else:
                 category = SeqAlignCat.SUBSTITUTION
-            pblock = ProteinAlignmentBlock(anchor_range, other_range, category=category, ragged5=ragged5, ragged3=ragged3)
+            pblock_categories.append(category)
+            pblock_ragged5[p] = pblock_split5[p] and anchor_sequence[0] != other_sequence[0]
+            pblock_ragged3[p] = pblock_split3[p] and anchor_sequence[-1] != other_sequence[-1]
+        
+        assert len(pblock_bounds) == len(pblock_categories)
+
+        # second pass to move synonymous split codons into match pblocks
+        for p, (split5, split3, ragged5, ragged3) in enumerate(zip(pblock_split5, pblock_split3, pblock_ragged5, pblock_ragged3)):
+            if split5 and not ragged5:
+                pblock_bounds[p-1] += 1
+            if split3 and not ragged3:
+                pblock_bounds[p] -= 1
+
+        for p, (c0, c1) in enumerate(windowed([0] + pblock_bounds, 2)):
+            cblocks = cd_aln.blocks[c0:c1]
+            anchor_range = range(cblocks[0].anchor_range.start, cblocks[-1].anchor_range.stop)
+            other_range = range(cblocks[0].other_range.start, cblocks[-1].other_range.stop)
+            pblock = ProteinAlignmentBlock(
+                anchor_range,
+                other_range,
+                category = pblock_categories[p],
+                ragged5 = pblock_ragged5[p],
+                ragged3 = pblock_ragged3[p]
+            )
             pblock_to_cblocks[pblock] = cblocks
             for cblock in cblocks:
                 cblock_to_pblock[cblock] = pblock

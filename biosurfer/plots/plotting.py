@@ -511,13 +511,21 @@ class IsoformPlot:
 
         for pblock in filter(lambda block: block.category is not SequenceAlignmentCategory.MATCH, pblocks):
             anchor_start, anchor_stop, other_start, other_stop = None, None, None, None
-            if pblock.anchor_range:
-                anchor_start = anchor.transcript.get_genome_coord_from_transcript_coord(anchor.get_transcript_coord_from_protein_coord(pblock.anchor_range[0]) + 1).coordinate
-                anchor_stop = anchor.transcript.get_genome_coord_from_transcript_coord(anchor.get_transcript_coord_from_protein_coord(pblock.anchor_range[-1]) + 1).coordinate
-            if pblock.other_range:
-                other_start = other.transcript.get_genome_coord_from_transcript_coord(other.get_transcript_coord_from_protein_coord(pblock.other_range[0]) + 1).coordinate
-                other_stop = other.transcript.get_genome_coord_from_transcript_coord(other.get_transcript_coord_from_protein_coord(pblock.other_range[-1]) + 1).coordinate
-            
+            if pblock.category is not SequenceAlignmentCategory.INSERTION:
+                anchor_start = anchor.transcript.get_genome_coord_from_transcript_coord(
+                    anchor.get_transcript_coord_from_protein_coord(pblock.anchor_range[0]) + 1
+                ).coordinate
+                anchor_stop = anchor.transcript.get_genome_coord_from_transcript_coord(
+                    anchor.get_transcript_coord_from_protein_coord(pblock.anchor_range[-1]) + 1
+                ).coordinate
+            if pblock.category is not SequenceAlignmentCategory.DELETION:
+                other_start = other.transcript.get_genome_coord_from_transcript_coord(
+                    other.get_transcript_coord_from_protein_coord(pblock.other_range[0]) + 1
+                ).coordinate
+                other_stop = other.transcript.get_genome_coord_from_transcript_coord(
+                    other.get_transcript_coord_from_protein_coord(pblock.other_range[-1]) + 1
+                ).coordinate
+                        
             other_track = self.transcripts.index(other.transcript)
             lollipop_direction = 1 if pblock.category is SequenceAlignmentCategory.INSERTION else -1
 
