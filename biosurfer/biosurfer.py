@@ -28,13 +28,12 @@ def cli():
 @cli.command("load_db")
 @click.option('-v', '--verbose', is_flag=True, help="Will print verbose messages")
 @click.option('-d', '--db_name', required=True, help="Database name")
-# @click.option('--ref', is_flag=True, help='Load reference isoforms')
 @click.option('--source', type=click.Choice(['GENCODE', 'PacBio'], case_sensitive=False),  required=True, help="Source of input data")
 @click.option('--gtf', required=True, type=click.Path(exists=True), help='Path to gtf file')
 @click.option('--tx_fasta', required=True, type=click.Path(exists=True, path_type=Path), help='Path to transcript sequence fasta file')
 @click.option('--tl_fasta', required=True, type=click.Path(exists=True, path_type=Path), help='Path to protein sequence fasta file')
 @click.option('--sqanti', type=click.Path(exists=True, path_type=Path), help='Path to SQANTI classification tsv file')
-def run_populate_database(verbose: bool, db_name: str, source, gtf: Path, tx_fasta: Path, tl_fasta: Path, sqanti: Path):
+def run_populate_database(verbose: bool, db_name: str, source :str, gtf: Path, tx_fasta: Path, tl_fasta: Path, sqanti: Path):
     """Loads transcript and protein isoform information from provided files into a Biosurfer database.
     A new database is created if the target database does not exist."""
 
@@ -44,6 +43,7 @@ def run_populate_database(verbose: bool, db_name: str, source, gtf: Path, tx_fas
         db.load_gencode_gtf(gtf)
         db.load_transcript_fasta(tx_fasta, get_ids_from_gencode_fasta, skip_par_y)
         db.load_translation_fasta(tl_fasta, get_ids_from_gencode_fasta, skip_par_y)
+
     elif source == "PacBio":
         click.echo('----- Loading database without reference ', err=True)
         db.load_pacbio_gtf(gtf)
@@ -52,23 +52,20 @@ def run_populate_database(verbose: bool, db_name: str, source, gtf: Path, tx_fas
         if sqanti:
             db.load_sqanti_classifications(sqanti)
 
+# Run with 2>/dev/null to avoid printing error messages on terminal
 @cli.command("hybrid_alignment")
 @click.option('-v', '--verbose', is_flag=True, help="Will print verbose messages.")
 @click.option('-d', '--db_name', required=True, nargs=1, help='Database name')
 @click.option('-o', '--output', type=click.Path(exists=True, file_okay=False, writable=True, path_type=Path))
-@click.option('--summary', is_flag=True, help="Prints summary statistics and plots for hybrid alignmentßß.")
-def run_hybrid_al(verbose, db_name, output, summary):
+# @click.option('--summary', is_flag=True, help="Prints summary statistics and plots for hybrid alignment.")
+def run_hybrid_al(verbose, db_name, output):
     """ This script runs hybrid alignment on the provided database. """
     click.echo('')
     click.echo('----- Running hybrid alignment: ', err=True)
     click.echo('')
-    if summary:
-        click.echo('----- with stats: ', err=True)
-    else: 
-        click.echo('----- without stats: ', err=True)
     if not output:
         output = Path('.')
-    run_hybrid_alignment(db_name, output, summary)
+    run_hybrid_alignment(db_name, output)
 
 @cli.command("plot")
 @click.option('-v', '--verbose', is_flag=True, help="Print verbose messages")

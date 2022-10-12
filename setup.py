@@ -40,6 +40,7 @@ setup(
         'seaborn',
         'ipython',
         'pandas',
+        'xlsxwriter',
         ],
     entry_points = {
         'console_scripts':[
