@@ -107,7 +107,7 @@ Options:
   -d, --db_name TEXT      Database name  [required]
   -o, --output DIRECTORY
   --summary               Prints summary statistics and plots
-                          for hybrid alignmentßß.
+                          for hybrid alignment.
   --help                  Show this message and exit.
 ```
 

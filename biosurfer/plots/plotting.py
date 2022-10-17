@@ -434,7 +434,7 @@ class IsoformPlot:
     def draw_frameshifts(self, anchor: Optional['Transcript'] = None, hatch_color='white'):
         """Plot relative frameshifts on all isoforms. Uses first isoform as the anchor by default."""
         self._handles['Frame +1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_AHEAD])
-        self._handles['Frame -1'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_BEHIND])
+        self._handles['Frame +2'] = mpatches.Patch(facecolor='k', edgecolor='w', hatch=REL_FRAME_STYLE[CodonAlignmentCategory.FRAME_BEHIND])
         
         if anchor is None:
             anchor = next(filter(None, self.transcripts))
