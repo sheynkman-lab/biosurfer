@@ -4,7 +4,7 @@ from pathlib import Path
 import click
 from more_itertools import partition
 
-from biosurfer.analysis.alignment_analysis_gencode import run_hybrid_alignment
+from biosurfer.analysis.genome_wide_alignment_analysis import run_hybrid_alignment_for_all_genes
 from biosurfer.core.alignments import ProteinAlignment
 from biosurfer.core.constants import APPRIS
 from biosurfer.core.database import Database
@@ -28,12 +28,11 @@ def cli():
 @cli.command("load_db")
 @click.option('-v', '--verbose', is_flag=True, help="Will print verbose messages")
 @click.option('-d', '--db_name', required=True, help="Database name")
-# @click.option('--ref', is_flag=True, help='Load reference isoforms')
 @click.option('--source', type=click.Choice(['GENCODE', 'PacBio'], case_sensitive=False),  required=True, help="Source of input data")
 @click.option('--gtf', required=True, type=click.Path(exists=True), help='Path to gtf file')
 @click.option('--tx_fasta', required=True, type=click.Path(exists=True, path_type=Path), help='Path to transcript sequence fasta file')
 @click.option('--tl_fasta', required=True, type=click.Path(exists=True, path_type=Path), help='Path to protein sequence fasta file')
-@click.option('--sqanti', type=click.Path(exists=True, path_type=Path), help='Path to SQANTI classification tsv file')
+@click.option('--sqanti', type=click.Path(exists=True, path_type=Path), help='Path to SQANTI classification tsv file (only for PacBio isoforms)')
 def run_populate_database(verbose: bool, db_name: str, source, gtf: Path, tx_fasta: Path, tl_fasta: Path, sqanti: Path):
     """Loads transcript and protein isoform information from provided files into a Biosurfer database.
     A new database is created if the target database does not exist."""
@@ -56,19 +55,14 @@ def run_populate_database(verbose: bool, db_name: str, source, gtf: Path, tx_fas
 @click.option('-v', '--verbose', is_flag=True, help="Will print verbose messages.")
 @click.option('-d', '--db_name', required=True, nargs=1, help='Database name')
 @click.option('-o', '--output', type=click.Path(exists=True, file_okay=False, writable=True, path_type=Path))
-@click.option('--summary', is_flag=True, help="Prints summary statistics and plots for hybrid alignmentßß.")
-def run_hybrid_al(verbose, db_name, output, summary):
+def run_hybrid_al(verbose, db_name, output):
     """ This script runs hybrid alignment on the provided database. """
     click.echo('')
     click.echo('----- Running hybrid alignment: ', err=True)
     click.echo('')
-    if summary:
-        click.echo('----- with stats: ', err=True)
-    else: 
-        click.echo('----- without stats: ', err=True)
     if not output:
         output = Path('.')
-    run_hybrid_alignment(db_name, output, summary)
+    run_hybrid_alignment_for_all_genes(db_name, output)
 
 @cli.command("plot")
 @click.option('-v', '--verbose', is_flag=True, help="Print verbose messages")
