@@ -195,15 +195,18 @@ def run_hybrid_alignment(db_name, output_path):
         df_path = output_dir/'cblock-tables'/f'alignment-analysis-{chr}.tsv'
         try:
             df = pd.read_csv(df_path, sep='\t')
+
         except:
             records = []
-            # Pool()
             t = tqdm(desc='Processing genes', total=len(gene_to_gc_transcripts), unit='gene', file=sys.stdout)
             for result in map(process_gene, gene_to_gc_transcripts.keys()):
                 records.extend(result)
                 t.update()
             df = pd.DataFrame.from_records(records)
-            df.to_csv(df_path, sep='\t', index=False)
+            # Avoid creating empty tsv files for chrs
+            if not df.empty:
+                df.to_csv(df_path, sep='\t', index=False)
+        # print("----------------- df empty: ---", df.empty)
         return df
     # TODO change chr values for gencode toy
     chrs = [f'chr{i}' for i in list(range(1, 23)) + ['X']]
