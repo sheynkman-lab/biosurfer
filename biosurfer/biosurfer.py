@@ -1,3 +1,4 @@
+import csv
 from operator import attrgetter
 from pathlib import Path
 
@@ -52,17 +53,24 @@ def run_populate_database(verbose: bool, db_name: str, source, gtf: Path, tx_fas
             db.load_sqanti_classifications(sqanti)
 
 @cli.command("hybrid_alignment")
-@click.option('-v', '--verbose', is_flag=True, help="Will print verbose messages.")
+@click.option('-v', '--verbose', is_flag=True, help="Print verbose messages")
 @click.option('-d', '--db_name', required=True, nargs=1, help='Database name')
-@click.option('-o', '--output', type=click.Path(exists=True, file_okay=False, writable=True, path_type=Path))
-def run_hybrid_al(verbose, db_name, output):
+@click.option('-o', '--output', type=click.Path(exists=True, file_okay=False, writable=True, path_type=Path), help='Directory for output files')
+@click.option('--gencode', is_flag=True, help='Also compare all GENCODE isoforms of a gene against its anchor isoform')
+@click.option('--anchors', type=click.Path(exists=True, dir_okay=False, path_type=Path), help='TSV file with gene names in column 1 and anchor isoform IDs in column 2')
+def run_hybrid_al(verbose, db_name, output: Path, gencode: bool, anchors: Path):
     """ This script runs hybrid alignment on the provided database. """
     click.echo('')
     click.echo('----- Running hybrid alignment: ', err=True)
     click.echo('')
     if not output:
         output = Path('.')
-    run_hybrid_alignment_for_all_genes(db_name, output)
+    if anchors:
+        with open(anchors) as f:
+            gene_to_anchor_tx = {gene: tx for gene, tx in csv.reader(f, delimiter='\t')}
+    else:
+        gene_to_anchor_tx = None
+    run_hybrid_alignment_for_all_genes(db_name, output, gencode, gene_to_anchor_tx)
 
 @cli.command("plot")
 @click.option('-v', '--verbose', is_flag=True, help="Print verbose messages")

@@ -21,14 +21,14 @@ from biosurfer.core.splice_events import (BasicTranscriptEvent,
                                           get_event_code)
 from IPython.display import display
 from more_itertools import first, one, only
-from sqlalchemy import func, select
+from sqlalchemy import func, select, and_
 from tqdm import tqdm
 import os
 import pickle
 
 
 
-def run_hybrid_alignment_for_all_genes(db_name, output_dir: 'Path', gene_to_ref_iso: dict[str, str]):
+def run_hybrid_alignment_for_all_genes(db_name, output_dir: 'Path', gencode: bool = False, gene_to_anchor_tx: dict[str, str] = None):
     """ Runs hybrid alignment on input database and saves tables of p-blocks and c-blocks.
     Args:
         db_name: User input database name
@@ -47,12 +47,12 @@ def run_hybrid_alignment_for_all_genes(db_name, output_dir: 'Path', gene_to_ref_
         dir.mkdir(exist_ok=True)
 
     # db = Database(db_name)
-    cblock_df = get_cblocks(db_name, cblock_dir, log_dir)
+    cblock_df = get_cblocks(db_name, cblock_dir, log_dir, gencode, gene_to_anchor_tx)
     display(cblock_df)
     # pblock_df = generate_pblock_table(cblock_df)
 
 
-def process_chr(chr: str, db_name: str, log_file: 'Path'):
+def process_chr(chr: str, db_name: str, log_file: 'Path', gencode: bool, gene_to_anchor_tx: dict[str, str]):
     db = Database(db_name)
     gene_to_gc_transcripts: dict[str, list[str]] = dict()
     gene_to_pb_transcripts: dict[str, list[str]] = dict()
@@ -61,36 +61,49 @@ def process_chr(chr: str, db_name: str, log_file: 'Path'):
     def process_gene(gene_name: str):
         out = []
         with db.get_session() as session:
-            gc_transcripts: list['GencodeTranscript'] = list(GencodeTranscript.from_names(session, gene_to_gc_transcripts[gene_name]).values())
-            gc_transcripts.sort(key=attrgetter('appris'), reverse=True)
-            principal = first(gc_transcripts, None)
-            if not principal or not principal.protein or principal.appris is not APPRIS.PRINCIPAL or not principal.sequence:
-                return out
-            principal_length = principal.protein.length
+            gc_transcripts: dict[str, 'GencodeTranscript'] = GencodeTranscript.from_names(session, gene_to_gc_transcripts[gene_name])
+            pb_transcripts: dict[str, 'PacBioTranscript'] = {tx.accession: tx for tx in PacBioTranscript.from_accessions(session, gene_to_pb_transcripts[gene_name]).values()}
             
-            pb_transcripts: list['PacBioTranscript'] = list(PacBioTranscript.from_names(session, gene_to_pb_transcripts[gene_name]).values())
-            alt_transcripts: list['Transcript'] = gc_transcripts[1:] + pb_transcripts
-
-            anchor_start_codon = principal.get_genome_coord_from_transcript_coord(principal.primary_orf.transcript_start - 1)
-            anchor_stop_codon = principal.get_genome_coord_from_transcript_coord(principal.primary_orf.transcript_stop - 1)
+            # choose anchor isoform for gene
+            if gene_to_anchor_tx:
+                anchor_id = gene_to_anchor_tx.get(gene_name, None)
+                if anchor_id in gc_transcripts:
+                    anchor = gc_transcripts[anchor_id]
+                elif anchor_id in pb_transcripts:
+                    anchor = pb_transcripts[anchor_id]
+                else:
+                    anchor = None
+            elif gc_transcripts:  # by default, use APPRIS principal as anchor
+                anchor = max(gc_transcripts.values(), key=attrgetter('appris'))
+                if anchor.appris is not APPRIS.PRINCIPAL:
+                    anchor = None
+            else:
+                anchor = None
+            if not anchor or not anchor.protein or not anchor.sequence:
+                return out
+            
+            principal_length = anchor.protein.length
+            anchor_start_codon = anchor.get_genome_coord_from_transcript_coord(anchor.primary_orf.transcript_start - 1)
+            anchor_stop_codon = anchor.get_genome_coord_from_transcript_coord(anchor.primary_orf.transcript_stop - 1)
+            
+            if gencode:
+                alt_transcripts = [tx for tx in chain(gc_transcripts.values(), pb_transcripts.values()) if tx is not anchor]
+            else:
+                alt_transcripts = [tx for tx in pb_transcripts.values() if tx is not anchor]
+            
             for alternative in alt_transcripts:
                 pblocks = ()
                 with open(log_file, 'a') as flog:
-                    logger = ExceptionLogger(
-                        info = f'{principal}, {alternative}',
-                        output = flog,
-                        callback = lambda x, y, z: alt_transcripts.remove(alternative)
-                    )
-                    with logger:
+                    with ExceptionLogger(info=f'{anchor}, {alternative}', output=flog):
                         other_start_codon = alternative.get_genome_coord_from_transcript_coord(alternative.primary_orf.transcript_start - 1)
                         other_stop_codon = alternative.get_genome_coord_from_transcript_coord(alternative.primary_orf.transcript_stop - 1)
                         anchor_starts_upstream = anchor_start_codon <= other_start_codon
                         anchor_stops_upstream = anchor_stop_codon <= other_stop_codon
 
                         alternative_length = alternative.protein.length
-                        tx_aln = TranscriptAlignment.from_transcripts(principal, alternative)
-                        cd_aln = CodonAlignment.from_proteins(principal.protein, alternative.protein)
-                        pr_aln = ProteinAlignment.from_proteins(principal.protein, alternative.protein)
+                        tx_aln = TranscriptAlignment.from_transcripts(anchor, alternative)
+                        cd_aln = CodonAlignment.from_proteins(anchor.protein, alternative.protein)
+                        pr_aln = ProteinAlignment.from_proteins(anchor.protein, alternative.protein)
                         pblocks = pr_aln.blocks
                         anchor_start_cblock = one(cd_aln.anchor_blocks.at(0)).data
                         other_start_cblock = one(cd_aln.other_blocks.at(0)).data
@@ -103,7 +116,7 @@ def process_chr(chr: str, db_name: str, log_file: 'Path'):
                         tblock = cd_aln.cblock_to_tblock.get(cblock)
                         events = tx_aln.block_to_events.get(tblock, ())
                         row = {
-                            'anchor': principal.name,
+                            'anchor': anchor.name,
                             'other': alternative.name,
                             'pblock_category': pblock.category.name,
                             'pblock_anchor_start': pblock.anchor_range.start,
@@ -132,11 +145,11 @@ def process_chr(chr: str, db_name: str, log_file: 'Path'):
                             'down_stop_events': '',
                             # 'anchor_length': principal_length,
                             # 'other_length': alternative_length,
-                            'cblock_anchor_seq': principal.protein.sequence[cblock.anchor_range.start:cblock.anchor_range.stop],
+                            'cblock_anchor_seq': anchor.protein.sequence[cblock.anchor_range.start:cblock.anchor_range.stop],
                             'cblock_other_seq': alternative.protein.sequence[cblock.other_range.start:cblock.other_range.stop],                        
                         }
                         if cblock is anchor_start_cblock:
-                            start_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(principal.primary_orf.transcript_start - 1, principal.primary_orf.transcript_start + 2) if isinstance(i.data, BasicTranscriptEvent))
+                            start_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(anchor.primary_orf.transcript_start - 1, anchor.primary_orf.transcript_start + 2) if isinstance(i.data, BasicTranscriptEvent))
                             if anchor_starts_upstream:
                                 row['up_start_events'] = start_events
                             else:
@@ -148,7 +161,7 @@ def process_chr(chr: str, db_name: str, log_file: 'Path'):
                             else:
                                 row['up_start_events'] = start_events
                         if cblock is anchor_stop_cblock:
-                            stop_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(principal.primary_orf.transcript_stop - 3, principal.primary_orf.transcript_stop) if isinstance(i.data, BasicTranscriptEvent))
+                            stop_events = get_event_code(i.data for i in tx_aln.anchor_events.overlap(anchor.primary_orf.transcript_stop - 3, anchor.primary_orf.transcript_stop) if isinstance(i.data, BasicTranscriptEvent))
                             if anchor_stops_upstream:
                                 row['up_stop_events'] = stop_events
                             else:
@@ -164,13 +177,17 @@ def process_chr(chr: str, db_name: str, log_file: 'Path'):
 
     print(f'Loading gene and transcript names for {chr}...')
     with db.get_session() as session:
+        if gene_to_anchor_tx:
+            condition = and_((Gene.chromosome_id == chr), Gene.name.in_(gene_to_anchor_tx))
+        else:
+            condition = (Gene.chromosome_id == chr)
         rows = session.execute(
                 select(Gene.name, Transcript.name, Transcript.accession, Transcript.type).
                 select_from(Protein).
                 join(Protein.orf).
                 join(ORF.transcript).
                 join(Transcript.gene).
-                where(Gene.chromosome_id == chr)
+                where(condition)
         ).all()
         for gene_name, tx_name, tx_acc, tx_type in rows:
             gc_txs = gene_to_gc_transcripts.setdefault(gene_name, [])
@@ -178,7 +195,7 @@ def process_chr(chr: str, db_name: str, log_file: 'Path'):
             if tx_type == 'gencodetranscript':
                 gc_txs.append(tx_name)
             elif tx_type == 'pacbiotranscript':
-                pb_txs.append(tx_name)
+                pb_txs.append(tx_acc)
 
     records = []
     # with mp.Pool() as p:
@@ -190,8 +207,8 @@ def process_chr(chr: str, db_name: str, log_file: 'Path'):
     return chr_df
 
 
-def get_cblocks(db_name: str, output_dir: 'Path', log_dir: 'Path'):
-    chrs = [f'chr{i}' for i in list(range(23, 23)) + ['X']]
+def get_cblocks(db_name: str, output_dir: 'Path', log_dir: 'Path', gencode: bool, gene_to_anchor_tx: dict[str, str]):
+    chrs = [f'chr{i}' for i in list(range(22, 23))]  # TODO: 
     dfs: dict[str, pd.DataFrame] = dict()
 
     for chr in chrs:
@@ -200,7 +217,7 @@ def get_cblocks(db_name: str, output_dir: 'Path', log_dir: 'Path'):
             dfs[chr] = pd.read_csv(df_file, sep='\t')
         except:
             log_file = log_dir/f'{chr}.txt'
-            dfs[chr] = process_chr(chr, db_name, log_file)
+            dfs[chr] = process_chr(chr, db_name, log_file, gencode, gene_to_anchor_tx)
             dfs[chr].to_csv(df_file, sep='\t', index=False)
     
     cblock_df = pd.concat(dfs.values(), keys=dfs.keys(), names=['chr', 'row']).fillna(value='').reset_index().drop(columns='row')
@@ -273,4 +290,3 @@ def get_pblocks(cblock_df: pd.DataFrame, output_dir: 'Path'):
     pblocks['split_ends'] = pblock_groups['cblock'].apply(lambda cblocks: any(cblock[0] in 'ex' for cblock in cblocks))
 
     pblocks.to_csv('', sep='\t')
-
