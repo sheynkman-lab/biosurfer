@@ -141,8 +141,8 @@ def process_chr(chr: str, db_name: str, log_file: 'Path', gencode: bool, gene_to
                                 'down_start_events': '',
                                 'up_stop_events': '',
                                 'down_stop_events': '',
-                                # 'anchor_length': principal_length,
-                                # 'other_length': alternative_length,
+                                'anchor_length': principal_length,
+                                'other_length': alternative_length,
                                 'cblock_anchor_seq': anchor.protein.sequence[cblock.anchor_range.start:cblock.anchor_range.stop],
                                 'cblock_other_seq': alternative.protein.sequence[cblock.other_range.start:cblock.other_range.stop],                        
                             }
@@ -231,8 +231,9 @@ def get_pblocks(cblock_df: pd.DataFrame, output_dir: 'Path'):
     pblocks['aa_loss'] = pblocks['pblock_anchor_stop'] - pblocks['pblock_anchor_start']
     pblocks['aa_gain'] = pblocks['pblock_other_stop'] - pblocks['pblock_other_start']
     pblocks['length_change'] = pblocks['aa_gain'] - pblocks['aa_loss']
+    pblocks[['anchor_length', 'other_length']] = pblock_groups[['anchor_length', 'other_length']].first()
+    pblocks['anchor_relative_length_change'] = pblocks['length_change'] / pblocks['anchor_length']
     
-    cblock_cat = pd.CategoricalDtype(['d', 'i', 'u', 't', 'a', 'b', '-'], ordered=True)
     for col in ('up_start', 'down_start', 'up_stop', 'down_stop'):
         indices = pblock_groups['affects_' + col].idxmax()
         pblocks[col + '_cblock_category'] = cblock_df['cblock_category'][indices].where(pblock_groups['affects_' + col].any().array, other='-').array
@@ -282,7 +283,7 @@ def get_pblocks(cblock_df: pd.DataFrame, output_dir: 'Path'):
 
     pblocks['compound_splicing'] = pblock_groups['compound_splicing'].agg(any)
     pblocks['frameshift'] = pblock_groups['cblock_category'].apply(lambda cblocks: any(cblock[0] in {'FRAME_AHEAD', 'FRAME_BEHIND'} for cblock in cblocks))
-    pblocks['split_ends'] = pblock_groups['cblock_category'].apply(lambda cblocks: any(cblock[0] in {'EDGE_CODON', 'COMPLEX_CODON'} for cblock in cblocks))
+    pblocks['split_codons'] = pblock_groups['cblock_category'].apply(lambda cblocks: any(cblock[0] in {'EDGE_CODON', 'COMPLEX_CODON'} for cblock in cblocks))
 
     for col in ('anchor_seq', 'other_seq'):
         pblocks[col] = pblock_groups['cblock_' + col].agg(''.join)
