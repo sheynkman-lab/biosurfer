@@ -1,10 +1,11 @@
+import csv
 from operator import attrgetter
 from pathlib import Path
 
 import click
 from more_itertools import partition
 
-from biosurfer.analysis.alignment_analysis_gencode import run_hybrid_alignment
+from biosurfer.analysis.genome_wide_alignment_analysis import run_hybrid_alignment_for_all_genes
 from biosurfer.core.alignments import ProteinAlignment
 from biosurfer.core.constants import APPRIS
 from biosurfer.core.database import Database
@@ -32,8 +33,8 @@ def cli():
 @click.option('--gtf', required=True, type=click.Path(exists=True), help='Path to gtf file')
 @click.option('--tx_fasta', required=True, type=click.Path(exists=True, path_type=Path), help='Path to transcript sequence fasta file')
 @click.option('--tl_fasta', required=True, type=click.Path(exists=True, path_type=Path), help='Path to protein sequence fasta file')
-@click.option('--sqanti', type=click.Path(exists=True, path_type=Path), help='Path to SQANTI classification tsv file')
-def run_populate_database(verbose: bool, db_name: str, source :str, gtf: Path, tx_fasta: Path, tl_fasta: Path, sqanti: Path):
+@click.option('--sqanti', type=click.Path(exists=True, path_type=Path), help='Path to SQANTI classification tsv file (only for PacBio isoforms)')
+def run_populate_database(verbose: bool, db_name: str, source: str, gtf: Path, tx_fasta: Path, tl_fasta: Path, sqanti: Path):
     """Loads transcript and protein isoform information from provided files into a Biosurfer database.
     A new database is created if the target database does not exist."""
 
@@ -52,20 +53,25 @@ def run_populate_database(verbose: bool, db_name: str, source :str, gtf: Path, t
         if sqanti:
             db.load_sqanti_classifications(sqanti)
 
-# Run with 2>/dev/null to avoid printing error messages on terminal
 @cli.command("hybrid_alignment")
-@click.option('-v', '--verbose', is_flag=True, help="Will print verbose messages.")
+@click.option('-v', '--verbose', is_flag=True, help="Print verbose messages")
 @click.option('-d', '--db_name', required=True, nargs=1, help='Database name')
-@click.option('-o', '--output', type=click.Path(exists=True, file_okay=False, writable=True, path_type=Path))
-# @click.option('--summary', is_flag=True, help="Prints summary statistics and plots for hybrid alignment.")
-def run_hybrid_al(verbose, db_name, output):
+@click.option('-o', '--output', type=click.Path(exists=True, file_okay=False, writable=True, path_type=Path), help='Directory for output files')
+@click.option('--gencode', is_flag=True, help='Also compare all GENCODE isoforms of a gene against its anchor isoform')
+@click.option('--anchors', type=click.Path(exists=True, dir_okay=False, path_type=Path), help='TSV file with gene names in column 1 and anchor isoform IDs in column 2')
+def run_hybrid_al(verbose, db_name, output: Path, gencode: bool, anchors: Path):
     """ This script runs hybrid alignment on the provided database. """
     click.echo('')
     click.echo('----- Running hybrid alignment: ', err=True)
     click.echo('')
     if not output:
         output = Path('.')
-    run_hybrid_alignment(db_name, output)
+    if anchors:
+        with open(anchors) as f:
+            gene_to_anchor_tx = {gene: tx for gene, tx in csv.reader(f, delimiter='\t')}
+    else:
+        gene_to_anchor_tx = None
+    run_hybrid_alignment_for_all_genes(db_name, output, gencode, gene_to_anchor_tx)
 
 @cli.command("plot")
 @click.option('-v', '--verbose', is_flag=True, help="Print verbose messages")
@@ -76,5 +82,4 @@ def run_hybrid_al(verbose, db_name, output):
 def plot_isoforms(verbose: bool, output: Path, gene: str, db_name: str, transcript_ids: tuple[str]):
     """Plot isoforms from a single gene, specified by TRANSCRIPT_IDS."""
     run_plot(output, gene, db_name, transcript_ids)
-
     

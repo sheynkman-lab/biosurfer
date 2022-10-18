@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, fields
 from enum import Enum
 from itertools import chain, count
 from operator import itemgetter
-from typing import TYPE_CHECKING, Callable, Generic, Iterable, Iterator, List, Optional, Tuple, TypeVar
+from typing import TYPE_CHECKING, Callable, Generic, Iterable, Iterator, List, Optional, TextIO, Tuple, TypeVar
 
 from graph_tool import Graph
 from intervaltree import Interval, IntervalTree
@@ -78,18 +78,19 @@ def frozendataclass(cls):
 
 
 class ExceptionLogger(AbstractContextManager):
-    def __init__(self, info=None, callback=None):
+    def __init__(self, info=None, output: TextIO = None, callback=None):
         self.info = info
-        self.callback = callback
+        self.callback = callback if callable(callback) else None
+        self.output = output if output is not None else sys.stderr
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
-            sys.stderr.write('---------\n')
+            self.output.write('---------\n')
             if self.info:
-                sys.stderr.write(str(self.info) + '\n')
-            traceback.print_exc()
-            sys.stderr.write('---------\n')
-            if callable(self.callback):
+                self.output.write(str(self.info) + '\n')
+            traceback.print_exc(file=self.output)
+            self.output.write('---------\n')
+            if self.callback:
                 self.callback(exc_type, exc_val, exc_tb)
             return True
 
