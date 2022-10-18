@@ -205,7 +205,7 @@ def process_chr(chr: str, db_name: str, log_file: 'Path', gencode: bool, gene_to
 
 
 def get_cblocks(db_name: str, output_dir: 'Path', log_dir: 'Path', gencode: bool, gene_to_anchor_tx: dict[str, str]):
-    chrs = [f'chr{i}' for i in list(range(22, 23))]  # TODO: 
+    chrs = [f'chr{i}' for i in list(range(1, 23)) + ['X']]
     dfs: dict[str, pd.DataFrame] = dict()
 
     # FIXME: should discard old runs if options are different
