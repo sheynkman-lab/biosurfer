@@ -45,8 +45,10 @@ def run_hybrid_alignment_for_all_genes(db_name, output_dir: 'Path', gencode: boo
     log_dir = output_dir/'alignment-errors'
     for dir in (cblock_dir, log_dir):
         dir.mkdir(exist_ok=True)
-
+    
+    tqdm.write('Retrieving cblock tables')
     cblock_df = get_cblocks(db_name, cblock_dir, log_dir, gencode, gene_to_anchor_tx)
+    tqdm.write('Assembling pblock table')
     get_pblocks(cblock_df, output_dir)
 
 
@@ -173,7 +175,7 @@ def process_chr(chr: str, db_name: str, log_file: 'Path', gencode: bool, gene_to
                             out.append(row)
             return out
 
-        print(f'Loading gene and transcript names for {chr}...')
+        tqdm.write(f'Loading gene and transcript names for {chr}...')
         with db.get_session() as session:
             if gene_to_anchor_tx:
                 condition = and_((Gene.chromosome_id == chr), Gene.name.in_(gene_to_anchor_tx))
@@ -195,7 +197,6 @@ def process_chr(chr: str, db_name: str, log_file: 'Path', gencode: bool, gene_to
                 elif tx_type == 'pacbiotranscript':
                     pb_txs.append(tx_acc)
 
-        # with mp.Pool() as p:
         t = tqdm(desc='Processing genes', total=len(gene_to_gc_transcripts), unit='gene', file=sys.stdout)
         for result in map(process_gene, gene_to_gc_transcripts.keys()):
             cblock_records.extend(result)
@@ -282,8 +283,8 @@ def get_pblocks(cblock_df: pd.DataFrame, output_dir: 'Path'):
     pblocks['events'] = pblocks['tblock_events'].apply(lambda x: frozenset(chain.from_iterable(x)))
 
     pblocks['compound_splicing'] = pblock_groups['compound_splicing'].agg(any)
-    pblocks['frameshift'] = pblock_groups['cblock_category'].apply(lambda cblocks: any(cblock[0] in {'FRAME_AHEAD', 'FRAME_BEHIND'} for cblock in cblocks))
-    pblocks['split_codons'] = pblock_groups['cblock_category'].apply(lambda cblocks: any(cblock[0] in {'EDGE', 'COMPLEX'} for cblock in cblocks))
+    pblocks['frameshift'] = pblock_groups['cblock_category'].apply(lambda cblocks: any(cblock in {'FRAME_AHEAD', 'FRAME_BEHIND'} for cblock in cblocks))
+    pblocks['split_codons'] = pblock_groups['cblock_category'].apply(lambda cblocks: any(cblock in {'EDGE', 'COMPLEX'} for cblock in cblocks))
 
     for col in ('anchor_seq', 'other_seq'):
         pblocks[col] = pblock_groups['cblock_' + col].agg(''.join)
