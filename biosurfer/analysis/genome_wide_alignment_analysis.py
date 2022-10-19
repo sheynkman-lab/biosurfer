@@ -283,7 +283,7 @@ def get_pblocks(cblock_df: pd.DataFrame, output_dir: 'Path'):
 
     pblocks['compound_splicing'] = pblock_groups['compound_splicing'].agg(any)
     pblocks['frameshift'] = pblock_groups['cblock_category'].apply(lambda cblocks: any(cblock[0] in {'FRAME_AHEAD', 'FRAME_BEHIND'} for cblock in cblocks))
-    pblocks['split_codons'] = pblock_groups['cblock_category'].apply(lambda cblocks: any(cblock[0] in {'EDGE_CODON', 'COMPLEX_CODON'} for cblock in cblocks))
+    pblocks['split_codons'] = pblock_groups['cblock_category'].apply(lambda cblocks: any(cblock[0] in {'EDGE', 'COMPLEX'} for cblock in cblocks))
 
     for col in ('anchor_seq', 'other_seq'):
         pblocks[col] = pblock_groups['cblock_' + col].agg(''.join)
