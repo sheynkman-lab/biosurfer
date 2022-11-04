@@ -30,7 +30,6 @@ setup(
         'attrs',
         'biopython',
         'brokenaxes',
-        'graph-tools', # TODO n/wx
         'intervaltree @ git+https://github.com/chaimleib/intervaltree.git',
         'matplotlib',
         'more-itertools',
@@ -41,6 +40,7 @@ setup(
         'seaborn',
         'ipython',
         'pandas',
+        'xlsxwriter',
         ],
     entry_points = {
         'console_scripts':[

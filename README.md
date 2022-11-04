@@ -1,7 +1,9 @@
 
 # Biosurfer
 
-[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)  [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7004071.svg)](https://doi.org/10.5281/zenodo.7004071)
+[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)  [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7182809.svg)](https://doi.org/10.5281/zenodo.7182809)
+
+
 
 "Surf" the biological network, from genome to transcriptome to proteome and back to gain insights into human disease biology.
 
@@ -47,59 +49,87 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  create_database   This script creates a database for the provided...
-  hybrid_alignment  This script runs hybrid alignment on the provided...
+  hybrid_alignment  This script runs hybrid alignment on the...
+  load_db           Loads transcript and protein isoform...
+  plot              Plot isoforms from a single gene...
 ```
-* Download the [toy gencode data](https://zenodo.org/record/7004071) from Zenodo into the project directory.
+* Download the [toy gencode data](https://zenodo.org/record/7182809) from Zenodo into the project directory.
 
-### Creating database:
-* Create new database for the gencode input files.
-
-```bash
-biosurfer create_database --db data/gencode/gencode.v38.toy.gtf data/gencode/gencode.v38.toy.transcripts.fa data/gencode/gencode.v38.toy.translations.fa data/gencode/grch38-protein-features.tsv data/gencode/pfamA.tsv data/gencode/prosite.dat gencode_toy
-``` 
+### Load database:
 
 ```
-Usage: biosurfer hybrid_alignment [OPTIONS] OUTPUT DB_NAME
+Usage: biosurfer load_db [OPTIONS]
+
+  Loads transcript and protein isoform information from
+  provided files into a Biosurfer database. A new database is
+  created if the target database does not exist.
 
 Options:
-  --verbose  Will print verbose messages.
-  --db       Creates database for the provided genocode files.
-  --help     Show this message and exit. 
+  -v, --verbose              Will print verbose messages
+  -d, --db_name TEXT         Database name  [required]
+  --source [GENCODE|PacBio]  Source of input data  [required]
+  --gtf PATH                 Path to gtf file  [required]
+  --tx_fasta PATH            Path to transcript sequence fasta
+                             file  [required]
+  --tl_fasta PATH            Path to protein sequence fasta
+                             file  [required]
+  --sqanti PATH              Path to SQANTI classification tsv
+                             file
+  --help                     Show this message and exit.
 ```
+
+ #### Load database using GENCODE reference (toy version) 
+ 
+```bash
+biosurfer load_db --source=GENCODE --gtf biosurfer_gencode_toy_data/gencode.v38.toy.gtf --tx_fasta biosurfer_gencode_toy_data/gencode.v38.toy.transcripts.fa --tl_fasta biosurfer_gencode_toy_data/gencode.v38.toy.translations.fa --db_name gencode_toy
+``` 
+Running GENCODE files without ```--ref``` will 
+ #### Load database using PacBio data without reference (WTC11 data)
+ 
+```bash
+biosurfer load_db --source=PacBio --gtf biosurfer_wtc11_data/wtc11_with_cds.gtf --tx_fasta biosurfer_wtc11_data/wtc11_corrected.fasta  --tl_fasta biosurfer_wtc11_data/wtc11_orf_refined.fasta --sqanti biosurfer_wtc11_data/wtc11_classification.txt --db_name wtc11_db
+``` 
 
 ### Hybrid alignment
 * Run hybdrid alignment script on the created database. Create a directory to store the output files.
 
 ```shell
-biosurfer hybrid_alignment --o output/ gencode_toy
+biosurfer hybrid_alignment -d gencode_toy -o output/gencode_toy --summary
 ```
 
 ```
-Usage: biosurfer hybrid_alignment [OPTIONS] DB_NAME OUTPUT
+Usage: biosurfer hybrid_alignment [OPTIONS]
+
+  This script runs hybrid alignment on the provided database.
 
 Options:
-  --verbose  Will print verbose messages.
-  --o        Directory to write output to.
-  --help     Show this message and exit.
+  -v, --verbose           Will print verbose messages.
+  -d, --db_name TEXT      Database name  [required]
+  -o, --output DIRECTORY
+  --summary               Prints summary statistics and plots
+                          for hybrid alignment.
+  --help                  Show this message and exit.
 ```
 
 ### Plots
 * To plot the hybrid alignment result, run the following snippet.
 
 ```shell
-biosurfer plot --hal
+biosurfer plot --db_name gencode_toy --gene CRYBG2 -o output/gencode_toy
 ```
 
 ```
-Usage: biosurfer plot [OPTIONS]
+Usage: biosurfer plot [OPTIONS] [TRANSCRIPT_IDS]...
 
-  This script enables plotting functionality.
+  Plot isoforms from a single gene, specified by TRANSCRIPT_IDS.
 
 Options:
-  --verbose  Will print verbose messages.
-  --hal      Plot hybrid alignment result.
-  --help     Show this message and exit.
+  -v, --verbose           Print verbose messages
+  -o, --output DIRECTORY  Directory in which to save plots
+  -d, --db_name TEXT      Database name  [required]
+  --gene TEXT             Name of gene for which to plot all
+                          isoforms; overrides TRANSCRIPT_IDS
+  --help                  Show this message and exit.
 ```
 
 ### Input
@@ -109,16 +139,4 @@ NOTE: The files must be in the same order as provided below.
 1. Gene annotation file (GTF)
 2. Transcript reference sequence file (FASTA)
 3. Translation reference sequence file (FASTA)
-4. grch38 protein feature file (TSV)
-5. Protein Family mapping file (TSV)
-6. PROSITE pattern data file    
 
-
-    
-## 3. References
-
-* D’Antonio,M. et al. (2015) ASPicDB: a database web tool for alternative splicing analysis. Methods Mol. Biol., 1269, 365–378.
-* Frankish,A. et al. (2019) GENCODE reference annotation for the human and mouse genomes. Nucleic Acids Res., 47, D766–D773.
-* de la Fuente,L. et al. (2020)  21, 119.
-* Gal-Oz,S.T. et al. (2021) DoChaP: thtappAS: a comprehensive computational framework for the analysis of the functional impact of differential splicing. Genome Biol.,e domain change presenter. Nucleic Acids Res., 49, W162–W168.
-* Louadi,Z. et al. (2021) DIGGER: exploring the functional role of alternative splicing in protein interactions. Nucleic Acids Res., 49, D309–D318.

@@ -112,6 +112,7 @@ ANCHOR_EXCLUSIVE = {CodonAlignmentCategory.DELETION, CodonAlignmentCategory.UNTR
 OTHER_EXCLUSIVE = {CodonAlignmentCategory.INSERTION, CodonAlignmentCategory.TRANSLATED}
 CD_DEL_INS = {CodonAlignmentCategory.DELETION, CodonAlignmentCategory.INSERTION}
 FRAMESHIFT = {CodonAlignmentCategory.FRAME_AHEAD, CodonAlignmentCategory.FRAME_BEHIND}
+SPLIT_CODON = {CodonAlignmentCategory.EDGE, CodonAlignmentCategory.COMPLEX}
 
 
 AlignmentCategory = Union[SequenceAlignmentCategory, CodonAlignmentCategory]
