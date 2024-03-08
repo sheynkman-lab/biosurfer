@@ -384,9 +384,10 @@ class CodonAlignment(ProjectionMixin):
                 b_left, b_right = b, b
             return a_left, a_right, b_left, b_right
         
-        boundaries = []
-        overhangs = []
-        categories = []
+        boundaries = [] # Store boundaries of aligned codon blocks
+        overhangs = [] # Store placeholders for each codon block, referred to as 'placeholders' in the manuscript.
+        categories = [] # Store categories of codon block alignments
+        # Define a dictionary to map frame shifts to codon alignment categories
         frame_to_category = {
             0: CodonAlignCat.MATCH,
             1: CodonAlignCat.FRAME_AHEAD,
@@ -395,11 +396,13 @@ class CodonAlignment(ProjectionMixin):
         while tx_blocks:
             tx_category, anchor_tx_range, other_tx_range = tx_blocks.popleft()
 
-            # if block overlaps an ORF boundary, split it up
+            # Check if the block overlaps (derived from transcript blocks) an ORF boundary and split it up if necessary
             if anchor_tx_range.start < 0 < anchor_tx_range.stop:
+                # Split the anchor (of reference isoform) range and corresponding other range at the ORF boundary
                 anchor_tx_range, next_anchor_range, other_tx_range, next_other_range = split_paired_ranges(anchor_tx_range, other_tx_range, 0)
                 tx_blocks.appendleft((tx_category, next_anchor_range, next_other_range))
             if other_tx_range.start < 0 < other_tx_range.stop:
+                # Split the other (of alternate isoform) range and corresponding anchor range at the ORF boundary
                 other_tx_range, next_other_range, anchor_tx_range, next_anchor_range = split_paired_ranges(other_tx_range, anchor_tx_range, 0)
                 tx_blocks.appendleft((tx_category, next_anchor_range, next_other_range))
             if anchor_tx_range.start < anchor_orf_len < anchor_tx_range.stop:
@@ -417,7 +420,7 @@ class CodonAlignment(ProjectionMixin):
             or outside_other_orf and tx_category is SeqAlignCat.INSERTION):
                 continue
             
-            # convert block range to protein coords
+            # Convert block range to protein coordinates
             if outside_anchor_orf < 0:
                 anchor_pr_start, anchor_start_overhang, anchor_pr_stop, anchor_stop_overhang = 0, 0, 0, 0
             elif outside_anchor_orf > 0:
@@ -432,7 +435,8 @@ class CodonAlignment(ProjectionMixin):
             else:
                 other_pr_start, other_start_overhang = divmod(other_tx_range.start, 3)
                 other_pr_stop, other_stop_overhang = divmod(other_tx_range.stop, 3)
-            
+            # Similar calculations for other_pr_start, other_start_placeholder, other_pr_stop, other_stop_placeholder
+          
             # infer codon block category
             if tx_category is SeqAlignCat.MATCH:
                 if outside_anchor_orf:
@@ -448,6 +452,8 @@ class CodonAlignment(ProjectionMixin):
                 cd_category = CodonAlignCat.INSERTION
             else:
                 raise RuntimeError
+              
+            # Store the boundaries, placeholders, and categories for each codon block
             boundaries.append((anchor_pr_stop, other_pr_stop))
             overhangs.append((anchor_stop_overhang, other_stop_overhang))
             categories.append(cd_category)
