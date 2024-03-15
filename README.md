@@ -110,6 +110,7 @@ Options:
                           isoform IDs in column 2
   --help                  Show this message and exit.
 ```
+> Please note that in the code, the terms *`anchor`* and *`other`* correspond to the *`reference`* and *`alternative`* isoforms mentioned in the manuscript.
 
 ### 3. Visualize protein isoforms
 * To visualization isoforms of *CRYBG2* gene, run the following snippet.
@@ -131,6 +132,5 @@ Options:
                           overrides TRANSCRIPT_IDS
   --help                  Show this message and exit.
 ```
-
 
 
